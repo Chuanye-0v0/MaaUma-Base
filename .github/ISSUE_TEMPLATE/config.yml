@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 涉及测试功能或私密信息
+    url: https://maauma-private.2234198378.workers.dev/feedback
+    about: 请使用私密反馈渠道，勿在公开 Issue 中提交账号或授权资料。

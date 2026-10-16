@@ -36,3 +36,9 @@ python scripts/build.py assemble --work .build --runtime-base <外部普通运�
 - [许可证与第三方说明](docs/LICENSING.md)
 - [来源与修改记录](docs/PROVENANCE.md)
 - [源码交付范围](docs/SOURCE-CONTENTS.md)
+
+## 问题反馈
+
+基础版问题可通过 [GitHub 问题表单](https://github.com/Chuanye-0v0/MaaUma-Base/issues/new/choose)反馈，无需激活码；提交时需要登录 GitHub。Issue 及其附件默认公开，请填写版本和复现步骤，并遮挡私密信息。
+
+涉及测试功能、账号或授权资料，请使用[私密反馈渠道](https://maauma-private.2234198378.workers.dev/feedback)，不要提交到公开 Issue。
