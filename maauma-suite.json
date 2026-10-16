@@ -1,0 +1,8 @@
+{
+  "schema_version": "maauma.suite.v1",
+  "base_product_id": "umaa-public",
+  "base_version": "0.4.5",
+  "authorization_root": ".",
+  "component_id": "pacer",
+  "component_product_id": "uma-cut"
+}

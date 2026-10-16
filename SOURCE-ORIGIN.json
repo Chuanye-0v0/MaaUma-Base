@@ -1,0 +1,19 @@
+{
+  "project": "MaaUma Base",
+  "base_version": "0.4.5",
+  "exported_on": "2026-10-16",
+  "upstream_gui": "https://github.com/MaaXYZ/MFAAvalonia",
+  "upstream_gui_version": "v2.16.1",
+  "ordinary_gui_source_sha256": "c112630e4dae34560143da03441a6c50e8bc71c94a0cbfca8e506e93447f401f",
+  "scope": "ordinary source and application-defined configuration",
+  "runtime_images_models_and_game_data_included": false,
+  "private_engine_and_server_included": false,
+  "old_git_history_included": false,
+  "modifications": [
+    "Independent source/build layout",
+    "Generic branding and system fonts",
+    "Personal-name template fallback removed",
+    "License and third-party notices supplied"
+  ],
+  "bit_identical_release_rebuild_claimed": false
+}

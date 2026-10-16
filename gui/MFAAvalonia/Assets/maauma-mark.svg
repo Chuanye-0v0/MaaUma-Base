@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Original MaaUma public-source mark: geometric M, without game artwork. -->
+  <rect x="4" y="4" width="120" height="120" rx="24" fill="#2563eb"/>
+  <path d="M26 96V32H40L64 62L88 32H102V96H86V58L64 84L42 58V96Z" fill="#ffffff"/>
+</svg>

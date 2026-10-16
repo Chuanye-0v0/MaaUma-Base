@@ -1,0 +1,159 @@
+{
+  "UmaDailyRewards": {
+    "recognition": "DirectHit",
+    "action": "Custom",
+    "custom_action": "UmaDailyRewardsBackend",
+    "custom_action_param": {},
+    "next": [],
+    "focus": {
+      "Node.Action.Starting": "每日任务领奖／礼物箱"
+    }
+  },
+  "UmaStoryEvent": {
+    "recognition": "DirectHit",
+    "action": "Custom",
+    "custom_action": "UmaStoryEventBackend",
+    "custom_action_param": {},
+    "next": [],
+    "focus": {
+      "Node.Action.Starting": "活动领奖／转盘",
+      "Node.Action.Failed": "活动收尾未完成，请查看执行回执"
+    }
+  },
+  "UmaHarvest": {
+    "recognition": "DirectHit",
+    "action": "Custom",
+    "custom_action": "UmaHarvestBackend",
+    "custom_action_param": {
+      "learn_skills": true,
+      "update_team": true,
+      "return_home": false
+    },
+    "focus": {
+      "Node.Action.Starting": "[预演] 收菜",
+      "Node.Action.Succeeded": "[预演] 收菜配置检查通过，未操作游戏",
+      "Node.Action.Failed": "收菜停止或失败"
+    },
+    "next": []
+  },
+  "UmaJjc": {
+    "recognition": "DirectHit",
+    "action": "Custom",
+    "custom_action": "UmaJjcBackend",
+    "custom_action_param": {
+      "prefer_rematch": true
+    },
+    "focus": {
+      "Node.Action.Starting": "[预演] JJC",
+      "Node.Action.Succeeded": "[预演] JJC 配置检查通过，未操作游戏",
+      "Node.Action.Failed": "JJC 停止或失败"
+    },
+    "next": []
+  },
+  "UmaActivities": {
+    "recognition": "DirectHit",
+    "action": "Custom",
+    "custom_action": "UmaActivitiesBackend",
+    "custom_action_param": {
+      "races": true
+    },
+    "focus": {
+      "Node.Action.Starting": "日常赛事"
+    },
+    "next": []
+  },
+  "UmaReceipt": {
+    "recognition": "DirectHit",
+    "action": "DoNothing",
+    "next": []
+  },
+  "UmaDailyLegend": {
+    "recognition": "DirectHit",
+    "action": "Custom",
+    "custom_action": "UmaDailyLegendBackend",
+    "custom_action_param": {
+      "opponent_number": 0
+    },
+    "next": [],
+    "focus": {
+      "Node.Action.Starting": "日常传奇赛事：具体结果见执行回执",
+      "Node.Action.Failed": "日常传奇赛事未完成，请查看回执；不要直接重跑"
+    }
+  },
+  "UmaPlant": {
+    "recognition": "DirectHit",
+    "action": "Custom",
+    "custom_action": "UmaPlantBackend",
+    "next": [],
+    "custom_action_param": {
+      "trainee": "scarlet",
+      "scenario": "arc",
+      "plan_source": "default",
+      "plan_slot": 1,
+      "local_plan": "mile_middle_test",
+      "save_slot": 0,
+      "overwrite_plan": false
+    }
+  },
+  "UmaLimitedLegend": {
+    "recognition": "DirectHit",
+    "action": "Custom",
+    "custom_action": "UmaLimitedLegendBackend",
+    "custom_action_param": {},
+    "next": [],
+    "focus": {
+      "Node.Action.Starting": "限时传奇赛：当期对手与剩余免费次数",
+      "Node.Action.Failed": "限时传奇赛未完成，保留回执，请勿直接重跑"
+    }
+  },
+  "UmaChampionsRegistration": {
+    "recognition": "DirectHit",
+    "action": "Custom",
+    "custom_action": "UmaChampionsRegistrationBackend",
+    "custom_action_param": {
+      "division": null
+    },
+    "next": [],
+    "focus": {
+      "Node.Action.Starting": "大赛报名：核对所选中级／高级组别",
+      "Node.Action.Failed": "大赛报名未确认，请查看回执；不会自动换组或重复提交"
+    }
+  },
+  "UmaChampionsRace": {
+    "recognition": "DirectHit",
+    "action": "Custom",
+    "custom_action": "UmaChampionsRaceBackend",
+    "custom_action_param": {
+      "rounds": 4,
+      "normal_only": false,
+      "allow_final_jewels": false,
+      "allow_jewels": true,
+      "division": null
+    },
+    "next": [],
+    "focus": {
+      "Node.Action.Starting": "大赛：按所选场数和当前页面执行",
+      "Node.Action.Failed": "大赛未完成，保留原回执，不重复提交；每轮最多30宝石，其他购买禁止"
+    }
+  },
+  "UmaSeedCycle": {
+    "recognition": "DirectHit",
+    "action": "Custom",
+    "custom_action": "UmaSeedCycleBackend",
+    "custom_action_param": {
+      "plant": {
+        "trainee": "scarlet",
+        "scenario": "arc",
+        "plan_source": "default",
+        "plan_slot": 1,
+        "local_plan": "mile_middle_test",
+        "save_slot": 0,
+        "overwrite_plan": false
+      }
+    },
+    "focus": {
+      "Node.Action.Starting": "当前账号连续种马：达标即停，最多设定轮数"
+    },
+    "next": []
+  }
+}

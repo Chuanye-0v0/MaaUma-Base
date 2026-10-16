@@ -1,0 +1,19 @@
+# Dependency version inventory of the published ordinary 0.4.5 runtime.
+colorama==0.4.6
+flatbuffers==25.12.19
+maafw==5.12.3
+numpy==2.4.6
+onnxruntime==1.28.0
+opencv-python==4.13.0.92
+packaging==26.0
+pillow==12.3.0
+protobuf==7.35.1
+psutil==7.2.2
+pyclipper==1.4.0
+pytesseract==0.3.13
+pyyaml==6.0.2
+rapidocr-onnxruntime==1.4.4
+shapely==2.1.2
+six==1.17.0
+strenum==0.4.15
+tqdm==4.70.0

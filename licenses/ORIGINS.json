@@ -1,0 +1,65 @@
+{
+  "schema_version": "maauma.license_origins.v1",
+  "licenses": [
+    {
+      "project": "MaaXYZ/MFAAvalonia",
+      "scope": "MFAAvalonia, LazyStaticGenerator and their MaaUma-derived GUI changes",
+      "license_spdx_from_official_api": "GPL-3.0",
+      "license_file": "licenses/MFAAvalonia-GPL-3.0.txt",
+      "upstream_license_path": "LICENSE",
+      "upstream_api": "https://api.github.com/repos/MaaXYZ/MFAAvalonia/license",
+      "upstream_license_url": "https://github.com/MaaXYZ/MFAAvalonia/blob/master/LICENSE",
+      "download_url": "https://raw.githubusercontent.com/MaaXYZ/MFAAvalonia/master/LICENSE",
+      "license_git_blob_sha": "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "size_bytes": 35149,
+      "retrieved_utc": "2026-10-16T05:45:53.136292+00:00",
+      "verbatim_copy": true
+    },
+    {
+      "project": "kikipoulet/SukiUI",
+      "scope": "Vendored SukiUI source and its modifications",
+      "license_spdx_from_official_api": "MIT",
+      "license_file": "licenses/SukiUI-MIT.txt",
+      "upstream_license_path": "LICENSE",
+      "upstream_api": "https://api.github.com/repos/kikipoulet/SukiUI/license",
+      "upstream_license_url": "https://github.com/kikipoulet/SukiUI/blob/main/LICENSE",
+      "download_url": "https://raw.githubusercontent.com/kikipoulet/SukiUI/main/LICENSE",
+      "license_git_blob_sha": "b6796a0d26035a601a092f4821e4056a681930fd",
+      "sha256": "5108df31e2aef4f0112c1c9937e03c0f0083427c9fe91a9e1e4a592677f1810a",
+      "size_bytes": 1067,
+      "retrieved_utc": "2026-10-16T05:45:54.328692+00:00",
+      "verbatim_copy": true
+    },
+    {
+      "project": "whistyun/Markdown.Avalonia",
+      "scope": "Vendored Markdown.Avalonia and Markdown.Avalonia.Tight source",
+      "license_spdx_from_official_api": "MIT",
+      "license_file": "licenses/Markdown.Avalonia-MIT.txt",
+      "upstream_license_path": "LICENSE.txt",
+      "upstream_api": "https://api.github.com/repos/whistyun/Markdown.Avalonia/license",
+      "upstream_license_url": "https://github.com/whistyun/Markdown.Avalonia/blob/master/LICENSE.txt",
+      "download_url": "https://raw.githubusercontent.com/whistyun/Markdown.Avalonia/master/LICENSE.txt",
+      "license_git_blob_sha": "74410e92b4e483dde726c9c88779b4eecbc21184",
+      "sha256": "5fcb954fa1cc1e90ecbaf67c5d90d115a4e36aa96715ef493c82a26f48f27e89",
+      "size_bytes": 1081,
+      "retrieved_utc": "2026-10-16T05:45:55.740389+00:00",
+      "verbatim_copy": true
+    },
+    {
+      "project": "MaaXYZ/MaaFramework",
+      "scope": "MaaFramework runtime/bindings dependency; runtime binary payload is not vendored",
+      "license_spdx_from_official_api": "LGPL-3.0",
+      "license_file": "licenses/MaaFramework-LGPL-3.0.md",
+      "upstream_license_path": "LICENSE.md",
+      "upstream_api": "https://api.github.com/repos/MaaXYZ/MaaFramework/license",
+      "upstream_license_url": "https://github.com/MaaXYZ/MaaFramework/blob/main/LICENSE.md",
+      "download_url": "https://raw.githubusercontent.com/MaaXYZ/MaaFramework/main/LICENSE.md",
+      "license_git_blob_sha": "cb564dabeb29dd072fb252024a34d129c0fa3c44",
+      "sha256": "446e755fae55ff034bbb21be44670b5f116c2b2667947e7036f2bfe6632539a8",
+      "size_bytes": 7560,
+      "retrieved_utc": "2026-10-16T05:45:57.030835+00:00",
+      "verbatim_copy": true
+    }
+  ]
+}

@@ -1,0 +1,3407 @@
+{
+  "interface_version": 2,
+  "name": "MaaUma 普通版",
+  "version": "0.4.5",
+  "rid": "umaa-public",
+  "icon": "resource/umaa-hishi-miracle.png",
+  "controller": [
+    {
+      "name": "本机 Android 模拟器",
+      "type": "Adb",
+      "option": [
+        "执行方式"
+      ]
+    }
+  ],
+  "resource": [
+    {
+      "name": "MaaUma 日活与自主育成",
+      "path": [
+        "./resource"
+      ]
+    }
+  ],
+  "agent": {
+    "child_exec": "./runtime/python.exe",
+    "child_args": [
+      "-B",
+      "-X",
+      "utf8",
+      "./agent/connection_bootstrap.py"
+    ]
+  },
+  "task": [
+    {
+      "name": "开种",
+      "entry": "UmaPlant",
+      "default_check": false,
+      "option": [
+        "育成马娘",
+        "育成剧本",
+        "赛程来源"
+      ],
+      "description": "育成次数在开种设置中选择。1次只开种；2次及以上沿用收菜的技能、因子方案循环种收，达标提前停止。缺TP先用TP药，确认无药才用萝卜。"
+    },
+    {
+      "name": "收菜",
+      "entry": "UmaHarvest",
+      "description": "仅当前登录账号。勾选加入队列，点击项目调整设置；预览不收取真实奖励。",
+      "option": [
+        "技能学习",
+        "JJC编成",
+        "完成后"
+      ],
+      "default_check": false
+    },
+    {
+      "name": "JJC",
+      "entry": "UmaJjc",
+      "description": "仅使用自然 RP，不补充 RP，不切换账号。",
+      "option": [
+        "JJC连战",
+        "JJC礼物优先"
+      ],
+      "default_check": false
+    },
+    {
+      "name": "日常赛事",
+      "entry": "UmaActivities",
+      "description": "仅完成日常赛事；任务与礼物箱奖励由底部独立任务领取。",
+      "option": [],
+      "default_check": false
+    },
+    {
+      "name": "日常传奇赛事",
+      "entry": "UmaDailyLegend",
+      "default_check": false,
+      "description": "仅当前账号，按评价降序选场地/距离均至少 B 的马娘；打完剩余免费次数，不用道具、不补次数。",
+      "option": [
+        "每日传奇对手"
+      ]
+    },
+    {
+      "name": "活动领奖／转盘",
+      "entry": "UmaStoryEvent",
+      "default_check": false,
+      "option": [],
+      "description": "账号日活收尾：活动任务领奖、未读剧情奖励、8行连续转盘，轮盘币不足即结束。不购买资源。"
+    },
+    {
+      "name": "每日任务领奖／礼物箱",
+      "entry": "UmaDailyRewards",
+      "default_check": false,
+      "option": [],
+      "description": "账号日活最后领取已完成任务及礼物箱奖励，不参加赛事，不购买资源。"
+    },
+    {
+      "name": "限时传奇赛",
+      "entry": "UmaLimitedLegend",
+      "default_check": false,
+      "description": "当期活动自动识别对手；评价降序选择场地/距离至少 B 的马，跑完剩余免费次数并领取两类限定任务奖励。不用道具、不补票；异常保留原回执，不自动重放。",
+      "option": []
+    },
+    {
+      "name": "大赛",
+      "entry": "UmaChampionsRace",
+      "default_check": false,
+      "option": [
+        "大赛参赛场数",
+        "大赛报名组别"
+      ],
+      "description": "选择最多5、10、15或20场，每轮5场；资源不足就正常结束，显示实际完成场数。只确认当前报名页面和可用按钮，不核算票数增减。无票时每轮报名允许30宝石（萝卜），其他购买或补资源禁止。未报名时按所选组别报名一次，已报名沿用，不自动换组。已有完整3匹编成沿用，空缺才自动编成。"
+    }
+  ],
+  "option": {
+    "执行方式": {
+      "type": "select",
+      "default_case": "预演（不操作游戏）",
+      "cases": [
+        {
+          "name": "预演（不操作游戏）",
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action": "UmaHarvestBackend"
+            },
+            "UmaPlant": {
+              "custom_action": "UmaPlantBackend"
+            },
+            "UmaJjc": {
+              "custom_action": "UmaJjcBackend"
+            },
+            "UmaActivities": {
+              "custom_action": "UmaActivitiesBackend"
+            },
+            "UmaDailyLegend": {
+              "custom_action": "UmaDailyLegendBackend"
+            },
+            "UmaStoryEvent": {
+              "custom_action": "UmaStoryEventBackend"
+            },
+            "UmaDailyRewards": {
+              "custom_action": "UmaDailyRewardsBackend"
+            },
+            "UmaLimitedLegend": {
+              "custom_action": "UmaLimitedLegendBackend"
+            },
+            "UmaChampionsRegistration": {
+              "custom_action": "UmaChampionsRegistrationBackend"
+            },
+            "UmaChampionsRace": {
+              "custom_action": "UmaChampionsRaceBackend"
+            },
+            "UmaSeedCycle": {
+              "custom_action": "UmaSeedCycleBackend"
+            }
+          }
+        },
+        {
+          "name": "实机执行（仅当前账号）",
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action": "UmaHarvestBackendLive"
+            },
+            "UmaPlant": {
+              "custom_action": "UmaPlantBackendLive"
+            },
+            "UmaJjc": {
+              "custom_action": "UmaJjcBackendLive"
+            },
+            "UmaActivities": {
+              "custom_action": "UmaActivitiesBackendLive"
+            },
+            "UmaDailyLegend": {
+              "custom_action": "UmaDailyLegendBackendLive"
+            },
+            "UmaStoryEvent": {
+              "custom_action": "UmaStoryEventBackendLive"
+            },
+            "UmaDailyRewards": {
+              "custom_action": "UmaDailyRewardsBackendLive"
+            },
+            "UmaLimitedLegend": {
+              "custom_action": "UmaLimitedLegendBackendLive"
+            },
+            "UmaChampionsRegistration": {
+              "custom_action": "UmaChampionsRegistrationBackendLive"
+            },
+            "UmaChampionsRace": {
+              "custom_action": "UmaChampionsRaceBackendLive"
+            },
+            "UmaSeedCycle": {
+              "custom_action": "UmaSeedCycleBackendLive"
+            }
+          }
+        }
+      ]
+    },
+    "大赛报名组别": {
+      "type": "select",
+      "default_case": "沿用已报名组别",
+      "description": "已报名始终沿用，不自动换组；未报名时需选择中级或高级。报名与比赛共用一个“大赛”任务。",
+      "cases": [
+        {
+          "name": "沿用已报名组别",
+          "pipeline_override": {
+            "UmaChampionsRace": {
+              "custom_action_param": {
+                "division": null
+              }
+            }
+          }
+        },
+        {
+          "name": "中级（公开联赛）",
+          "pipeline_override": {
+            "UmaChampionsRace": {
+              "custom_action_param": {
+                "division": "intermediate"
+              }
+            }
+          }
+        },
+        {
+          "name": "高级（分级联赛）",
+          "pipeline_override": {
+            "UmaChampionsRace": {
+              "custom_action_param": {
+                "division": "advanced"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "大赛参赛场数": {
+      "type": "select",
+      "default_case": "20",
+      "description": "每轮5场；没票时每轮可用30宝石（萝卜），不只最后一轮。最多20场/4轮；全用宝石最多120。无可用次数时正常收尾，不补体力或购买其他资源。",
+      "cases": [
+        {
+          "name": "5",
+          "pipeline_override": {
+            "UmaChampionsRace": {
+              "custom_action_param": {
+                "rounds": 1,
+                "allow_final_jewels": false,
+                "allow_jewels": true
+              }
+            }
+          }
+        },
+        {
+          "name": "10",
+          "pipeline_override": {
+            "UmaChampionsRace": {
+              "custom_action_param": {
+                "rounds": 2,
+                "allow_final_jewels": false,
+                "allow_jewels": true
+              }
+            }
+          }
+        },
+        {
+          "name": "15",
+          "pipeline_override": {
+            "UmaChampionsRace": {
+              "custom_action_param": {
+                "rounds": 3,
+                "allow_final_jewels": false,
+                "allow_jewels": true
+              }
+            }
+          }
+        },
+        {
+          "name": "20",
+          "pipeline_override": {
+            "UmaChampionsRace": {
+              "custom_action_param": {
+                "rounds": 4,
+                "allow_final_jewels": false,
+                "allow_jewels": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "每日传奇对手": {
+      "type": "select",
+      "default_case": "请选择对手",
+      "description": "编号对应 2026-09-18 名单顺序；进入赛事后再次核对姓名。两个目白麦昆按编号区分。",
+      "cases": [
+        {
+          "name": "请选择对手",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 0
+              }
+            }
+          }
+        },
+        {
+          "name": "神鹰",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "特别周",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 2
+              }
+            }
+          }
+        },
+        {
+          "name": "鲁道夫象征",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 3
+              }
+            }
+          }
+        },
+        {
+          "name": "帝王光辉",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 4
+              }
+            }
+          }
+        },
+        {
+          "name": "大树快车",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 5
+              }
+            }
+          }
+        },
+        {
+          "name": "樱花进王",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 6
+              }
+            }
+          }
+        },
+        {
+          "name": "真机伶",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 7
+              }
+            }
+          }
+        },
+        {
+          "name": "胜利奖券",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 8
+              }
+            }
+          }
+        },
+        {
+          "name": "伏特加",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 9
+              }
+            }
+          }
+        },
+        {
+          "name": "东海帝王",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 10
+              }
+            }
+          }
+        },
+        {
+          "name": "重炮",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 11
+              }
+            }
+          }
+        },
+        {
+          "name": "目白麦昆（第12号）",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 12
+              }
+            }
+          }
+        },
+        {
+          "name": "好歌剧",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 13
+              }
+            }
+          }
+        },
+        {
+          "name": "超级溪流",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 14
+              }
+            }
+          }
+        },
+        {
+          "name": "目白赖恩",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 15
+              }
+            }
+          }
+        },
+        {
+          "name": "无声铃鹿",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 16
+              }
+            }
+          }
+        },
+        {
+          "name": "黄金船",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 17
+              }
+            }
+          }
+        },
+        {
+          "name": "丸善斯基",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 18
+              }
+            }
+          }
+        },
+        {
+          "name": "富士奇石",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 19
+              }
+            }
+          }
+        },
+        {
+          "name": "美浦波旁",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 20
+              }
+            }
+          }
+        },
+        {
+          "name": "待兼福来",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 21
+              }
+            }
+          }
+        },
+        {
+          "name": "青云天空",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 22
+              }
+            }
+          }
+        },
+        {
+          "name": "琵琶晨光",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 23
+              }
+            }
+          }
+        },
+        {
+          "name": "气槽",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 24
+              }
+            }
+          }
+        },
+        {
+          "name": "荣进闪耀",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 25
+              }
+            }
+          }
+        },
+        {
+          "name": "爱丽数码",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 26
+              }
+            }
+          }
+        },
+        {
+          "name": "优秀素质",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 27
+              }
+            }
+          }
+        },
+        {
+          "name": "草上飞",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 28
+              }
+            }
+          }
+        },
+        {
+          "name": "小栗帽",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 29
+              }
+            }
+          }
+        },
+        {
+          "name": "菱亚马逊",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 30
+              }
+            }
+          }
+        },
+        {
+          "name": "目白多伯",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 31
+              }
+            }
+          }
+        },
+        {
+          "name": "黄金城",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 32
+              }
+            }
+          }
+        },
+        {
+          "name": "爱丽速子",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 33
+              }
+            }
+          }
+        },
+        {
+          "name": "成田大进",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 34
+              }
+            }
+          }
+        },
+        {
+          "name": "成田白仁",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 35
+              }
+            }
+          }
+        },
+        {
+          "name": "目白麦昆（第36号）",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 36
+              }
+            }
+          }
+        },
+        {
+          "name": "米浴",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 37
+              }
+            }
+          }
+        },
+        {
+          "name": "目白光明",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 38
+              }
+            }
+          }
+        },
+        {
+          "name": "玉藻十字",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 39
+              }
+            }
+          }
+        },
+        {
+          "name": "名将怒涛",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 40
+              }
+            }
+          }
+        },
+        {
+          "name": "西野花",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 41
+              }
+            }
+          }
+        },
+        {
+          "name": "菱曙",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 42
+              }
+            }
+          }
+        },
+        {
+          "name": "美妙姿势",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 43
+              }
+            }
+          }
+        },
+        {
+          "name": "川上公主",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 44
+              }
+            }
+          }
+        },
+        {
+          "name": "目白善信",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 45
+              }
+            }
+          }
+        },
+        {
+          "name": "大和赤骥",
+          "pipeline_override": {
+            "UmaDailyLegend": {
+              "custom_action_param": {
+                "opponent_number": 46
+              }
+            }
+          }
+        }
+      ]
+    },
+    "JJC礼物优先": {
+      "type": "select",
+      "default_case": "关闭",
+      "description": "开启后优先挑战带“胜利时必得”标记的队伍；没有标记时沿用原规则，不刷新对手。礼物需获胜才获得。",
+      "cases": [
+        {
+          "name": "关闭",
+          "pipeline_override": {
+            "UmaJjc": {
+              "custom_action_param": {
+                "prefer_gift": false
+              }
+            }
+          }
+        },
+        {
+          "name": "优先挑战胜利必得礼物的队伍",
+          "pipeline_override": {
+            "UmaJjc": {
+              "custom_action_param": {
+                "prefer_gift": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "JJC连战": {
+      "type": "select",
+      "default_case": "优先再战",
+      "cases": [
+        {
+          "name": "优先再战",
+          "pipeline_override": {
+            "UmaJjc": {
+              "custom_action_param": {
+                "prefer_rematch": true
+              }
+            }
+          }
+        },
+        {
+          "name": "每场返回选择对手",
+          "pipeline_override": {
+            "UmaJjc": {
+              "custom_action_param": {
+                "prefer_rematch": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "完成后": {
+      "type": "select",
+      "default_case": "继续后续任务",
+      "description": "回主页结束会停止后续队列，不继续 JJC 或日常赛事。",
+      "cases": [
+        {
+          "name": "继续后续任务",
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action_param": {
+                "return_home": false
+              }
+            }
+          }
+        },
+        {
+          "name": "回主页结束当前账号",
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action_param": {
+                "return_home": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "JJC编成": {
+      "type": "select",
+      "default_case": "更新编成",
+      "description": "跳过编成不代表跳过 JJC 比赛。",
+      "cases": [
+        {
+          "name": "更新编成",
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action_param": {
+                "update_team": true
+              }
+            }
+          }
+        },
+        {
+          "name": "不更新编成",
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action_param": {
+                "update_team": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "技能学习": {
+      "type": "select",
+      "default_case": "学习技能后结束",
+      "cases": [
+        {
+          "name": "学习技能后结束",
+          "option": [
+            "技能学习流程"
+          ],
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action_param": {
+                "learn_skills": true
+              }
+            }
+          }
+        },
+        {
+          "name": "直接结束育成",
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action_param": {
+                "learn_skills": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "技能学习流程": {
+      "type": "select",
+      "default_case": "快速（一批后结束）",
+      "description": "默认一批购买后结束。可选购买后复查：低于PT阈值或确认无技能红点时直接结束；红点不清楚时按原流程检查。",
+      "cases": [
+        {
+          "name": "快速（一批后结束）",
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action_param": {
+                "refine_skills": false
+              }
+            }
+          }
+        },
+        {
+          "name": "余量补学（较慢）",
+          "label": "购买后复查",
+          "option": [
+            "不复查PT阈值"
+          ],
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action_param": {
+                "refine_skills": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "不复查PT阈值": {
+      "type": "select",
+      "default_case": "60 PT",
+      "description": "仅开启购买后复查时生效：剩余PT小于所选值就结束；等于阈值仍检查红点。0表示不按PT跳过。",
+      "cases": [
+        {
+          "name": "0 PT",
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action_param": {
+                "skill_recheck_min_pt": 0
+              }
+            }
+          }
+        },
+        {
+          "name": "60 PT",
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action_param": {
+                "skill_recheck_min_pt": 60
+              }
+            }
+          }
+        },
+        {
+          "name": "100 PT",
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action_param": {
+                "skill_recheck_min_pt": 100
+              }
+            }
+          }
+        },
+        {
+          "name": "150 PT",
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action_param": {
+                "skill_recheck_min_pt": 150
+              }
+            }
+          }
+        },
+        {
+          "name": "200 PT",
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action_param": {
+                "skill_recheck_min_pt": 200
+              }
+            }
+          }
+        },
+        {
+          "name": "300 PT",
+          "pipeline_override": {
+            "UmaHarvest": {
+              "custom_action_param": {
+                "skill_recheck_min_pt": 300
+              }
+            }
+          }
+        }
+      ]
+    },
+    "赛程来源": {
+      "type": "select",
+      "default_case": "保持默认赛程",
+      "description": "账号槽位为空时使用默认赛程继续；本地赛程为测试样例。",
+      "cases": [
+        {
+          "name": "保持默认赛程",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "plan_source": "default"
+              }
+            }
+          }
+        },
+        {
+          "name": "读取账号计划",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "plan_source": "account"
+              }
+            }
+          },
+          "option": [
+            "账号计划槽位"
+          ]
+        },
+        {
+          "name": "本地测试赛程",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "plan_source": "local"
+              }
+            }
+          },
+          "option": [
+            "本地赛程",
+            "预设保存槽位"
+          ]
+        }
+      ]
+    },
+    "预设保存槽位": {
+      "type": "select",
+      "default_case": "不保存",
+      "description": "仅本地赛程有效。先在巅峰杯保存到指定账号槽位，再切回本次剧本；不会启动巅峰杯育成。",
+      "cases": [
+        {
+          "name": "不保存",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "save_slot": 0
+              }
+            }
+          }
+        },
+        {
+          "name": "1",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "save_slot": 1
+              }
+            }
+          },
+          "option": [
+            "覆盖已有计划"
+          ]
+        },
+        {
+          "name": "2",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "save_slot": 2
+              }
+            }
+          },
+          "option": [
+            "覆盖已有计划"
+          ]
+        },
+        {
+          "name": "3",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "save_slot": 3
+              }
+            }
+          },
+          "option": [
+            "覆盖已有计划"
+          ]
+        },
+        {
+          "name": "4",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "save_slot": 4
+              }
+            }
+          },
+          "option": [
+            "覆盖已有计划"
+          ]
+        },
+        {
+          "name": "5",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "save_slot": 5
+              }
+            }
+          },
+          "option": [
+            "覆盖已有计划"
+          ]
+        },
+        {
+          "name": "6",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "save_slot": 6
+              }
+            }
+          },
+          "option": [
+            "覆盖已有计划"
+          ]
+        },
+        {
+          "name": "7",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "save_slot": 7
+              }
+            }
+          },
+          "option": [
+            "覆盖已有计划"
+          ]
+        },
+        {
+          "name": "8",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "save_slot": 8
+              }
+            }
+          },
+          "option": [
+            "覆盖已有计划"
+          ]
+        }
+      ]
+    },
+    "覆盖已有计划": {
+      "type": "select",
+      "default_case": "不覆盖",
+      "description": "不覆盖时取消存档覆盖，但本次仍使用新配置的赛程，不启用旧档。",
+      "cases": [
+        {
+          "name": "不覆盖",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "overwrite_plan": false
+              }
+            }
+          }
+        },
+        {
+          "name": "允许覆盖",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "overwrite_plan": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "本地赛程": {
+      "type": "select",
+      "default_case": "英里＋中距离（测试）",
+      "description": "按演示的12场赛事配置；剧本强制目标优先，不将凯旋门强制赛事保存为通用预设。",
+      "cases": [
+        {
+          "name": "英里＋中距离（测试）",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "local_plan": "mile_middle_test"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "账号计划槽位": {
+      "type": "select",
+      "default_case": "1",
+      "description": "读取当前账号我的参赛计划的编号。",
+      "cases": [
+        {
+          "name": "1",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "plan_slot": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "2",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "plan_slot": 2
+              }
+            }
+          }
+        },
+        {
+          "name": "3",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "plan_slot": 3
+              }
+            }
+          }
+        },
+        {
+          "name": "4",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "plan_slot": 4
+              }
+            }
+          }
+        },
+        {
+          "name": "5",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "plan_slot": 5
+              }
+            }
+          }
+        },
+        {
+          "name": "6",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "plan_slot": 6
+              }
+            }
+          }
+        },
+        {
+          "name": "7",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "plan_slot": 7
+              }
+            }
+          }
+        },
+        {
+          "name": "8",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "plan_slot": 8
+              }
+            }
+          }
+        }
+      ]
+    },
+    "育成剧本": {
+      "type": "select",
+      "default_case": "凯旋门",
+      "description": "本次实际开种的剧本。",
+      "cases": [
+        {
+          "name": "凯旋门",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "scenario": "arc"
+              }
+            }
+          }
+        },
+        {
+          "name": "URA",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "scenario": "ura"
+              }
+            }
+          }
+        },
+        {
+          "name": "青春杯",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "scenario": "aoharu"
+              }
+            }
+          }
+        },
+        {
+          "name": "巅峰杯",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "scenario": "climax"
+              }
+            }
+          }
+        },
+        {
+          "name": "偶像杯",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "scenario": "live"
+              }
+            }
+          }
+        },
+        {
+          "name": "女神杯",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "scenario": "masters"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "育成马娘": {
+      "type": "select",
+      "default_case": "大和赤骥（初始）",
+      "description": "91 位马娘、157 个版本（截至日服 2024-02-24 前）。全部开放开种测试，尚未逐一实机验证。支持搜索姓名、别名与衣装名。",
+      "cases": [
+        {
+          "name": "大和赤骥（初始）",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "scarlet"
+              }
+            }
+          },
+          "icon": "{PROJECT_DIR}/../portraits/100901.png",
+          "description": "蔚蓝顶点"
+        },
+        {
+          "name": "樱花进王（初始）",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "bakushin"
+              }
+            }
+          },
+          "icon": "{PROJECT_DIR}/../portraits/104101.png",
+          "description": "樱花、暴进！"
+        },
+        {
+          "name": "乌拉拉（初始）",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "urara"
+              }
+            }
+          },
+          "icon": "{PROJECT_DIR}/../portraits/105201.png",
+          "description": "乌拉拉一等奖♪"
+        },
+        {
+          "name": "黄金船（初始）",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "gold_ship"
+              }
+            }
+          },
+          "icon": "{PROJECT_DIR}/../portraits/100701.png",
+          "description": "赤色纷争"
+        },
+        {
+          "name": "伏特加（初始）",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "vodka"
+              }
+            }
+          },
+          "icon": "{PROJECT_DIR}/../portraits/100801.png",
+          "description": "极速狂飙"
+        },
+        {
+          "name": "preview_100101",
+          "label": "特别周 · 特别梦想家",
+          "icon": "{PROJECT_DIR}/../portraits/100101.png",
+          "description": "育成版本 100101；衣装 100101；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100101"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100102",
+          "label": "特别周 · 跳躍♪富含維他命的心",
+          "icon": "{PROJECT_DIR}/../portraits/100102.png",
+          "description": "育成版本 100102；衣装 100130；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100102"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100103",
+          "label": "特别周 · 日之本一的总大将",
+          "icon": "{PROJECT_DIR}/../portraits/100103.png",
+          "description": "育成版本 100103；衣装 100102；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100103"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100201",
+          "label": "无声铃鹿 · 无声无邪",
+          "icon": "{PROJECT_DIR}/../portraits/100201.png",
+          "description": "育成版本 100201；衣装 100201；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100201"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100202",
+          "label": "无声铃鹿 · 波浪间的绿宝石",
+          "icon": "{PROJECT_DIR}/../portraits/100202.png",
+          "description": "育成版本 100202；衣装 100230；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100202"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100301",
+          "label": "东海帝王 · 无上喜悦",
+          "icon": "{PROJECT_DIR}/../portraits/100301.png",
+          "description": "育成版本 100301；衣装 100301；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100301"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100302",
+          "label": "东海帝王 · 超越地平线",
+          "icon": "{PROJECT_DIR}/../portraits/100302.png",
+          "description": "育成版本 100302；衣装 100302；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100302"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100303",
+          "label": "东海帝王 · 梦见紫云",
+          "icon": "{PROJECT_DIR}/../portraits/100303.png",
+          "description": "育成版本 100303；衣装 100343；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100303"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100401",
+          "label": "丸善斯基 · 绯红方程式",
+          "icon": "{PROJECT_DIR}/../portraits/100401.png",
+          "description": "育成版本 100401；衣装 100401；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100401"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100402",
+          "label": "丸善斯基 · 飞跃☆夏夜",
+          "icon": "{PROJECT_DIR}/../portraits/100402.png",
+          "description": "育成版本 100402；衣装 100430；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100402"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100501",
+          "label": "富士奇石 · 流星之歌剧",
+          "icon": "{PROJECT_DIR}/../portraits/100501.png",
+          "description": "育成版本 100501；衣装 100501；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100501"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100502",
+          "label": "富士奇石 · 星光告捷",
+          "icon": "{PROJECT_DIR}/../portraits/100502.png",
+          "description": "育成版本 100502；衣装 100520；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100502"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100601",
+          "label": "小栗帽 · 星光鼓动",
+          "icon": "{PROJECT_DIR}/../portraits/100601.png",
+          "description": "育成版本 100601；衣装 100601；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100601"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100602",
+          "label": "小栗帽 · 奇迹的白星",
+          "icon": "{PROJECT_DIR}/../portraits/100602.png",
+          "description": "育成版本 100602；衣装 100646；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100602"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100702",
+          "label": "黄金船 · RUN！乱！兰彻！！",
+          "icon": "{PROJECT_DIR}/../portraits/100702.png",
+          "description": "育成版本 100702；衣装 100730；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100702"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100703",
+          "label": "黄金船 · La mode 564",
+          "icon": "{PROJECT_DIR}/../portraits/100703.png",
+          "description": "育成版本 100703；衣装 100702；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100703"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100802",
+          "label": "伏特加 · 防冻的水上维塔",
+          "icon": "{PROJECT_DIR}/../portraits/100802.png",
+          "description": "育成版本 100802；衣装 100846；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100802"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_100902",
+          "label": "大和赤骥 · 绯红色的纽伊·埃特瓦雷",
+          "icon": "{PROJECT_DIR}/../portraits/100902.png",
+          "description": "育成版本 100902；衣装 100946；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "100902"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101001",
+          "label": "大树快车 · 狂野边境",
+          "icon": "{PROJECT_DIR}/../portraits/101001.png",
+          "description": "育成版本 101001；衣装 101001；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101001"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101002",
+          "label": "大树快车 · Bubblegum☆Memories",
+          "icon": "{PROJECT_DIR}/../portraits/101002.png",
+          "description": "育成版本 101002；衣装 101023；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101002"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101101",
+          "label": "草上飞 · 穿岩绀蓝",
+          "icon": "{PROJECT_DIR}/../portraits/101101.png",
+          "description": "育成版本 101101；衣装 101101；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101101"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101102",
+          "label": "草上飞 · 圣翡翠治愈师",
+          "icon": "{PROJECT_DIR}/../portraits/101102.png",
+          "description": "育成版本 101102；衣装 101116；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101102"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101201",
+          "label": "菱亚马逊 · 亚马逊战士",
+          "icon": "{PROJECT_DIR}/../portraits/101201.png",
+          "description": "育成版本 101201；衣装 101201；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101201"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101202",
+          "label": "菱亚马逊 · Hungry Veil",
+          "icon": "{PROJECT_DIR}/../portraits/101202.png",
+          "description": "育成版本 101202；衣装 101226；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101202"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101301",
+          "label": "目白麦昆 · 优雅前行",
+          "icon": "{PROJECT_DIR}/../portraits/101301.png",
+          "description": "育成版本 101301；衣装 101301；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101301"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101302",
+          "label": "目白麦昆 · 天空的尽头",
+          "icon": "{PROJECT_DIR}/../portraits/101302.png",
+          "description": "育成版本 101302；衣装 101302；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101302"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101303",
+          "label": "目白麦昆 · 涟漪公平女士",
+          "icon": "{PROJECT_DIR}/../portraits/101303.png",
+          "description": "育成版本 101303；衣装 101330；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101303"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101401",
+          "label": "神鹰 · 神鹰☆Number 1",
+          "icon": "{PROJECT_DIR}/../portraits/101401.png",
+          "description": "育成版本 101401；衣装 101401；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101401"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101402",
+          "label": "神鹰 · 羽蛇神武斗家",
+          "icon": "{PROJECT_DIR}/../portraits/101402.png",
+          "description": "育成版本 101402；衣装 101416；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101402"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101501",
+          "label": "好歌剧 · 你的太阳！",
+          "icon": "{PROJECT_DIR}/../portraits/101501.png",
+          "description": "育成版本 101501；衣装 101501；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101501"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101502",
+          "label": "好歌剧 · 初晴·蓝色绚烂",
+          "icon": "{PROJECT_DIR}/../portraits/101502.png",
+          "description": "育成版本 101502；衣装 101510；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101502"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101601",
+          "label": "成田白仁 · Maverick",
+          "icon": "{PROJECT_DIR}/../portraits/101601.png",
+          "description": "育成版本 101601；衣装 101601；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101601"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101602",
+          "label": "成田白仁 · 饿狼",
+          "icon": "{PROJECT_DIR}/../portraits/101602.png",
+          "description": "育成版本 101602；衣装 101602；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101602"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101701",
+          "label": "鲁道夫象征 · 皇帝",
+          "icon": "{PROJECT_DIR}/../portraits/101701.png",
+          "description": "育成版本 101701；衣装 101701；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101701"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101702",
+          "label": "鲁道夫象征 · 皓月的弓箭手",
+          "icon": "{PROJECT_DIR}/../portraits/101702.png",
+          "description": "育成版本 101702；衣装 101743；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101702"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101801",
+          "label": "气槽 · 皇后大道",
+          "icon": "{PROJECT_DIR}/../portraits/101801.png",
+          "description": "育成版本 101801；衣装 101801；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101801"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101802",
+          "label": "气槽 · 橡树之冠",
+          "icon": "{PROJECT_DIR}/../portraits/101802.png",
+          "description": "育成版本 101802；衣装 101826；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101802"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101901",
+          "label": "爱丽数码 · 超特急！全色特殊PP",
+          "icon": "{PROJECT_DIR}/../portraits/101901.png",
+          "description": "育成版本 101901；衣装 101901；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101901"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_101902",
+          "label": "爱丽数码 · 爱丽♡僵尸",
+          "icon": "{PROJECT_DIR}/../portraits/101902.png",
+          "description": "育成版本 101902；衣装 101940；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "101902"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102001",
+          "label": "青云天空 · 青云垂钓",
+          "icon": "{PROJECT_DIR}/../portraits/102001.png",
+          "description": "育成版本 102001；衣装 102001；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102001"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102002",
+          "label": "青云天空 · 小猫派对",
+          "icon": "{PROJECT_DIR}/../portraits/102002.png",
+          "description": "育成版本 102002；衣装 102020；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102002"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102101",
+          "label": "玉藻十字 · 疾风迅雷",
+          "icon": "{PROJECT_DIR}/../portraits/102101.png",
+          "description": "育成版本 102101；衣装 102101；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102101"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102102",
+          "label": "玉藻十字 · 猛鸣神",
+          "icon": "{PROJECT_DIR}/../portraits/102102.png",
+          "description": "育成版本 102102；衣装 102143；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102102"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102201",
+          "label": "美妙姿势 · Noble Seamair",
+          "icon": "{PROJECT_DIR}/../portraits/102201.png",
+          "description": "育成版本 102201；衣装 102201；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102201"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102202",
+          "label": "美妙姿势 · Titania",
+          "icon": "{PROJECT_DIR}/../portraits/102202.png",
+          "description": "育成版本 102202；衣装 102226；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102202"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102301",
+          "label": "琵琶晨光 · pf.胜利方程式...",
+          "icon": "{PROJECT_DIR}/../portraits/102301.png",
+          "description": "育成版本 102301；衣装 102301；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102301"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102302",
+          "label": "琵琶晨光 · 圣诞深红颂歌",
+          "icon": "{PROJECT_DIR}/../portraits/102302.png",
+          "description": "育成版本 102302；衣装 102346；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102302"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102401",
+          "label": "重炮 · 竞争☆领域",
+          "icon": "{PROJECT_DIR}/../portraits/102401.png",
+          "description": "育成版本 102401；衣装 102401；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102401"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102402",
+          "label": "重炮 · 阳光花束",
+          "icon": "{PROJECT_DIR}/../portraits/102402.png",
+          "description": "育成版本 102402；衣装 102426；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102402"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102501",
+          "label": "曼城茶座 · Creeping Black",
+          "icon": "{PROJECT_DIR}/../portraits/102501.png",
+          "description": "育成版本 102501；衣装 102501；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102501"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102502",
+          "label": "曼城茶座 · 柳绿小夜",
+          "icon": "{PROJECT_DIR}/../portraits/102502.png",
+          "description": "育成版本 102502；衣装 102513；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102502"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102601",
+          "label": "美浦波旁 · MB-19890425",
+          "icon": "{PROJECT_DIR}/../portraits/102601.png",
+          "description": "育成版本 102601；衣装 102601；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102601"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102602",
+          "label": "美浦波旁 · 代号：糖霜",
+          "icon": "{PROJECT_DIR}/../portraits/102602.png",
+          "description": "育成版本 102602；衣装 102613；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102602"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102701",
+          "label": "目白赖恩 · 一往无前",
+          "icon": "{PROJECT_DIR}/../portraits/102701.png",
+          "description": "育成版本 102701；衣装 102701；开放测试，未持有或识别不符时停止。；别名：目白莱恩",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102701"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102702",
+          "label": "目白赖恩 · 玛格丽特·拉特",
+          "icon": "{PROJECT_DIR}/../portraits/102702.png",
+          "description": "育成版本 102702；衣装 102713；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102702"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102801",
+          "label": "菱曙 · Buono☆alla moda",
+          "icon": "{PROJECT_DIR}/../portraits/102801.png",
+          "description": "育成版本 102801；衣装 102801；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102801"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102901",
+          "label": "雪之美人 · 棉胶布",
+          "icon": "{PROJECT_DIR}/../portraits/102901.png",
+          "description": "育成版本 102901；衣装 102901；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102901"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_102902",
+          "label": "雪之美人 · 小茶点小雪精",
+          "icon": "{PROJECT_DIR}/../portraits/102902.png",
+          "description": "育成版本 102902；衣装 102913；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "102902"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103001",
+          "label": "米浴 · 蔷薇之梦",
+          "icon": "{PROJECT_DIR}/../portraits/103001.png",
+          "description": "育成版本 103001；衣装 103001；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103001"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103002",
+          "label": "米浴 · Make up Vampire!",
+          "icon": "{PROJECT_DIR}/../portraits/103002.png",
+          "description": "育成版本 103002；衣装 103040；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103002"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103101",
+          "label": "艾尼斯风神 · 空前狂热",
+          "icon": "{PROJECT_DIR}/../portraits/103101.png",
+          "description": "育成版本 103101；衣装 103101；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103101"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103102",
+          "label": "艾尼斯风神 · MELTY GIFT",
+          "icon": "{PROJECT_DIR}/../portraits/103102.png",
+          "description": "育成版本 103102；衣装 103113；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103102"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103201",
+          "label": "爱丽速子 · tach-nology",
+          "icon": "{PROJECT_DIR}/../portraits/103201.png",
+          "description": "育成版本 103201；衣装 103201；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103201"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103202",
+          "label": "爱丽速子 · Lunatic Lab",
+          "icon": "{PROJECT_DIR}/../portraits/103202.png",
+          "description": "育成版本 103202；衣装 103230；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103202"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103301",
+          "label": "爱慕织姬 · Starry Nocturne",
+          "icon": "{PROJECT_DIR}/../portraits/103301.png",
+          "description": "育成版本 103301；衣装 103301；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103301"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103401",
+          "label": "稻荷一 · 稻荷所缘江户紫",
+          "icon": "{PROJECT_DIR}/../portraits/103401.png",
+          "description": "育成版本 103401；衣装 103401；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103401"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103402",
+          "label": "稻荷一 · 梦之金原",
+          "icon": "{PROJECT_DIR}/../portraits/103402.png",
+          "description": "育成版本 103402；衣装 103443；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103402"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103501",
+          "label": "胜利奖券 · Go To Winning!",
+          "icon": "{PROJECT_DIR}/../portraits/103501.png",
+          "description": "育成版本 103501；衣装 103501；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103501"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103502",
+          "label": "胜利奖券 · Dream Deliverer",
+          "icon": "{PROJECT_DIR}/../portraits/103502.png",
+          "description": "育成版本 103502；衣装 103516；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103502"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103601",
+          "label": "空中神宫 · unsigned",
+          "icon": "{PROJECT_DIR}/../portraits/103601.png",
+          "description": "育成版本 103601；衣装 103601；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103601"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103602",
+          "label": "空中神宫 · Belphegor's Prime",
+          "icon": "{PROJECT_DIR}/../portraits/103602.png",
+          "description": "育成版本 103602；衣装 103640；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103602"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103701",
+          "label": "荣进闪耀 · Meisterschaft",
+          "icon": "{PROJECT_DIR}/../portraits/103701.png",
+          "description": "育成版本 103701；衣装 103701；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103701"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103702",
+          "label": "荣进闪耀 · 巧克力匠人",
+          "icon": "{PROJECT_DIR}/../portraits/103702.png",
+          "description": "育成版本 103702；衣装 103713；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103702"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103801",
+          "label": "真机伶 · 闪电少女",
+          "icon": "{PROJECT_DIR}/../portraits/103801.png",
+          "description": "育成版本 103801；衣装 103801；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103801"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103802",
+          "label": "真机伶 · 朔月的玛·谢利",
+          "icon": "{PROJECT_DIR}/../portraits/103802.png",
+          "description": "育成版本 103802；衣装 103826；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103802"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103901",
+          "label": "川上公主 · 粉红色的公主",
+          "icon": "{PROJECT_DIR}/../portraits/103901.png",
+          "description": "育成版本 103901；衣装 103901；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103901"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_103902",
+          "label": "川上公主 · 水干抚子",
+          "icon": "{PROJECT_DIR}/../portraits/103902.png",
+          "description": "育成版本 103902；衣装 103943；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "103902"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_104001",
+          "label": "黄金城 · 真我/1928",
+          "icon": "{PROJECT_DIR}/../portraits/104001.png",
+          "description": "育成版本 104001；衣装 104001；开放测试，未持有或识别不符时停止。；别名：黄金城市",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "104001"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_104002",
+          "label": "黄金城 · 秋樱舞娘",
+          "icon": "{PROJECT_DIR}/../portraits/104002.png",
+          "description": "育成版本 104002；衣装 104043；开放测试，未持有或识别不符时停止。；别名：黄金城市",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "104002"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_104102",
+          "label": "樱花进王 · 红热队长",
+          "icon": "{PROJECT_DIR}/../portraits/104102.png",
+          "description": "育成版本 104102；衣装 104150；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "104102"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_104201",
+          "label": "采珠 · Rocket☆Star",
+          "icon": "{PROJECT_DIR}/../portraits/104201.png",
+          "description": "育成版本 104201；衣装 104201；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "104201"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_104301",
+          "label": "新光风 · Wicked Punk",
+          "icon": "{PROJECT_DIR}/../portraits/104301.png",
+          "description": "育成版本 104301；衣装 104301；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "104301"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_104401",
+          "label": "东商变革 · 普拉塔纳斯·威奇",
+          "icon": "{PROJECT_DIR}/../portraits/104401.png",
+          "description": "育成版本 104401；衣装 104401；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "104401"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_104501",
+          "label": "超级溪流 · 潺潺溪流",
+          "icon": "{PROJECT_DIR}/../portraits/104501.png",
+          "description": "育成版本 104501；衣装 104501；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "104501"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_104502",
+          "label": "超级溪流 · 雪纺丝带妈咪（木乃伊）",
+          "icon": "{PROJECT_DIR}/../portraits/104502.png",
+          "description": "育成版本 104502；衣装 104540；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "104502"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_104601",
+          "label": "醒目飞鹰 · Absolute☆LOVE",
+          "icon": "{PROJECT_DIR}/../portraits/104601.png",
+          "description": "育成版本 104601；衣装 104601；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "104601"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_104602",
+          "label": "醒目飞鹰 · 黄昏三人组",
+          "icon": "{PROJECT_DIR}/../portraits/104602.png",
+          "description": "育成版本 104602；衣装 104602；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "104602"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_104701",
+          "label": "荒漠英雄 · Heroic Author",
+          "icon": "{PROJECT_DIR}/../portraits/104701.png",
+          "description": "育成版本 104701；衣装 104701；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "104701"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_104801",
+          "label": "岛川乔丹 · 流行乐☆Joker",
+          "icon": "{PROJECT_DIR}/../portraits/104801.png",
+          "description": "育成版本 104801；衣装 104801；开放测试，未持有或识别不符时停止。；别名：东瀛佐敦",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "104801"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_104802",
+          "label": "岛川乔丹 · Aurore☆Vacances",
+          "icon": "{PROJECT_DIR}/../portraits/104802.png",
+          "description": "育成版本 104802；衣装 104823；开放测试，未持有或识别不符时停止。；别名：东瀛佐敦",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "104802"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_104901",
+          "label": "中山庆典 · 死中求生",
+          "icon": "{PROJECT_DIR}/../portraits/104901.png",
+          "description": "育成版本 104901；衣装 104901；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "104901"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105001",
+          "label": "成田大进 · Nevertheless",
+          "icon": "{PROJECT_DIR}/../portraits/105001.png",
+          "description": "育成版本 105001；衣装 105001；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105001"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105002",
+          "label": "成田大进 · 差分工程师",
+          "icon": "{PROJECT_DIR}/../portraits/105002.png",
+          "description": "育成版本 105002；衣装 105016；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105002"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105101",
+          "label": "西野花 · 层叠花瓣",
+          "icon": "{PROJECT_DIR}/../portraits/105101.png",
+          "description": "育成版本 105101；衣装 105101；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105101"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105102",
+          "label": "西野花 · Sweet Juneberry",
+          "icon": "{PROJECT_DIR}/../portraits/105102.png",
+          "description": "育成版本 105102；衣装 105126；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105102"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105202",
+          "label": "乌拉拉 · 新春初晴♪绽放之樱",
+          "icon": "{PROJECT_DIR}/../portraits/105202.png",
+          "description": "育成版本 105202；衣装 105210；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105202"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105301",
+          "label": "青竹回忆 · 黑铁大志",
+          "icon": "{PROJECT_DIR}/../portraits/105301.png",
+          "description": "育成版本 105301；衣装 105301；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105301"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105302",
+          "label": "青竹回忆 · Ultra☆Marine",
+          "icon": "{PROJECT_DIR}/../portraits/105302.png",
+          "description": "育成版本 105302；衣装 105323；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105302"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105401",
+          "label": "微光飞驹 · 疾风飞驹·零式",
+          "icon": "{PROJECT_DIR}/../portraits/105401.png",
+          "description": "育成版本 105401；衣装 105401；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105401"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105501",
+          "label": "美丽周日 · ☆基拉★多奇☆瓦克∞马贝∞",
+          "icon": "{PROJECT_DIR}/../portraits/105501.png",
+          "description": "育成版本 105501；衣装 105501；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105501"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105601",
+          "label": "待兼福来 · 运气高升☆祈福运来",
+          "icon": "{PROJECT_DIR}/../portraits/105601.png",
+          "description": "育成版本 105601；衣装 105601；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105601"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105602",
+          "label": "待兼福来 · 吉兆·初岚",
+          "icon": "{PROJECT_DIR}/../portraits/105602.png",
+          "description": "育成版本 105602；衣装 105623；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105602"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105701",
+          "label": "千明代表 · Clear Bliss",
+          "icon": "{PROJECT_DIR}/../portraits/105701.png",
+          "description": "育成版本 105701；衣装 105701；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105701"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105801",
+          "label": "名将怒涛 · 蓝色/怒涛",
+          "icon": "{PROJECT_DIR}/../portraits/105801.png",
+          "description": "育成版本 105801；衣装 105801；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105801"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105802",
+          "label": "名将怒涛 · Dot-o'-Lantern",
+          "icon": "{PROJECT_DIR}/../portraits/105802.png",
+          "description": "育成版本 105802；衣装 105840；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105802"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105901",
+          "label": "目白多伯 · 乖僻血脉",
+          "icon": "{PROJECT_DIR}/../portraits/105901.png",
+          "description": "育成版本 105901；衣装 105901；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105901"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_105902",
+          "label": "目白多伯 · 巴克斯·萨菲尔",
+          "icon": "{PROJECT_DIR}/../portraits/105902.png",
+          "description": "育成版本 105902；衣装 105923；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "105902"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106001",
+          "label": "优秀素质 · 绯青缎带",
+          "icon": "{PROJECT_DIR}/../portraits/106001.png",
+          "description": "育成版本 106001；衣装 106001；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106001"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106002",
+          "label": "优秀素质 · RUN＆WIN",
+          "icon": "{PROJECT_DIR}/../portraits/106002.png",
+          "description": "育成版本 106002；衣装 106050；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106002"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106003",
+          "label": "优秀素质 · 万千祈愿",
+          "icon": "{PROJECT_DIR}/../portraits/106003.png",
+          "description": "育成版本 106003；衣装 106010；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106003"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106101",
+          "label": "帝王光辉 · 翠玉之王",
+          "icon": "{PROJECT_DIR}/../portraits/106101.png",
+          "description": "育成版本 106101；衣装 106101；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106101"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106102",
+          "label": "帝王光辉 · 纯白高雅的激励装束",
+          "icon": "{PROJECT_DIR}/../portraits/106102.png",
+          "description": "育成版本 106102；衣装 106150；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106102"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106201",
+          "label": "待兼诗歌剧 · 锵锵～斜装登场",
+          "icon": "{PROJECT_DIR}/../portraits/106201.png",
+          "description": "育成版本 106201；衣装 106201；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106201"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106202",
+          "label": "待兼诗歌剧 · 蓝色旋风",
+          "icon": "{PROJECT_DIR}/../portraits/106202.png",
+          "description": "育成版本 106202；衣装 106250；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106202"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106401",
+          "label": "目白善信 · Line Breakthrough",
+          "icon": "{PROJECT_DIR}/../portraits/106401.png",
+          "description": "育成版本 106401；衣装 106401；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106401"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106402",
+          "label": "目白善信 · 赤心的驯鹿先生",
+          "icon": "{PROJECT_DIR}/../portraits/106402.png",
+          "description": "育成版本 106402；衣装 106446；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106402"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106501",
+          "label": "大拓太阳神 · Fun☆Fun☆不坚持",
+          "icon": "{PROJECT_DIR}/../portraits/106501.png",
+          "description": "育成版本 106501；衣装 106501；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106501"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106601",
+          "label": "双涡轮 · 狂奔！涡轮引擎",
+          "icon": "{PROJECT_DIR}/../portraits/106601.png",
+          "description": "育成版本 106601；衣装 106601；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106601"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106701",
+          "label": "里见光钻 · Natural Brilliance",
+          "icon": "{PROJECT_DIR}/../portraits/106701.png",
+          "description": "育成版本 106701；衣装 106701；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106701"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106702",
+          "label": "里见光钻 · 花形·弥荣之翠",
+          "icon": "{PROJECT_DIR}/../portraits/106702.png",
+          "description": "育成版本 106702；衣装 106710；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106702"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106703",
+          "label": "里见光钻 · 施瓦利埃·布鲁",
+          "icon": "{PROJECT_DIR}/../portraits/106703.png",
+          "description": "育成版本 106703；衣装 106702；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106703"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106801",
+          "label": "北部玄驹 · 锦上添花",
+          "icon": "{PROJECT_DIR}/../portraits/106801.png",
+          "description": "育成版本 106801；衣装 106801；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106801"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106802",
+          "label": "北部玄驹 · 壓軸好戲・慶鶴之志",
+          "icon": "{PROJECT_DIR}/../portraits/106802.png",
+          "description": "育成版本 106802；衣装 106810；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106802"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106803",
+          "label": "北部玄驹 · 偿愿谢幕之花",
+          "icon": "{PROJECT_DIR}/../portraits/106803.png",
+          "description": "育成版本 106803；衣装 106802；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106803"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106901",
+          "label": "樱花千代王 · 日下开山·樱花烂漫",
+          "icon": "{PROJECT_DIR}/../portraits/106901.png",
+          "description": "育成版本 106901；衣装 106901；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106901"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_106902",
+          "label": "樱花千代王 · Fleur Enneigée",
+          "icon": "{PROJECT_DIR}/../portraits/106902.png",
+          "description": "育成版本 106902；衣装 106920；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "106902"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_107001",
+          "label": "天狼星象征 · Féroce",
+          "icon": "{PROJECT_DIR}/../portraits/107001.png",
+          "description": "育成版本 107001；衣装 107001；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "107001"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_107101",
+          "label": "目白雅丹 · 斜绿泥石血脉",
+          "icon": "{PROJECT_DIR}/../portraits/107101.png",
+          "description": "育成版本 107101；衣装 107101；开放测试，未持有或识别不符时停止。；别名：目白阿尔丹",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "107101"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_107102",
+          "label": "目白雅丹 · Neige Émeraude",
+          "icon": "{PROJECT_DIR}/../portraits/107102.png",
+          "description": "育成版本 107102；衣装 107120；开放测试，未持有或识别不符时停止。；别名：目白阿尔丹",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "107102"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_107201",
+          "label": "八重无敌 · 四白流星之袭",
+          "icon": "{PROJECT_DIR}/../portraits/107201.png",
+          "description": "育成版本 107201；衣装 107201；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "107201"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_107401",
+          "label": "目白光明 · 光辉血脉",
+          "icon": "{PROJECT_DIR}/../portraits/107401.png",
+          "description": "育成版本 107401；衣装 107401；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "107401"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_107402",
+          "label": "目白光明 · 清澈的星光",
+          "icon": "{PROJECT_DIR}/../portraits/107402.png",
+          "description": "育成版本 107402；衣装 107446；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "107402"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_107601",
+          "label": "樱花劳蕾尔 · Saisir le rêve",
+          "icon": "{PROJECT_DIR}/../portraits/107601.png",
+          "description": "育成版本 107601；衣装 107601；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "107601"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_107701",
+          "label": "成田路 · The Proud Road",
+          "icon": "{PROJECT_DIR}/../portraits/107701.png",
+          "description": "育成版本 107701；衣装 107701；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "107701"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_107801",
+          "label": "山人西风 · Fluttertail Spirit",
+          "icon": "{PROJECT_DIR}/../portraits/107801.png",
+          "description": "育成版本 107801；衣装 107801；开放测试，未持有或识别不符时停止。；别名：也文摄辉",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "107801"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_108301",
+          "label": "克里斯象征 · Onyx Soldier",
+          "icon": "{PROJECT_DIR}/../portraits/108301.png",
+          "description": "育成版本 108301；衣装 108301；开放测试，未持有或识别不符时停止。；别名：吉兆、克莉斯耶丝象征",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "108301"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_108302",
+          "label": "克里斯象征 · Jetblack Automation",
+          "icon": "{PROJECT_DIR}/../portraits/108302.png",
+          "description": "育成版本 108302；衣装 108340；开放测试，未持有或识别不符时停止。；别名：吉兆、克莉斯耶丝象征",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "108302"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_108401",
+          "label": "谷水琴蕾 · 雷霆加身",
+          "icon": "{PROJECT_DIR}/../portraits/108401.png",
+          "description": "育成版本 108401；衣装 108401；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "108401"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_108501",
+          "label": "第一红宝 · 华丽的红玉",
+          "icon": "{PROJECT_DIR}/../portraits/108501.png",
+          "description": "育成版本 108501；衣装 108501；开放测试，未持有或识别不符时停止。；别名：第一红宝石",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "108501"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_108601",
+          "label": "目白拉莫娜 · 洋葱线",
+          "icon": "{PROJECT_DIR}/../portraits/108601.png",
+          "description": "育成版本 108601；衣装 108601；开放测试，未持有或识别不符时停止。；别名：目白高峰、目白拉茉奴",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "108601"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_108701",
+          "label": "阿斯顿真弓 · Flare",
+          "icon": "{PROJECT_DIR}/../portraits/108701.png",
+          "description": "育成版本 108701；衣装 108701；开放测试，未持有或识别不符时停止。；别名：真弓快车、麻酱",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "108701"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_108801",
+          "label": "里见皇冠 · 黑翠千里行",
+          "icon": "{PROJECT_DIR}/../portraits/108801.png",
+          "description": "育成版本 108801；衣装 108801；开放测试，未持有或识别不符时停止。；国服译名待核实",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "108801"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_108901",
+          "label": "高尚骏逸 · Grand itinéraire",
+          "icon": "{PROJECT_DIR}/../portraits/108901.png",
+          "description": "育成版本 108901；衣装 108901；开放测试，未持有或识别不符时停止。；国服译名待核实",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "108901"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_109101",
+          "label": "比布鲁斯 · Voyage étincelant",
+          "icon": "{PROJECT_DIR}/../portraits/109101.png",
+          "description": "育成版本 109101；衣装 109101；开放测试，未持有或识别不符时停止。；别名：强击；国服译名待核实",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "109101"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_109301",
+          "label": "喜嘉奇迹 · Prism",
+          "icon": "{PROJECT_DIR}/../portraits/109301.png",
+          "description": "育成版本 109301；衣装 109301；开放测试，未持有或识别不符时停止。；别名：凯斯奇迹",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "109301"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_109801",
+          "label": "小林历奇 · 阴阳八卦☆开运衣",
+          "icon": "{PROJECT_DIR}/../portraits/109801.png",
+          "description": "育成版本 109801；衣装 109801；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "109801"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_109901",
+          "label": "北幸樽前 · 星辉之航",
+          "icon": "{PROJECT_DIR}/../portraits/109901.png",
+          "description": "育成版本 109901；衣装 109901；开放测试，未持有或识别不符时停止。；别名：北港火山",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "109901"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_110001",
+          "label": "奇锐骏 · Butterfly Sting",
+          "icon": "{PROJECT_DIR}/../portraits/110001.png",
+          "description": "育成版本 110001；衣装 110001；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "110001"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_110401",
+          "label": "葛城荣主 · 登龙之顶",
+          "icon": "{PROJECT_DIR}/../portraits/110401.png",
+          "description": "育成版本 110401；衣装 110401；开放测试，未持有或识别不符时停止。；别名：葛城王牌",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "110401"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_110501",
+          "label": "新宇宙 · Universe-Naut",
+          "icon": "{PROJECT_DIR}/../portraits/110501.png",
+          "description": "育成版本 110501；衣装 110501；开放测试，未持有或识别不符时停止。",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "110501"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_110601",
+          "label": "菱奇宝 · 奇迹装点！",
+          "icon": "{PROJECT_DIR}/../portraits/110601.png",
+          "description": "育成版本 110601；衣装 110601；开放测试，未持有或识别不符时停止。；别名：菱钻奇宝、菱奇迹",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "110601"
+              }
+            }
+          }
+        },
+        {
+          "name": "preview_110701",
+          "label": "踢踏城市 · GLITTER！",
+          "icon": "{PROJECT_DIR}/../portraits/110701.png",
+          "description": "育成版本 110701；衣装 110701；开放测试，未持有或识别不符时停止。；别名：跳舞城；国服译名待核实",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "trainee": "110701"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

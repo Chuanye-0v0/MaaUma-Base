@@ -1,0 +1,3 @@
+<Project>
+  <PropertyGroup><Deterministic>true</Deterministic><DebugType>none</DebugType><DebugSymbols>false</DebugSymbols></PropertyGroup>
+</Project>
