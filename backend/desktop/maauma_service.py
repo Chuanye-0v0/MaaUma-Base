@@ -212,7 +212,7 @@ def save_activation(root,response,current,product='umaa-public'):
     return value
 
 
-def activate(root,invite_code,*,automatic=True):
+def activate(root,invite_code,*,automatic=True,progress=None):
     if not isinstance(invite_code,str) or not 12<=len(invite_code.strip())<=160:raise ServiceError('invite_invalid')
     info=wire(root,'/v1/info',authenticated=False)
     if info.get('schema_version')!='uma.private_service.v1' or info.get('device_binding')!='one-computer-v1':
@@ -230,7 +230,7 @@ def activate(root,invite_code,*,automatic=True):
             'trace_id':value['distribution_receipt']['trace_id']}
     if automatic and 'uma-cut' in value['products']:
         from desktop.maauma_components import prepare
-        try:answer['component']=prepare(root,mode='pacer')
+        try:answer['component']=prepare(root,mode='pacer',progress=progress)
         except (ServiceError,UpdateError,OSError,ValueError) as error:
             answer['component']={'ok':False,'status':'download_failed','code':str(error)
                                  if isinstance(error,(ServiceError,UpdateError)) else 'component_prepare_failed'}
@@ -277,17 +277,17 @@ def info(root):
             'modules':read_json(state) if state.is_file() else {'components':{}},'authorization_root':str(Path(root).resolve())}
 
 
-def dispatch(root,value):
+def dispatch(root,value,*,progress=None):
     root=Path(root).resolve(strict=True)
     if not isinstance(value,dict):raise ServiceError('invalid_request')
     action=value.get('action')
     if action=='info':return info(root)
     if action=='configure':return configure(root,value.get('base_url'),value.get('channel','preview'))
-    if action=='activate':return activate(root,value.get('invite_code'))
+    if action=='activate':return activate(root,value.get('invite_code'),progress=progress)
     if action=='catalog':return catalog(root)
     if action=='license':return license_check(root,value.get('product_id','umaa-public'))
     from desktop import maauma_components as components
-    if action in {'prepare_pacer','prepare_update'}:return components.prepare(root,mode='pacer' if action=='prepare_pacer' else 'update')
+    if action in {'prepare_pacer','prepare_update'}:return components.prepare(root,mode='pacer' if action=='prepare_pacer' else 'update',progress=progress)
     if action=='install':return components.launch_install(root,value.get('ticket'),parent_pid=value.get('parent_pid'))
     if action=='apply':return components.apply_prepared(root,value.get('ticket'),parent_pid=value.get('parent_pid'))
     if action=='rollback':return components.rollback(root,value.get('ticket'),parent_pid=value.get('parent_pid'))

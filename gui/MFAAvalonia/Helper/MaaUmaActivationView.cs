@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -27,6 +28,9 @@ public sealed class MaaUmaActivationView : UserControl
     private static readonly SemaphoreSlim ActivationFlight = new(1, 1);
     private readonly string root;
     private readonly Func<JObject, Task<JObject>> request;
+    private readonly Func<JObject,Action<JObject>,Task<JObject>>? progressRequest;
+    private readonly MaaUmaUpdateProgressView downloadProgress=new();
+    private readonly ConcurrentQueue<(Guid Invocation,JObject Event)> preparationEvents=new();
     private readonly Func<Task<bool>> idle;
     private readonly Action<ProcessStartInfo> launch;
     private readonly Action exit;
@@ -54,9 +58,10 @@ public sealed class MaaUmaActivationView : UserControl
     public MaaUmaActivationView() : this(AppContext.BaseDirectory) { }
     public MaaUmaActivationView(string packageRoot, Func<JObject,Task<JObject>>? service=null,
         Func<Task<bool>>? runtimeIdle=null, Action<ProcessStartInfo>? launchHelper=null, Action? closeWindow=null,
-        Action<ProcessStartInfo>? feedbackBrowser=null)
+        Action<ProcessStartInfo>? feedbackBrowser=null,Func<JObject,Action<JObject>,Task<JObject>>? progressService=null)
     {
-        root=Path.GetFullPath(packageRoot); request=service ?? new SuiteClient(root).Request;
+        root=Path.GetFullPath(packageRoot);var client=new SuiteClient(root);
+        request=service??client.Request;progressRequest=progressService??(service==null?client.RequestWithProgress:null);
         idle=runtimeIdle ?? RuntimeIdle;
         openFeedback=feedbackBrowser ?? (info=>{using var browser=Process.Start(info);});
         launch=launchHelper ?? (info=>{using var child=Process.Start(info) ?? throw new IOException("无法启动安装助手。");});
@@ -66,7 +71,7 @@ public sealed class MaaUmaActivationView : UserControl
         body.Children.Add(new TextBlock {Text="基础更新无需激活。下载完成后，请停止任务再安装。",TextWrapping=TextWrapping.Wrap});
         var actions=new WrapPanel {Orientation=Orientation.Horizontal};
         foreach(var button in new[]{refresh,prepare,install,feedback}){button.Margin=new Thickness(0,0,12,8);actions.Children.Add(button);}
-        body.Children.Add(actions);body.Children.Add(progress);body.Children.Add(message);
+        body.Children.Add(actions);body.Children.Add(progress);body.Children.Add(downloadProgress);body.Children.Add(message);
         var serviceFields=new StackPanel {Spacing=10,Children={
             new TextBlock {Text="服务地址"},address,new TextBlock {Text="更新频道"},channel,configure}};
         var activationFields=new StackPanel {Spacing=10,Children={code,activate,rights,trace}};
@@ -82,9 +87,9 @@ public sealed class MaaUmaActivationView : UserControl
             try {openFeedback(new ProcessStartInfo(FeedbackUrl){UseShellExecute=true});}
             catch {message.Text="无法打开浏览器，请稍后重试。";}
         };
-        address.TextChanged+=(_,_)=>{code.Text="";ticket=null;Buttons();};
-        Loaded+=async(_,_)=>{timer.Start();await RefreshInfo();};Unloaded+=(_,_)=>timer.Stop();
-        timer.Tick+=async(_,_)=>{if(!busy)await UpdateIdle();};
+        address.TextChanged+=(_,_)=>{code.Text="";ticket=null;if(!busy)downloadProgress.Clear();Buttons();};
+        Loaded+=async(_,_)=>{timer.Start();try{downloadProgress.RefreshClock();}catch{}await RefreshInfo();};Unloaded+=(_,_)=>timer.Stop();
+        timer.Tick+=async(_,_)=>{try{DrainPreparationProgress();downloadProgress.RefreshClock();}catch{}if(!busy)await UpdateIdle();};
     }
 
     private string SelectedChannel=>channel.SelectedIndex==1 ? "preview" : "stable";
@@ -95,7 +100,8 @@ public sealed class MaaUmaActivationView : UserControl
         prepare.IsEnabled=activate.IsEnabled && SelectedChannel==savedChannel;
         code.IsEnabled=address.IsEnabled=channel.IsEnabled=!busy;
         install.IsEnabled=!busy && ticket!=null && currentIdle && SelectedChannel==savedChannel && (address.Text??"").Trim()==savedAddress;
-        progress.IsVisible=busy;
+        progress.IsVisible=busy&&!downloadProgress.IsActive;
+        prepare.Content=downloadProgress.HasFailed?"重新尝试下载":"检查并准备更新";
     }
     private void Busy(bool value){busy=value;Buttons();}
     private void Apply(JObject result,bool displayMessage=true)
@@ -177,7 +183,7 @@ public sealed class MaaUmaActivationView : UserControl
         try {
             var result=await request(new JObject {["action"]="info"});Apply(result);
             if((bool?)result["ok"]==true && SelectedChannel==savedChannel && pacerAuthorized && !pacerInstalled && ticket==null && !autoPrepared){
-                autoPrepared=true;Apply(await request(new JObject {["action"]="prepare_pacer"}));
+                autoPrepared=true;Apply(await RequestPreparation(new JObject {["action"]="prepare_pacer"}));
             }
         }catch{message.Text="版本信息读取未完成，可以重试；当前程序与任务未修改。";}
         finally{Busy(false);await UpdateIdle();}
@@ -199,7 +205,7 @@ public sealed class MaaUmaActivationView : UserControl
         var input=new JObject {["action"]="activate",["invite_code"]=(code.Text??"").Trim()};code.Text="";
         message.Text="正在确认激活并准备内容，请稍候。";
         try {
-            var result=await request(input);Apply(result,displayMessage:false);
+            var result=await RequestPreparation(input);Apply(result,displayMessage:false);
             // Never display an activation response that could echo a personal code.
             message.Text=(bool?)result["ok"]==true ? ticket!=null ? "激活已完成，内容已准备；停止任务后可安装并重开。"
                 : (bool?)result["component"]?["ok"]==false ? "激活已完成，下载未完成；可用“检查并准备更新”重试。" : "激活已完成，状态已更新。"
@@ -211,9 +217,31 @@ public sealed class MaaUmaActivationView : UserControl
     {
         if(busy || SelectedChannel!=savedChannel || (address.Text??"").Trim()!=savedAddress)return;Busy(true);ticket=null;
         message.Text="正在准备更新，可切换到其它页面。";
-        try {Apply(await request(new JObject {["action"]="prepare_update"}));}
+        try {Apply(await RequestPreparation(new JObject {["action"]="prepare_update"}));}
         catch{message.Text="更新准备未确认，可以重试；当前安装未被替换。";}finally{Busy(false);await UpdateIdle();}
     }
+    private void DrainPreparationProgress()
+    {
+        while(preparationEvents.TryDequeue(out var item)) {
+            try {downloadProgress.Accept(item.Invocation,item.Event);}catch { }
+        }
+        try {Buttons();}catch { }
+    }
+    private async Task<JObject> RequestPreparation(JObject input)
+    {
+        var invocation=Guid.NewGuid();
+        try {downloadProgress.Begin(invocation);Buttons();}catch { }
+        void Receive(JObject value) {
+            try {preparationEvents.Enqueue((invocation,(JObject)value.DeepClone()));
+                Dispatcher.UIThread.Post(DrainPreparationProgress);}catch { }
+        }
+        try {
+            var result=progressRequest==null?await request(input):await progressRequest(input,Receive);
+            try {DrainPreparationProgress();downloadProgress.End(invocation,result);Buttons();}catch { }
+            return result;
+        }catch {try {DrainPreparationProgress();downloadProgress.Fail(invocation);Buttons();}catch { }throw;}
+    }
+
     private string OwnedPath(JObject result,string name)
     {
         var text=(string?)result[name];if(string.IsNullOrWhiteSpace(text))throw new IOException();
@@ -249,23 +277,25 @@ public sealed class MaaUmaActivationView : UserControl
     private sealed class SuiteClient(string root)
     {
         private readonly SemaphoreSlim gate=new(1,1);
-        public async Task<JObject> Request(JObject input)
+        public Task<JObject> Request(JObject input)=>RequestCore(input,null);
+        public Task<JObject> RequestWithProgress(JObject input,Action<JObject> progress)=>
+            RequestCore(input,(string?)input["action"] is "activate" or "prepare_update" or "prepare_pacer"?progress:null);
+        private async Task<JObject> RequestCore(JObject input,Action<JObject>? progress)
         {
             await gate.WaitAsync();
             try {
                 var python=Path.Combine(root,"runtime","python.exe");var script=Path.Combine(root,"backend","scripts","maauma_service.py");
                 var info=new ProcessStartInfo(python){WorkingDirectory=root,UseShellExecute=false,CreateNoWindow=true,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true,StandardInputEncoding=new UTF8Encoding(false),StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8};
                 foreach(var arg in new[]{"-B","-X","utf8",script,"--root",root})info.ArgumentList.Add(arg);
+                if(progress!=null)info.ArgumentList.Add("--progress-jsonl");
                 info.Environment["DOTNET_ROOT"]=Path.Combine(root,"dotnet");
                 using var process=Process.Start(info) ?? throw new IOException();
-                var output=process.StandardOutput.ReadToEndAsync();var errors=process.StandardError.ReadToEndAsync();
+                using var timeout=new CancellationTokenSource(TimeSpan.FromHours(2));
+                var response=MaaUmaUpdateProgressPipe.ReadResponseAsync(process.StandardOutput,process.StandardError,progress,timeout.Token);
                 await process.StandardInput.WriteAsync(input.ToString(Formatting.None));process.StandardInput.Close();
                 input.Remove("invite_code");
-                using var timeout=new CancellationTokenSource(TimeSpan.FromHours(2));
                 try{await process.WaitForExitAsync(timeout.Token);}catch(OperationCanceledException){try{process.Kill(true);}catch{}throw new IOException();}
-                var text=await output;_=await errors;
-                if(text.Length>4*1024*1024)throw new IOException();
-                return JObject.Parse(text);
+                return await response;
             }finally{gate.Release();}
         }
     }

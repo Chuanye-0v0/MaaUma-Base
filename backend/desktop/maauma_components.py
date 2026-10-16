@@ -28,8 +28,15 @@ MUTABLE={'local_backend.json','pacer/portable_config.json'}
 def _error(code):raise updates.UpdateError(code)
 
 
-def _digest(path):
-    with Path(path).open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
+def _digest(path,*,progress=None,verification_step='archive_integrity'):
+    with Path(path).open('rb') as stream:
+        if progress is None:return hashlib.file_digest(stream,'sha256').hexdigest()
+        total=Path(path).stat().st_size;processed=0;digest=hashlib.sha256()
+        progress.verification(verification_step,0,total)
+        while block:=stream.read(1024**2):
+            digest.update(block);processed+=len(block)
+            progress.verification(verification_step,processed,total)
+        return digest.hexdigest()
 
 
 def state(root):
@@ -68,12 +75,12 @@ def _metadata(row):
             row.flag_bits,row.external_attr,row.create_system,row.extra,row.comment)
 
 
-def inspect_component(archive_path,entry,*,trace_id,verify):
-    try:return _inspect_component(archive_path,entry,trace_id=trace_id,verify=verify)
+def inspect_component(archive_path,entry,*,trace_id,verify,progress=None):
+    try:return _inspect_component(archive_path,entry,trace_id=trace_id,verify=verify,progress=progress)
     except BadZipFile:raise updates.UpdateError('invalid_component_archive') from None
 
 
-def _inspect_component(archive_path,entry,*,trace_id,verify):
+def _inspect_component(archive_path,entry,*,trace_id,verify,progress=None):
     """Validate immutable base ZIP prefix, personalized directory and receipt.
 
     Signature verification is an authenticated service operation. Format checks
@@ -89,11 +96,13 @@ def _inspect_component(archive_path,entry,*,trace_id,verify):
     if not prefix_size<archive_path.stat().st_size<=MAX_ARCHIVE:_error('package_integrity_failed')
     prefix=archive_path.with_name(archive_path.stem+'-base.zip')
     digest=hashlib.sha256();remaining=prefix_size
+    if progress is not None:progress.verification('archive_integrity',0,prefix_size)
     with archive_path.open('rb') as source,prefix.open('wb') as output:
         while remaining:
             block=source.read(min(1024**2,remaining))
             if not block:_error('package_integrity_failed')
             digest.update(block);output.write(block);remaining-=len(block)
+            if progress is not None:progress.verification('archive_integrity',prefix_size-remaining,prefix_size)
     if digest.hexdigest()!=entry['sha256']:_error('package_integrity_failed')
     with ZipFile(prefix) as base,ZipFile(archive_path) as final:
         original=_archive_inventory(base);personal=_archive_inventory(final)
@@ -115,15 +124,25 @@ def _inspect_component(archive_path,entry,*,trace_id,verify):
         mutable=manifest.get('mutable_files',[])
         if (not isinstance(mutable,list) or len(set(mutable))!=len(mutable)
                 or not set(mutable)<=MUTABLE or not set(mutable)<=set(files)):_error('invalid_mutable_file')
+        verification_total=sum(original[name].file_size for name in files);verified=0
+        if progress is not None:progress.verification('file_integrity',0,verification_total)
         for name in files:
             if name.casefold() in {n.casefold() for n in updates.MANIFESTS}|{STATE.casefold()} or name.casefold().startswith('updates/'):
                 _error('reserved_component_path')
             if not re.fullmatch('[0-9a-f]{64}',str(hashes[name])):_error('invalid_package_digest')
             with base.open(name) as stream:
-                if hashlib.file_digest(stream,'sha256').hexdigest()!=hashes[name]:_error('package_integrity_failed')
+                if progress is None:file_hash=hashlib.file_digest(stream,'sha256').hexdigest()
+                else:
+                    file_digest=hashlib.sha256()
+                    while block:=stream.read(1024**2):
+                        file_digest.update(block);verified+=len(block)
+                        progress.verification('file_integrity',verified,verification_total)
+                    file_hash=file_digest.hexdigest()
+                if file_hash!=hashes[name]:_error('package_integrity_failed')
         receipt=service.validate_receipt(json.loads(final.read('distribution-receipt.json').decode('utf8')),product='uma-cut',kind='package')
         if receipt['trace_id']!=trace_id or receipt['version']!=entry['version'] or receipt['base_sha256']!=entry['sha256']:
             _error('distribution_receipt_mismatch')
+        if progress is not None:progress.verification('receipt',0,None)
         if verify(receipt) is not True:_error('distribution_receipt_unverified')
     return manifest,receipt
 
@@ -135,7 +154,9 @@ def _entry_url(root,entry):
     return url[len(base):]
 
 
-def download(root,entry,target,*,product,public=False):
+def download(root,entry,target,*,product,public=False,progress=None,item_id=None):
+    from desktop.update_progress import content_length,read_chunk
+    if progress is not None:progress.start_item(item_id)
     path=_entry_url(root,entry)
     if public and product!='umaa-public':_error('wrong_product')
     size=0
@@ -143,14 +164,17 @@ def download(root,entry,target,*,product,public=False):
         response=(service.public_wire(root,path,binary=True,timeout=90) if public else
                   service.wire(root,path,product=product,binary=True,timeout=90))
         with response,Path(target).open('wb') as output:
+            if progress is not None:progress.connected(content_length(response))
             while True:
-                block=response.read(1024**2)
+                block=read_chunk(response)
                 if not block:break
                 size+=len(block)
                 if size>MAX_ARCHIVE:_error('package_too_large')
                 output.write(block)
+                if progress is not None:progress.received(len(block))
     except IncompleteRead:raise updates.UpdateError('package_download_incomplete') from None
     if not size:_error('package_integrity_failed')
+    if progress is not None:progress.transferred()
 
 
 def _select_component(catalog,base_version):
@@ -171,7 +195,8 @@ def _base_entry(catalog):
     return {**value,**value.get('package',{})}
 
 
-def prepare(root,*,mode='pacer'):
+def prepare(root,*,mode='pacer',progress=None):
+    if progress is not None:progress.stage('checking')
     if mode not in {'pacer','update'}:_error('invalid_update_mode')
     root,name,installed=updates.installation(root)
     if installed['product_id']!='umaa-public':_error('wrong_product')
@@ -208,28 +233,39 @@ def prepare(root,*,mode='pacer'):
                 and not updates.newer(component_entry['version'],installed_component.get('version'))):
             return {'ok':True,'status':'current','version':installed['version'],'components':['pacer'],**context}
     if not base_entry and not component_entry:return {'ok':True,'status':'current','version':installed['version'],**context}
+    if progress is not None:
+        progress.set_items(([('base',base_entry.get('size_bytes'))] if base_entry else [])+
+                           ([('authorized_extension',None)] if component_entry else []))
     stage=root/'updates/suite-staged'/uuid.uuid4().hex;stage.mkdir(parents=True)
     ticket={'schema_version':'maauma.prepared_suite.v1','from_version':installed['version'],'base_version':target_version,
             'base_manifest':name,'trace_id':auth['distribution_receipt']['trace_id'] if component_entry else None,'entries':[]}
     if base_entry:
-        path=stage/'base.zip';download(root,base_entry,path,product='umaa-public',public=not private_required)
-        if path.stat().st_size!=base_entry['size_bytes'] or _digest(path)!=base_entry['sha256']:_error('package_integrity_failed')
+        path=stage/'base.zip';download(root,base_entry,path,product='umaa-public',public=not private_required,
+                                     progress=progress,item_id='base')
+        if path.stat().st_size!=base_entry['size_bytes'] or _digest(path,progress=progress)!=base_entry['sha256']:_error('package_integrity_failed')
+        if progress is not None:progress.verification('archive_metadata',0,None)
         manifest_name,manifest=updates.inspect_archive(path,base_entry,local_test=False)
         if manifest_name!=name:_error('manifest_name_changed')
         ticket['entries'].append({'kind':'base','file':'base.zip','entry':base_entry})
+        if progress is not None:progress.complete_item()
     if component_entry:
         try:
-            path=stage/'pacer.zip';download(root,component_entry,path,product='uma-cut')
+            path=stage/'pacer.zip';download(root,component_entry,path,product='uma-cut',
+                                          progress=progress,item_id='authorized_extension')
             manifest,receipt=inspect_component(path,component_entry,trace_id=ticket['trace_id'],
-                                              verify=lambda value:service.verify_receipt(root,value))
+                                              verify=lambda value:service.verify_receipt(root,value),progress=progress)
             ticket['entries'].append({'kind':'pacer','file':'pacer.zip','entry':component_entry,'receipt':receipt,
-                                      'personal_sha256':_digest(path),'personal_size_bytes':path.stat().st_size})
+                                      'personal_sha256':_digest(path,progress=progress,verification_step='personalized_integrity'),
+                                      'personal_size_bytes':path.stat().st_size})
+            if progress is not None:progress.complete_item()
         except (service.ServiceError,updates.UpdateError,OSError,ValueError) as error:
+            if progress is not None:progress.fail_item()
             if private_required:raise
             context['pacer_warning']={'status':'failed','code':str(error)
                 if isinstance(error,(service.ServiceError,updates.UpdateError)) else 'pacer_prepare_failed'}
             component_entry=None;ticket['trace_id']=None
     if not ticket['entries']:return {'ok':True,'status':'current','version':installed['version'],**context}
+    if progress is not None:progress.stage('preparing')
     updates.write_json(stage/'ticket.json',ticket)
     return {'ok':True,'status':'prepared','ticket':str(stage/'ticket.json'),'version':target_version,
             'components':['pacer'] if component_entry else [],'requires_exit':True,**context}

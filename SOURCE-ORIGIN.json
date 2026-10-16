@@ -114,7 +114,33 @@
         "scripts/build.py"
       ],
       "bit_identical_release_rebuild_claimed": false
+    },
+    {
+      "version": "0.4.11",
+      "scope": "Update download stages, progress, speed and waiting-state visibility; retain public-source portability changes.",
+      "ordinary_backend_baseline": "0.4.10",
+      "ordinary_gui_baseline": "0.4.10",
+      "public_projection_sha256": "cdb90535d441ef405790c54cecc4235563cf8461609eccf83a21e1d4d1c552b4",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.11.zip",
+      "ordinary_gui_archive_sha256": "a47326ad906af68bf3267e92445cee159c4417636ecdcc4949fdc287d835f6c0",
+      "changed_source_paths": [
+        "README.md",
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "backend/desktop/maauma_components.py",
+        "backend/desktop/maauma_service.py",
+        "backend/desktop/product_updates.py",
+        "backend/desktop/update_progress.py",
+        "backend/scripts/maauma_service.py",
+        "gui/MFAAvalonia/Helper/MaaUmaActivationView.cs",
+        "gui/MFAAvalonia/Helper/MaaUmaUpdateProgressView.cs",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false
     }
   ],
-  "latest_ordinary_source_update": "0.4.10"
+  "latest_ordinary_source_update": "0.4.11"
 }

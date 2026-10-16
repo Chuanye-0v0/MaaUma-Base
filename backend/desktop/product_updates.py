@@ -202,17 +202,26 @@ def check_update(root, *, feed_file=None):
     status = 'update_available' if newer(feed['version'], installed['version']) else 'current'
     return result(status, version=feed['version'], current_version=installed['version'], notes=feed.get('notes', ''))
 
-def download_package(feed, source, target):
+def download_package(feed, source, target, *, progress=None):
     package = feed['package']
+    if progress is not None:progress.start_item('base')
     stream = contained(source.parent, package['file']).open('rb') if source else remote_stream(package['url'])
+    if progress is not None:
+        from desktop.update_progress import content_length, read_chunk
+        progress.connected(content_length(stream))
+    else:read_chunk=lambda stream:stream.read(1024 * 1024)
     digest, size = (hashlib.sha256(), 0)
     with stream, target.open('xb') as output:
-        while (block := stream.read(1024 * 1024)):
+        while (block := read_chunk(stream)):
             size += len(block)
             if size > package['size_bytes']:
                 raise UpdateError('package_size_mismatch')
             output.write(block)
             digest.update(block)
+            if progress is not None:progress.received(len(block))
+    if progress is not None:
+        progress.transferred()
+        progress.verification('archive_integrity',size,package['size_bytes'])
     if size != package['size_bytes'] or digest.hexdigest() != package['sha256']:
         raise UpdateError('package_integrity_failed')
 
@@ -257,20 +266,26 @@ def make_helper(root, stage):
     (helper / 'recover.cmd').write_text('@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "TEMP=%~dp0temp"\r\nset "TMP=%TEMP%"\r\nif not exist "%TEMP%" mkdir "%TEMP%"\r\n"%~dp0python.exe" -B -X utf8 "%~dp0product_update.py" --root "%~dp0..\\..\\..\\.." rollback --ticket "%~dp0..\\ticket.json" --restart\r\nif errorlevel 1 pause\r\n', encoding='ascii', newline='')
     return (str(helper / 'python.exe'), str(script))
 
-def prepare_update(root, *, feed_file=None, build_helper=True):
+def prepare_update(root, *, feed_file=None, build_helper=True, progress=None):
+    if progress is not None:progress.stage('checking')
     root, name, installed = installation(root)
     feed, source = load_feed(root, installed, feed_file)
     if feed is None:
         return result('not_configured', version=installed['version'])
     if not newer(feed['version'], installed['version']):
         return result('current', version=installed['version'])
+    if progress is not None:progress.set_items([('base',feed['package']['size_bytes'])])
     stage = contained(root, 'updates/staged/' + uuid.uuid4().hex)
     stage.mkdir(parents=True)
     archive = stage / 'package.zip'
-    download_package(feed, source, archive)
+    download_package(feed, source, archive, progress=progress)
+    if progress is not None:progress.verification('archive_metadata',0,None)
     new_name, _ = inspect_archive(archive, feed, local_test=source is not None)
     if name != new_name:
         raise UpdateError('manifest_name_changed')
+    if progress is not None:
+        progress.complete_item()
+        progress.stage('preparing')
     ticket = dict(schema_version='uma.prepared_update.v1', product_id=installed['product_id'], from_version=installed['version'], version=feed['version'], manifest=name, sha256=feed['package']['sha256'], size_bytes=feed['package']['size_bytes'], local_test=source is not None)
     write_json(stage / 'ticket.json', ticket)
     executable, script = make_helper(root, stage) if build_helper else ('', '')
