@@ -1053,5 +1053,5 @@
   "build_recipe": "scripts/build.py",
   "resource_contract": "resources/required-inputs.json",
   "bit_identical_binary_rebuild_claimed": false,
-  "latest_ordinary_source_update": "0.4.8"
+  "latest_ordinary_source_update": "0.4.9"
 }

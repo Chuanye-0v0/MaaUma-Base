@@ -63,7 +63,24 @@
       ],
       "public_projection_sha256": "16c7aa1fdf78038b565e8913d8f60d2eefbcd381045e65417af99ecbdedae319",
       "bit_identical_release_rebuild_claimed": false
+    },
+    {
+      "version": "0.4.9",
+      "scope": "Align ordinary desktop source and build version metadata.",
+      "ordinary_backend_reused_from": "0.4.8",
+      "ordinary_gui_code_reused_from": "0.4.7",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.9.zip",
+      "ordinary_gui_archive_sha256": "9349d6548a5159e5cd3e6440a0926d32f71ab134932ed80492f668166bc27779",
+      "changed_source_paths": [
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false
     }
   ],
-  "latest_ordinary_source_update": "0.4.8"
+  "latest_ordinary_source_update": "0.4.9"
 }
