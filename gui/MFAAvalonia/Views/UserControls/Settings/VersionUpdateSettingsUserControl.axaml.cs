@@ -1,6 +1,13 @@
 using Avalonia.Controls;
-using Avalonia.Media;
+using MFAAvalonia.Helper;
+using Microsoft.Extensions.DependencyInjection;
+
 namespace MFAAvalonia.Views.UserControls.Settings;
-public partial class VersionUpdateSettingsUserControl : UserControl {
- public VersionUpdateSettingsUserControl() { Content=new TextBlock {Text=MFAAvalonia.Helper.MaaUmaActivationView.UpdateNotice,Margin=new Avalonia.Thickness(24),TextWrapping=TextWrapping.Wrap}; }
+public partial class VersionUpdateSettingsUserControl : UserControl
+{
+    public VersionUpdateSettingsUserControl() : this(App.Services.GetRequiredService<MaaUmaActivationView>()) { }
+    public VersionUpdateSettingsUserControl(MaaUmaActivationView updates)
+    {
+        Name="MaaUmaUpdateGroup";Content=updates;
+    }
 }

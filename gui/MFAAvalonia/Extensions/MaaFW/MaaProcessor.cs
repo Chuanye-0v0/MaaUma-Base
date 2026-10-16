@@ -1197,6 +1197,7 @@ public class MaaProcessor
     private bool _agentStarted;
     private MFATask.MFATaskStatus Status = MFATask.MFATaskStatus.NOT_STARTED;
     private int _stopCompletionMessageHandled;
+    private string _notificationQueueId=Guid.NewGuid().ToString("N");
     private const int ActionFailedLimit = 20;
     private int _screencapFailedCount;
     private readonly Lock _screencapLogLock = new();
@@ -3532,6 +3533,7 @@ public class MaaProcessor
         using var logScope = BeginInstanceLogScope("ExecuteTaskQueue", "Worker");
         ResetActionFailedCount();
         Interlocked.Exchange(ref _stopCompletionMessageHandled, 0);
+        _notificationQueueId=Guid.NewGuid().ToString("N");
         Status = MFATask.MFATaskStatus.NOT_STARTED;
         CancellationTokenSource = new CancellationTokenSource();
 
@@ -4573,6 +4575,7 @@ public class MaaProcessor
         {
             ToastHelper.Info(LangKeys.TaskFailed.ToLocalization());
             AddLogByKey(LangKeys.TaskFailed, (IBrush?)null);
+            _ = MaaUmaNotifications.SendQueueResultAsync(false,_notificationQueueId);
             ExternalNotificationHelper.ExternalNotificationAsync(Instances.ExternalNotificationSettingsUserControlModel.EnabledCustom
                 ? Instances.ExternalNotificationSettingsUserControlModel.CustomFailureText
                 : LangKeys.TaskFailed.ToLocalization());
@@ -4623,6 +4626,7 @@ public class MaaProcessor
             }
             if (!onlyStart)
             {
+                _ = MaaUmaNotifications.SendQueueResultAsync(true,_notificationQueueId);
                 ExternalNotificationHelper.ExternalNotificationAsync(Instances.ExternalNotificationSettingsUserControlModel.EnabledCustom
                     ? Instances.ExternalNotificationSettingsUserControlModel.CustomSuccessText
                     : LangKeys.TaskAllCompleted.ToLocalization());

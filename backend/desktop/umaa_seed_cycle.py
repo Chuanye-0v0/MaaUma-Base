@@ -379,6 +379,8 @@ class SeedCycle:
                 if hit or state['completed_cycles'] == cycle['max_cycles']:
                     state.update(status='completed', reason='target_factors_met' if hit else 'max_cycles_reached', target_met=hit)
                     save()
+                    if hit:
+                        self._notify_factor_hit(state, directory)
                     progress('目标因子全部达标，停止开种' if hit else '已达到最大轮数，停止开种')
                     return self._summary(state, directory)
                 state['current'] = dict(number=state['completed_cycles'] + 1, phase='plant')
@@ -556,6 +558,56 @@ class SeedCycle:
         cycle = state['config']['cycle']
         if not cycle['integrated'] and (state['tp_spent'] > cycle['total_tp_budget'] or state['jewel_spent'] > cycle['total_jewel_budget']):
             raise RuntimeError('seed_total_budget_exceeded')
+
+    @staticmethod
+    def _notify_factor_hit(state, directory):
+        """Best-effort notification after the confirmed result is committed."""
+        marker = None
+        try:
+            if state.get('status') != 'completed' or state.get('target_met') is not True:
+                return
+            latest = state['history'][-1]
+            retained = latest['factors']
+            targets = state['config']['cycle']['targets']
+            if latest.get('target_met') is not True or not retained.get('frame_sha256') or not targets_met(retained.get('rows'), targets):
+                return
+            notices = state.setdefault('notifications', {})
+            if not isinstance(notices, dict) or 'seed_factor_hit' in notices:
+                return
+            key = f"seed:{Path(directory).name}:cycle:{latest['number']}:target_met"
+            marker = dict(dedupe_key=key, status='attempted')
+            notices['seed_factor_hit'] = marker
+            # Never attempt external I/O unless the business dedupe is durable.
+            _save(Path(directory) / 'state.json', state)
+            rows = {row['key']: row for row in retained['rows']}
+            summary = []
+            for target in targets:
+                row = rows[target['key']]
+                name = row.get('name')
+                name = name.strip() if isinstance(name, str) and name.strip() else row['key']
+                summary.append(f"{name} {row['stars']}★")
+            content = (
+                f"第{latest['number']}轮已确认目标因子全部达标。\n"
+                f"保留目标因子：{'、'.join(summary)}\n"
+                f"本次累计消耗：TP {state['tp_spent']}，宝石 {state['jewel_spent']}。"
+            )
+            from desktop.notifications import send_event
+            result = send_event(event_id='seed_factor_hit', title='MaaUma 种马因子命中', content=content, dedupe_key=key)
+            status = result.get('status') if isinstance(result, dict) else None
+            marker['status'] = status if status in {
+                'accepted', 'rejected', 'failed', 'disabled', 'muted',
+                'not_configured', 'saved_token_unreadable',
+                'token_file_unreadable', 'duplicate',
+            } else 'failed'
+        except Exception:
+            # Notification/storage failures cannot change a completed game task.
+            if marker is None:
+                return
+            marker['status'] = 'failed'
+        try:
+            _save(Path(directory) / 'state.json', state)
+        except Exception:
+            pass
 
     @staticmethod
     def _summary(state, directory):

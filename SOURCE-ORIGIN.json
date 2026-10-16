@@ -80,7 +80,41 @@
         "scripts/build.py"
       ],
       "bit_identical_release_rebuild_claimed": false
+    },
+    {
+      "version": "0.4.10",
+      "scope": "Public system settings, shared notification delivery and factor-goal notifications; retain public-source portability changes.",
+      "ordinary_backend_baseline": "0.4.9",
+      "ordinary_gui_baseline": "0.4.9",
+      "public_projection_sha256": "b8bbeb87d39943835038dff556bd26ade07ce916380b6c7b80107ff2d83f93d7",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.10.zip",
+      "ordinary_gui_archive_sha256": "a604da913ca3c7ff84b2bc695612e1d36ce27e5e09dc2502e268223760942a38",
+      "changed_source_paths": [
+        "README.md",
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "backend/desktop/notifications.py",
+        "backend/desktop/notifications_cli.py",
+        "backend/desktop/pushplus_settings.py",
+        "backend/desktop/umaa_seed_cycle.py",
+        "gui/MFAAvalonia/Extensions/MaaFW/MaaProcessor.cs",
+        "gui/MFAAvalonia/Helper/MaaUmaActivationView.cs",
+        "gui/MFAAvalonia/Helper/MaaUmaConnectionSettingsView.cs",
+        "gui/MFAAvalonia/Helper/MaaUmaNotificationSettingsView.cs",
+        "gui/MFAAvalonia/Helper/MaaUmaNotifications.cs",
+        "gui/MFAAvalonia/Helper/MaaUmaSettingsNavigation.cs",
+        "gui/MFAAvalonia/Views/Mobile/RootViewContent.axaml",
+        "gui/MFAAvalonia/Views/Pages/SettingsView.axaml",
+        "gui/MFAAvalonia/Views/Pages/TaskQueueView.axaml",
+        "gui/MFAAvalonia/Views/Pages/TaskQueueView.axaml.cs",
+        "gui/MFAAvalonia/Views/UserControls/Settings/VersionUpdateSettingsUserControl.axaml.cs",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false
     }
   ],
-  "latest_ordinary_source_update": "0.4.9"
+  "latest_ordinary_source_update": "0.4.10"
 }

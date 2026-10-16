@@ -439,7 +439,7 @@
                             Margin="20,0" />
                     <!-- 控制器类型选择 -->
                     <Grid x:Name="ControllerSelectorPanel" Grid.Column="2" VerticalAlignment="Center"
-                          ColumnDefinitions="Auto,*">
+                          ColumnDefinitions="Auto,*" IsVisible="False">
                         <TextBlock Grid.Column="0" FontSize="12"
                                    FontWeight="Bold" Foreground="{DynamicResource SukiLowText}"
                                    Text="{markup:I18n {x:Static helper:LangKeys.ControllerType}}"
@@ -505,13 +505,12 @@
                         <ComboBox Grid.Column="1" x:Name="DeviceComboBox"
                                   ex:ComboBoxExtensions.DisableNavigationOnLostFocus="True"
                                   Classes="LimitWidth" Height="35"
-                                  IsEnabled="{Binding CurrentInstanceIdle, Source={x:Static helper:Instances.RootViewModel}}"
                                   ItemsSource="{Binding Devices}"
                                   PlaceholderText="{Binding CurrentDevicePlaceholderText}"
                                   PlaceholderForeground="{DynamicResource SukiDisabledText}"
                                   MinWidth="100"
                                   HorizontalAlignment="Stretch"
-                                  SelectedItem="{Binding CurrentDevice, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+                                  SelectedItem="{Binding CurrentDevice, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsVisible="False" IsEnabled="False">
                             <ComboBox.Styles>
                                 <Style Selector="ComboBox /template/ TextBlock#PlaceholderTextBlock">
                                     <Setter Property="Foreground" Value="{DynamicResource SukiDisabledText}" />
@@ -535,6 +534,8 @@
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
+                        <TextBlock Grid.Column="1" Name="MaaUmaDeviceStatus0" VerticalAlignment="Center"
+                            TextTrimming="CharacterEllipsis" Text="{Binding CurrentDevice, Converter={converters:DeviceDisplayConverter}}" />
                     </Grid>
                     <StackPanel x:Name="ConnectionButtonsPanel" Grid.Column="4" Orientation="Horizontal"
                                 VerticalAlignment="Center" Spacing="4">
@@ -557,17 +558,15 @@
                                 ClipToBounds="False"
                                 Command="{Binding CustomAdbCommand}"
                                   IsEnabled="{Binding CurrentInstanceIdle, Source={x:Static helper:Instances.RootViewModel}}"
-                                IsVisible="{calcBinding:Binding 'CurrentController == maa:MaaControllerTypes.Adb'}"
-                                Padding="0" ToolTip.Tip="{markup:I18n {x:Static helper:LangKeys.Custom}}">
+                                Padding="0" ToolTip.Tip="{markup:I18n {x:Static helper:LangKeys.Custom}}" IsVisible="False">
                             <avalonia1:FluentIcon Height="18" Icon="DesktopEdit" IconSize="Size16"
                                                   IconVariant="Regular" />
                         </Button>
                         <Button Classes="BasicTight TaskQueueBasicTight"
                                 Command="{Binding EditPlayCoverCommand}"
                                 IsEnabled="{Binding Idle, Source={x:Static helper:Instances.RootViewModel}}"
-                                IsVisible="{calcBinding:Binding 'CurrentController == maa:MaaControllerTypes.PlayCover'}"
                                 Padding="0"
-                                ToolTip.Tip="{markup:I18n {x:Static helper:LangKeys.EditControllerConfiguration}}">
+                                ToolTip.Tip="{markup:I18n {x:Static helper:LangKeys.EditControllerConfiguration}}" IsVisible="False">
                             <avalonia1:FluentIcon Height="18" Icon="DesktopEdit" IconSize="Size16"
                                                   IconVariant="Regular" />
                         </Button>
@@ -580,7 +579,7 @@
                                 HorizontalContentAlignment="Center"
                                 VerticalContentAlignment="Center"
                                 ToolTip.Tip="{markup:I18n {x:Static helper:LangKeys.Reconnect}}"
-                                VerticalAlignment="Center">
+                                VerticalAlignment="Center" IsVisible="False">
                             <Path Data="{StaticResource LinkGeometry}"
                                   Width="16"
                                   Height="16"
@@ -593,12 +592,11 @@
                                 IsEnabled="{Binding Idle, Source={x:Static helper:Instances.RootViewModel}}"
                                 Padding="0"
                                 Width="24"
-                                IsVisible="{calcBinding:Binding 'CurrentController != maa:MaaControllerTypes.PlayCover'}"
                                 Height="24"
                                 HorizontalContentAlignment="Center"
                                 VerticalContentAlignment="Center"
                                 ToolTip.Tip="{markup:I18n {x:Static helper:LangKeys.TooltipRefresh}}"
-                                VerticalAlignment="Center">
+                                VerticalAlignment="Center" IsVisible="False">
                             <Path Data="{StaticResource RefreshGeometry}"
                                   Width="16"
                                   Height="16"
@@ -607,16 +605,15 @@
                         </Button>
                         <Button Classes="BasicTight TaskQueueBasicTight"
                                 Click="ConnectionStatusButton_OnClick"
-                                IsEnabled="{Binding Idle, Source={x:Static helper:Instances.RootViewModel}}"
                                 Padding="0"
-                                Width="24"
-                                Height="24"
+                                Width="96"
+                                Height="32"
                                 HorizontalContentAlignment="Center"
                                 VerticalContentAlignment="Center"
-                                ToolTip.Tip="{markup:I18n {x:Static helper:LangKeys.ConnectionSettings}}">
+                                ToolTip.Tip="{markup:I18n {x:Static helper:LangKeys.ConnectionSettings}}"><StackPanel Orientation="Horizontal" Spacing="6">
                             <ContentControl
                                 Content="{Binding IsConnected, Converter={StaticResource ConnectedConditionConverter}}" />
-                        </Button>
+                        <TextBlock Text="连接设置" VerticalAlignment="Center" /></StackPanel></Button>
                         <Border x:Name="TaskToggleBorder" Height="30"
                                 CornerRadius="999"
                                 ClipToBounds="True"
@@ -825,7 +822,7 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <Grid x:Name="ControllerSelectorPanelCompact" Grid.Column="0" VerticalAlignment="Center"
-                              ColumnDefinitions="Auto,*">
+                              ColumnDefinitions="Auto,*" IsVisible="False">
                             <TextBlock Grid.Column="0" FontSize="12"
                                        FontWeight="Bold" Foreground="{DynamicResource SukiLowText}"
                                        Text="{markup:I18n {x:Static helper:LangKeys.ControllerType}}"
@@ -890,13 +887,12 @@
                             <ComboBox Grid.Column="1"
                                       ex:ComboBoxExtensions.DisableNavigationOnLostFocus="True"
                                       Classes="LimitWidth" Height="35"
-                                  IsEnabled="{Binding CurrentInstanceIdle, Source={x:Static helper:Instances.RootViewModel}}"
                                       ItemsSource="{Binding Devices}"
                                       PlaceholderText="{Binding CurrentDevicePlaceholderText}"
                                       PlaceholderForeground="{DynamicResource SukiDisabledText}"
                                       MinWidth="100"
                                       HorizontalAlignment="Stretch"
-                                      SelectedItem="{Binding CurrentDevice, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+                                      SelectedItem="{Binding CurrentDevice, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsVisible="False" IsEnabled="False">
                                 <ComboBox.Styles>
                                     <Style Selector="ComboBox /template/ TextBlock#PlaceholderTextBlock">
                                         <Setter Property="Foreground" Value="{DynamicResource SukiDisabledText}" />
@@ -920,6 +916,8 @@
                                     </DataTemplate>
                                 </ComboBox.ItemTemplate>
                             </ComboBox>
+                        <TextBlock Grid.Column="1" Name="MaaUmaDeviceStatus1" VerticalAlignment="Center"
+                            TextTrimming="CharacterEllipsis" Text="{Binding CurrentDevice, Converter={converters:DeviceDisplayConverter}}" />
                         </Grid>
 
                         <StackPanel x:Name="ConnectionButtonsPanelCompact" Grid.Column="3" Orientation="Horizontal"
@@ -943,17 +941,15 @@
                                     ClipToBounds="False"
                                     Command="{Binding CustomAdbCommand}"
                                     IsEnabled="{Binding Idle, Source={x:Static helper:Instances.RootViewModel}}"
-                                    IsVisible="{calcBinding:Binding 'CurrentController == maa:MaaControllerTypes.Adb'}"
-                                    Padding="0" ToolTip.Tip="{markup:I18n {x:Static helper:LangKeys.Custom}}">
+                                    Padding="0" ToolTip.Tip="{markup:I18n {x:Static helper:LangKeys.Custom}}" IsVisible="False">
                                 <avalonia1:FluentIcon Height="18" Icon="DesktopEdit" IconSize="Size16"
                                                       IconVariant="Regular" />
                             </Button>
                             <Button Classes="BasicTight TaskQueueBasicTight"
                                     Command="{Binding EditPlayCoverCommand}"
                                     IsEnabled="{Binding Idle, Source={x:Static helper:Instances.RootViewModel}}"
-                                    IsVisible="{calcBinding:Binding 'CurrentController == maa:MaaControllerTypes.PlayCover'}"
                                     Padding="0"
-                                    ToolTip.Tip="{markup:I18n {x:Static helper:LangKeys.EditControllerConfiguration}}">
+                                    ToolTip.Tip="{markup:I18n {x:Static helper:LangKeys.EditControllerConfiguration}}" IsVisible="False">
                                 <avalonia1:FluentIcon Height="18" Icon="DesktopEdit" IconSize="Size16"
                                                       IconVariant="Regular" />
                             </Button>
@@ -966,7 +962,7 @@
                                     HorizontalContentAlignment="Center"
                                     VerticalContentAlignment="Center"
                                     ToolTip.Tip="{markup:I18n {x:Static helper:LangKeys.Reconnect}}"
-                                    VerticalAlignment="Center">
+                                    VerticalAlignment="Center" IsVisible="False">
                                 <Path Data="{StaticResource LinkGeometry}"
                                       Width="16"
                                       Height="16"
@@ -979,12 +975,11 @@
                                     IsEnabled="{Binding Idle, Source={x:Static helper:Instances.RootViewModel}}"
                                     Padding="0"
                                     Width="24"
-                                    IsVisible="{calcBinding:Binding 'CurrentController != maa:MaaControllerTypes.PlayCover'}"
                                     Height="24"
                                     HorizontalContentAlignment="Center"
                                     VerticalContentAlignment="Center"
                                     ToolTip.Tip="{markup:I18n {x:Static helper:LangKeys.TooltipRefresh}}"
-                                    VerticalAlignment="Center">
+                                    VerticalAlignment="Center" IsVisible="False">
                                 <Path Data="{StaticResource RefreshGeometry}"
                                       Width="16"
                                       Height="16"
@@ -992,7 +987,7 @@
                                       Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
                             </Button>
                             <ContentControl
-                                Content="{Binding IsConnected, Converter={StaticResource ConnectedConditionConverterCompact}}" />
+                                Content="{Binding IsConnected, Converter={StaticResource ConnectedConditionConverterCompact}}" /><Button Content="连接设置" Click="ConnectionStatusButton_OnClick" Margin="6,0,0,0" />
                         </StackPanel>
                     </Grid>
                 </Grid>

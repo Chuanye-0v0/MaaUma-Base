@@ -28,44 +28,39 @@
             FontSize="30"
             FontWeight="DemiBold"
             Margin="20,24,0,0"
-            Text="{markup:I18n {x:Static helper:LangKeys.Settings}}" />
+            Text="系统设置" />
         <suki:SukiStackPage Margin="16,0,16,16" Name="Settings">
             <suki:SettingsLayout Name="SettingsLayout" ScrollAnimationSpeed="3" MinWidthWhetherStackSummaryShow="700"
                                  StackSummaryWidth="220">
                 <suki:SettingsLayout.Items>
-                    <suki:SettingsLayoutItem
-                        Content="{extensions:ServiceProvider ServiceType={x:Type settings:ConfigurationMgrUserControl}}"
-                        Header="{markup:I18n {x:Static helper:LangKeys.SwitchConfiguration}}" />
-                    <suki:SettingsLayoutItem
-                        Content="{extensions:ServiceProvider ServiceType={x:Type settings:TimerSettingsUserControl}}"
-                        Header="{markup:I18n {x:Static helper:LangKeys.ScheduleSettings}}" />
-                    <suki:SettingsLayoutItem
-                        Content="{extensions:ServiceProvider ServiceType={x:Type settings:PerformanceUserControl}}"
-                        Header="{markup:I18n {x:Static helper:LangKeys.PerformanceSettings}}" />
-                    <suki:SettingsLayoutItem
-                        Content="{extensions:ServiceProvider ServiceType={x:Type settings:GameSettingsUserControl}}"
-                        Header="{markup:I18n {x:Static helper:LangKeys.RunningSettings}}" />
-                    <suki:SettingsLayoutItem
-                        Content="{extensions:ServiceProvider ServiceType={x:Type settings:ConnectSettingsUserControl}}"
-                        Header="{markup:I18n {x:Static helper:LangKeys.ConnectionSettings}}" />
-                    <suki:SettingsLayoutItem
-                        Content="{extensions:ServiceProvider ServiceType={x:Type settings:StartSettingsUserControl}}"
-                        Header="{markup:I18n {x:Static helper:LangKeys.StartupSettings}}" />
-                    <suki:SettingsLayoutItem
-                        Content="{extensions:ServiceProvider ServiceType={x:Type settings:GuiSettingsUserControl}}"
-                        Header="{markup:I18n {x:Static helper:LangKeys.UiSettings}}" />
-                    <suki:SettingsLayoutItem
-                        Content="{extensions:ServiceProvider ServiceType={x:Type settings:ExternalNotificationSettingsUserControl}}"
-                        Header="{markup:I18n {x:Static helper:LangKeys.ExternalNotificationSettings}}" />
-                    <suki:SettingsLayoutItem
-                        Content="{extensions:ServiceProvider ServiceType={x:Type settings:HotKeySettingsUserControl}}"
-                        Header="{markup:I18n {x:Static helper:LangKeys.HotKeySettings}}" />
-                    <suki:SettingsLayoutItem
-                        Content="{extensions:ServiceProvider ServiceType={x:Type settings:VersionUpdateSettingsUserControl}}"
-                        Header="{markup:I18n {x:Static helper:LangKeys.UpdateSettings}}" />
-                    <suki:SettingsLayoutItem
-                        Content="{extensions:ServiceProvider ServiceType={x:Type settings:AboutUserControl}}"
-                        Header="{markup:I18n {x:Static helper:LangKeys.About}}" />
+                    <suki:SettingsLayoutItem Header="模拟器连接">
+                        <helper:MaaUmaConnectionSettingsView />
+                    </suki:SettingsLayoutItem>
+                    <suki:SettingsLayoutItem Header="消息推送">
+                        <StackPanel Name="MaaUmaNotificationSettings" Spacing="16">
+                            <helper:MaaUmaNotificationSettingsView />
+                            <Expander Header="其他现有通知方式" HorizontalAlignment="Stretch">
+                                <ContentControl Content="{extensions:ServiceProvider ServiceType={x:Type settings:ExternalNotificationSettingsUserControl}}" />
+                            </Expander>
+                        </StackPanel>
+                    </suki:SettingsLayoutItem>
+                    <suki:SettingsLayoutItem Header="常规">
+                        <StackPanel Spacing="14">
+                            <Expander Header="配置管理" HorizontalAlignment="Stretch"><ContentControl Content="{extensions:ServiceProvider ServiceType={x:Type settings:ConfigurationMgrUserControl}}" /></Expander>
+                            <Expander Header="定时任务" HorizontalAlignment="Stretch"><ContentControl Content="{extensions:ServiceProvider ServiceType={x:Type settings:TimerSettingsUserControl}}" /></Expander>
+                            <Expander Header="性能" HorizontalAlignment="Stretch"><ContentControl Content="{extensions:ServiceProvider ServiceType={x:Type settings:PerformanceUserControl}}" /></Expander>
+                            <Expander Header="运行选项" HorizontalAlignment="Stretch"><ContentControl Content="{extensions:ServiceProvider ServiceType={x:Type settings:GameSettingsUserControl}}" /></Expander>
+                            <Expander Header="启动与任务结束" HorizontalAlignment="Stretch"><ContentControl Content="{extensions:ServiceProvider ServiceType={x:Type settings:StartSettingsUserControl}}" /></Expander>
+                            <Expander Header="界面" HorizontalAlignment="Stretch"><ContentControl Content="{extensions:ServiceProvider ServiceType={x:Type settings:GuiSettingsUserControl}}" /></Expander>
+                            <Expander Header="快捷键" HorizontalAlignment="Stretch"><ContentControl Content="{extensions:ServiceProvider ServiceType={x:Type settings:HotKeySettingsUserControl}}" /></Expander>
+                        </StackPanel>
+                    </suki:SettingsLayoutItem>
+                    <suki:SettingsLayoutItem Header="更新 / 反馈">
+                        <StackPanel Spacing="16">
+                            <ContentControl Content="{extensions:ServiceProvider ServiceType={x:Type settings:VersionUpdateSettingsUserControl}}" />
+                            <Expander Header="关于" HorizontalAlignment="Stretch"><ContentControl Content="{extensions:ServiceProvider ServiceType={x:Type settings:AboutUserControl}}" /></Expander>
+                        </StackPanel>
+                    </suki:SettingsLayoutItem>
                 </suki:SettingsLayout.Items>
             </suki:SettingsLayout>
         </suki:SukiStackPage>

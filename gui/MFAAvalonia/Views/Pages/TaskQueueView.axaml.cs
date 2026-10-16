@@ -69,25 +69,7 @@ public partial class TaskQueueView : UserControl
 
     private void NavigateToConnectSettings()
     {
-        var topLevel = Instances.TopLevel;
-        if (topLevel == null)
-        {
-            return;
-        }
-
-        var sideMenu = topLevel.GetVisualDescendants().OfType<SukiSideMenu>().FirstOrDefault();
-        var settingsItem = sideMenu?.FooterMenuItems?.OfType<SukiSideMenuItem>().FirstOrDefault();
-        if (settingsItem != null && sideMenu != null)
-        {
-            sideMenu.SelectedItem = settingsItem;
-        }
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            var connectSettings = topLevel.GetVisualDescendants().OfType<ConnectSettingsUserControl>().FirstOrDefault();
-            connectSettings?.BringIntoView();
-            connectSettings?.Focus();
-        }, DispatcherPriority.Loaded);
+        MaaUmaSettingsNavigation.Open(this);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)

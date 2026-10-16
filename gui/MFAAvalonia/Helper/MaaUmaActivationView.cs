@@ -18,10 +18,12 @@ namespace MFAAvalonia.Helper;
 /// <summary>Shared suite activation/update entry. No Pacer control or business dependency.</summary>
 public sealed class MaaUmaActivationView : UserControl
 {
-    public const string UpdateNotice="基础更新无需激活，请使用主面板的“版本更新”。";
+    public const string UpdateNotice="基础更新无需激活，请使用“系统设置 → 更新 / 反馈”。";
     public const string DefaultServiceUrl="https://maauma-private.2234198378.workers.dev";
     public const string FeedbackUrl="https://github.com/Chuanye-0v0/MaaUma-Base/issues/new/choose";
     public static Func<Task<bool>>? AdditionalIdleCheck { get; set; }
+    public static bool PrivateEventsAvailable { get; private set; }
+    public static event Action? CapabilitiesChanged;
     private static readonly SemaphoreSlim ActivationFlight = new(1, 1);
     private readonly string root;
     private readonly Func<JObject, Task<JObject>> request;
@@ -112,6 +114,8 @@ public sealed class MaaUmaActivationView : UserControl
         if(modules!=null)pacerInstalled=modules is JArray installed && installed.Values<string>().Any(x=>x is "pacer" or "uma-cut")
             || modules is JObject installedMap && installedMap["pacer"] is JToken entry && entry.Type is not (JTokenType.Null or JTokenType.Boolean)
             || modules is JObject booleanMap && booleanMap["pacer"]?.Type==JTokenType.Boolean && (bool)booleanMap["pacer"]!;
+        var available=pacerAuthorized&&pacerInstalled;
+        if(PrivateEventsAvailable!=available){PrivateEventsAvailable=available;CapabilitiesChanged?.Invoke();}
         rights.Text=pacerAuthorized ? "测试版状态：已激活" : pacerInstalled ? "测试版状态：待确认" : "";
         rights.IsVisible=pacerAuthorized || pacerInstalled;
         trace.IsVisible=rights.IsVisible && !string.IsNullOrEmpty(trace.Text);
@@ -144,6 +148,29 @@ public sealed class MaaUmaActivationView : UserControl
             return AdditionalIdleCheck==null || await AdditionalIdleCheck();
         }catch{return false;}
     }
+    private static readonly SemaphoreSlim NotificationCapabilityFlight=new(1,1);
+    public static async Task RefreshNotificationCapabilities()
+    {
+        if(!Directory.Exists(Path.Combine(AppContext.BaseDirectory,"pacer")))return;
+        if(!await NotificationCapabilityFlight.WaitAsync(0))return;
+        try {
+            // Capability inspection only; unlike RefreshInfo this cannot prepare
+            // or download a component while the notification page is opened.
+            var result=await new SuiteClient(AppContext.BaseDirectory).Request(new JObject {["action"]="info"});
+            var products=result["products"];
+            var authorized=products is JArray list&&list.Values<string>().Contains("uma-cut")
+                ||products is JObject map&&map["uma-cut"] is JToken right&&right.Type is not (JTokenType.Null or JTokenType.Boolean)
+                ||products is JObject flags&&flags["uma-cut"]?.Type==JTokenType.Boolean&&(bool)flags["uma-cut"]!;
+            var modules=result["installed_modules"]??result["modules"]?["components"];
+            var installed=modules is JArray entries&&entries.Values<string>().Any(x=>x is "pacer" or "uma-cut")
+                ||modules is JObject installedMap&&installedMap["pacer"] is JToken entry&&entry.Type is not (JTokenType.Null or JTokenType.Boolean)
+                ||modules is JObject booleanMap&&booleanMap["pacer"]?.Type==JTokenType.Boolean&&(bool)booleanMap["pacer"]!;
+            PrivateEventsAvailable=(bool?)result["ok"]!=false&&authorized&&installed;
+            CapabilitiesChanged?.Invoke();
+        }catch {PrivateEventsAvailable=false;CapabilitiesChanged?.Invoke();}
+        finally {NotificationCapabilityFlight.Release();}
+    }
+
     public async Task RefreshInfo()
     {
         if(busy)return;Busy(true);
