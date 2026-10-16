@@ -206,7 +206,9 @@ def observe(raw, tokens, required_variant=None):
         slots = ((45, 610, 350, 920), (370, 610, 675, 920))
         if any((find('请选择', slot) for slot in slots)):
             return False
-        return all((cv2.cvtColor(image[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)[:, :, 1].mean() > 20 for x0, y0, x1, y1 in slots))
+        if all((cv2.cvtColor(image[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)[:, :, 1].mean() > 20 for x0, y0, x1, y1 in slots)):
+            return True
+        return None
 
     def checked(box):
         x0, y0, x1, y1 = box
@@ -283,8 +285,7 @@ def observe(raw, tokens, required_variant=None):
             left, top, _, bottom = borrow['bbox']
             center_y = (top + bottom) // 2
             result['borrow_checked'] = checked((left - 66, center_y - 31, left + 9, center_y + 39))
-            if not result['borrow_checked']:
-                result['actions']['toggle_borrow'] = dict(point=[left - 38, center_y])
+            result['actions']['toggle_borrow'] = dict(point=[left - 38, center_y])
             action('confirm_inheritance', find('确定', (380, 760, 690, 980)))
     elif has('新剧本'):
         result['page'] = 'new_scenario'
@@ -387,9 +388,8 @@ def observe(raw, tokens, required_variant=None):
             action('confirm_exam', find('确定', (350, 1100, 700, 1220)))
     elif has('选择继承优俊少女'):
         result.update(page='inheritance', inheritance_full=inheritance_full())
-        if not result['inheritance_full']:
-            action('auto_inheritance', find('自动选择', (300, 850, 700, 1050)))
-        else:
+        action('auto_inheritance', find('自动选择', (300, 850, 700, 1050)))
+        if result['inheritance_full'] is True:
             action('continue_inheritance', find('继续', (180, 950, 550, 1160)))
     elif has('协助卡编成'):
         result.update(page='support_deck', support_full=cards_full())

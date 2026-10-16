@@ -25,6 +25,7 @@ ACTION_PAGES.update(HARVEST_ACTION_PAGES)
 from core.autonomous_training.plant_plan import ACTION_PAGES as PLAN_ACTION_PAGES
 ACTION_PAGES.update(PLAN_ACTION_PAGES)
 from core.autonomous_training import plant_support
+from core.autonomous_training import plant_inheritance
 ACTION_PAGES.update(plant_support.ACTION_PAGES)
 ACTION_PAGES.update({'inspect_trainee_' + str(i): 'trainee' for i in range(15)})
 HARVEST_ACTIONS.update(HARVEST_ACTION_PAGES)
@@ -54,6 +55,11 @@ def _authorize_skill_scroll(action, observed, context):
 def transition_pending(action, before, after):
     if action == 'open_training' and after['page'] == 'home':
         return True
+    if action == 'confirm_inheritance' and after['page'] == 'inheritance' and (after.get('inheritance_full') is not True):
+        return True
+    if action == 'toggle_borrow' and after['page'] == 'inherit_confirm':
+        value = before.get('borrow_checked')
+        return type(value) is not bool or after.get('borrow_checked') is not (not value)
     if action in plant_support.ACTION_PAGES:
         if after['page'] in ('unknown', 'loading'):
             return True
@@ -109,6 +115,9 @@ def authorize_action(action, observed, context):
     from core.autonomous_training.harvest_direct_settlement import ensure_settlement_scope
     ensure_settlement_scope(observed, context, action)
     plant_support.authorize(action, observed, context)
+    if action in ('auto_support', 'confirm_auto_support'):
+        raise RuntimeError('support_auto_compose_not_requested')
+    plant_inheritance.authorize(action, observed, context)
     if action == 'leave_empty_scenario' and (context.get('empty_harvest') is not True or context.get('start_submitted')):
         raise RuntimeError('empty_harvest_return_not_bound')
     if action in PLAN_ACTION_PAGES:
@@ -184,14 +193,6 @@ def authorize_action(action, observed, context):
         raise RuntimeError('inheritance_not_full')
     if action == 'continue_support' and observed.get('support_full') is not True:
         raise RuntimeError('support_not_full')
-    if action == 'auto_inheritance' and observed.get('inheritance_full') is not False:
-        raise RuntimeError('inheritance_not_confirmed_incomplete')
-    if action == 'auto_support' and observed.get('support_full') is not False:
-        raise RuntimeError('support_not_confirmed_incomplete')
-    if action == 'confirm_inheritance' and (not (context.get('inheritance_requested') and observed.get('borrow_checked') is True)):
-        raise RuntimeError('inheritance_confirmation_not_bound')
-    if action == 'confirm_auto_support' and (not context.get('support_requested')):
-        raise RuntimeError('support_confirmation_not_bound')
     if action == 'close_exam_detail' and (not (observed.get('exam_selection_applied') is True and observed.get('selected_course_status') == '未挑战')):
         raise RuntimeError('selected_exam_not_verified')
     if action == 'close_exams' and (not context.get('exam_selected')):
@@ -366,8 +367,8 @@ class AutonomousDevice(SupportDevice):
             return dict(action_id=action_id, performed=False, status='target_identified', endpoint=self.endpoint, source_frame_sha256=before['frame_sha256'], observation=before)
         if action_id in ('support_scroll', 'support_refresh') and before.get('page') == 'support_friend' and self.context.get('support_options') and (plant_support.choose(before, self.context) != action_id):
             return dict(action_id=action_id, performed=False, status='support_search_changed', endpoint=self.endpoint, source_frame_sha256=before['frame_sha256'], observation=before)
-        if action_id == 'auto_inheritance' and before.get('page') == 'inheritance' and (before.get('inheritance_full') is True) and ('continue_inheritance' in before['actions']):
-            return dict(action_id=action_id, performed=False, status='inheritance_ready', endpoint=self.endpoint, source_frame_sha256=before['frame_sha256'], observation=before)
+        if action_id == 'toggle_borrow' and before.get('page') == 'inherit_confirm' and (plant_inheritance.choose(before, self.context) == 'confirm_inheritance'):
+            return dict(action_id=action_id, performed=False, status='inheritance_borrow_ready', endpoint=self.endpoint, source_frame_sha256=before['frame_sha256'], observation=before)
         if action_id not in before['actions']:
             before = await_candidate(capture, stop, action_id, before, 'exam_list' if action_id.startswith('course_') else ACTION_PAGES.get(action_id), reason='action_not_allowed:' + action_id)
         candidate = before['actions'].get(action_id)
@@ -383,7 +384,9 @@ class AutonomousDevice(SupportDevice):
         if action_id == 'auto_support':
             self.context['support_requested'] = True
         if action_id == 'confirm_inheritance':
-            self.context.pop('inheritance_requested', None)
+            self.context['inheritance_confirmation_submitted'] = True
+        if action_id == 'toggle_borrow':
+            plant_inheritance.mark_borrow_toggle(before, self.context)
         if action_id == 'confirm_auto_support':
             self.context.pop('support_requested', None)
         if self.context.get('support_options'):
@@ -498,6 +501,9 @@ class AutonomousDevice(SupportDevice):
             receipt['reason'] = 'history_load_timeout'
         path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding='utf-8')
         plant_support.after_action(action_id, before, after, self.context)
+        if plant_inheritance.after_action(action_id, before, after, self.context, receipt):
+            receipt['inheritance_confirmation'] = dict(status='confirmed', selection='auto', borrow_friend=self.context.get('inheritance_options', {}).get('inheritance_borrow_friend', True))
+            path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding='utf-8')
         if action_id == 'continue_support' and self.context.get('verified_support'):
             receipt['verified_support'] = self.context['verified_support']
             path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding='utf-8')

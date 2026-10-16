@@ -117,10 +117,11 @@ def validate_options(task, options):
         from core.autonomous_training.plant_catalog import resolve_trainee_key
         from core.autonomous_training.plant_plan import DEFAULTS, validate
         from core.autonomous_training.plant_support import OPTION_KEYS, validate as validate_support
-        if set(options) - set(defaults) - set(DEFAULTS) - OPTION_KEYS:
+        from core.autonomous_training.plant_inheritance import validate as validate_inheritance
+        if set(options) - set(defaults) - set(DEFAULTS) - OPTION_KEYS - {'inheritance_selection', 'inheritance_borrow_friend'}:
             raise ValueError('mfa_task_options_invalid')
         key = resolve_trainee_key(options.get('trainee', 'scarlet'))
-        return {'trainee': key, **validate(options), **validate_support(options)}
+        return {'trainee': key, **validate(options), **validate_support(options), **validate_inheritance(options)}
     if task == 'daily_legend':
         from core.daily_legend.catalog import opponent
         if set(options) - set(defaults):
@@ -216,6 +217,8 @@ def _execute_current(task, options, *, endpoint, adb_path, output, skill_databas
         device = AutonomousDevice(endpoint, adb_path, output)
         from core.autonomous_training.plant_plan import validate
         device.context['plant_options'] = validate(options)
+        from core.autonomous_training.plant_inheritance import validate as validate_inheritance
+        device.context['inheritance_options'] = validate_inheritance(options)
         from core.autonomous_training.plant_support import validate as validate_support
         support = validate_support(options)
         if support:

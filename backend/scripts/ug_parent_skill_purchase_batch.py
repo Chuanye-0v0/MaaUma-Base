@@ -340,7 +340,7 @@ class _LiveBatchAdapter:
         del action_id
         if self.adb.tap(control['x'], control['y'], scaled=False) is not True:
             raise RuntimeError('adb_tap_failed')
-        time.sleep(1.5)
+        time.sleep(0.25)
 
     def swipe_forward(self) -> None:
         if self.swipe_profile == SKILL_OVERLAP_SWIPE['name']:

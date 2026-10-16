@@ -42,6 +42,7 @@
     "backend/core/autonomous_training/low_pt_resume.py",
     "backend/core/autonomous_training/observer.py",
     "backend/core/autonomous_training/plant_catalog.py",
+    "backend/core/autonomous_training/plant_inheritance.py",
     "backend/core/autonomous_training/plant_plan.py",
     "backend/core/autonomous_training/plant_races.py",
     "backend/core/autonomous_training/plant_support.py",
@@ -1027,6 +1028,7 @@
     "scripts/build.py",
     "scripts/check_source.py",
     "tests/test_build_paths.py",
+    "tests/test_inheritance_options.py",
     "tests/test_public_source_boundary.py",
     "tools/MaaUmaIdentity/MaaUmaIdentity.csproj",
     "tools/MaaUmaIdentity/Program.cs",
@@ -1048,5 +1050,6 @@
   "old_git_history_included": false,
   "build_recipe": "scripts/build.py",
   "resource_contract": "resources/required-inputs.json",
-  "bit_identical_binary_rebuild_claimed": false
+  "bit_identical_binary_rebuild_claimed": false,
+  "latest_ordinary_source_update": "0.4.7"
 }

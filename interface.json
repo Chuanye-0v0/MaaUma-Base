@@ -1,16 +1,13 @@
 {
   "interface_version": 2,
   "name": "MaaUma 普通版",
-  "version": "0.4.5",
+  "version": "0.4.7",
   "rid": "umaa-public",
   "icon": "resource/umaa-hishi-miracle.png",
   "controller": [
     {
       "name": "本机 Android 模拟器",
-      "type": "Adb",
-      "option": [
-        "执行方式"
-      ]
+      "type": "Adb"
     }
   ],
   "resource": [
@@ -112,88 +109,6 @@
     }
   ],
   "option": {
-    "执行方式": {
-      "type": "select",
-      "default_case": "预演（不操作游戏）",
-      "cases": [
-        {
-          "name": "预演（不操作游戏）",
-          "pipeline_override": {
-            "UmaHarvest": {
-              "custom_action": "UmaHarvestBackend"
-            },
-            "UmaPlant": {
-              "custom_action": "UmaPlantBackend"
-            },
-            "UmaJjc": {
-              "custom_action": "UmaJjcBackend"
-            },
-            "UmaActivities": {
-              "custom_action": "UmaActivitiesBackend"
-            },
-            "UmaDailyLegend": {
-              "custom_action": "UmaDailyLegendBackend"
-            },
-            "UmaStoryEvent": {
-              "custom_action": "UmaStoryEventBackend"
-            },
-            "UmaDailyRewards": {
-              "custom_action": "UmaDailyRewardsBackend"
-            },
-            "UmaLimitedLegend": {
-              "custom_action": "UmaLimitedLegendBackend"
-            },
-            "UmaChampionsRegistration": {
-              "custom_action": "UmaChampionsRegistrationBackend"
-            },
-            "UmaChampionsRace": {
-              "custom_action": "UmaChampionsRaceBackend"
-            },
-            "UmaSeedCycle": {
-              "custom_action": "UmaSeedCycleBackend"
-            }
-          }
-        },
-        {
-          "name": "实机执行（仅当前账号）",
-          "pipeline_override": {
-            "UmaHarvest": {
-              "custom_action": "UmaHarvestBackendLive"
-            },
-            "UmaPlant": {
-              "custom_action": "UmaPlantBackendLive"
-            },
-            "UmaJjc": {
-              "custom_action": "UmaJjcBackendLive"
-            },
-            "UmaActivities": {
-              "custom_action": "UmaActivitiesBackendLive"
-            },
-            "UmaDailyLegend": {
-              "custom_action": "UmaDailyLegendBackendLive"
-            },
-            "UmaStoryEvent": {
-              "custom_action": "UmaStoryEventBackendLive"
-            },
-            "UmaDailyRewards": {
-              "custom_action": "UmaDailyRewardsBackendLive"
-            },
-            "UmaLimitedLegend": {
-              "custom_action": "UmaLimitedLegendBackendLive"
-            },
-            "UmaChampionsRegistration": {
-              "custom_action": "UmaChampionsRegistrationBackendLive"
-            },
-            "UmaChampionsRace": {
-              "custom_action": "UmaChampionsRaceBackendLive"
-            },
-            "UmaSeedCycle": {
-              "custom_action": "UmaSeedCycleBackendLive"
-            }
-          }
-        }
-      ]
-    },
     "大赛报名组别": {
       "type": "select",
       "default_case": "沿用已报名组别",

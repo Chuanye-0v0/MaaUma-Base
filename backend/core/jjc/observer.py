@@ -138,8 +138,9 @@ def opponent_cards(image):
     hue = hsv[:, :, 0]
     bands = []
     partial_strips = []
-    for low, high in ((5, 35), (40, 75), (80, 110)):
-        colored = (hue >= low) & (hue <= high) & (hsv[:, :, 1] >= 125) & (hsv[:, :, 2] >= 175)
+    narrow_fragments = []
+    for low, high, saturation, value in ((5, 35, 125, 175), (40, 75, 125, 175), (80, 110, 125, 175), (120, 140, 15, 210)):
+        colored = (hue >= low) & (hue <= high) & (hsv[:, :, 1] >= saturation) & (hsv[:, :, 2] >= value)
         rows = np.count_nonzero(colored, axis=1) >= 0.42 * width
         padded = np.pad(rows.astype(np.int8), (1, 1))
         starts = np.flatnonzero(np.diff(padded) == 1)
@@ -149,6 +150,7 @@ def opponent_cards(image):
             _, _, components, _ = cv2.connectedComponentsWithStats(colored[y0:y1].astype(np.uint8), connectivity=8)
             for x0, offset, span, thickness, _ in components[1:]:
                 if span < 0.75 * width:
+                    narrow_fragments.append(([int(x0), int(y0 + offset), int(x0 + span), int(y0 + offset + thickness)], colored))
                     continue
                 x0, x1 = (int(x0), int(x0 + span))
                 a, b = (int(y0 + offset), int(y0 + offset + thickness))
@@ -167,19 +169,25 @@ def opponent_cards(image):
     if len(bands) not in (2, 3):
         return []
     edges = cv2.Canny(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), 40, 100)
-    if partial_strips:
+    if partial_strips or (len(bands) == 2 and narrow_fragments):
         anchors = sorted(bands, key=lambda band: band[1])
         above, below = (anchors[0], anchors[-1])
         restored = []
+        restored_keys = set()
         if abs(above[0] - below[0]) <= 0.02 * width and abs(above[2] - below[2]) <= 0.02 * width and (abs(above[3] - above[1] - (below[3] - below[1])) <= 0.006 * height):
             left, right = (max(above[0], below[0]), min(above[2], below[2]))
             strip_height = min(above[3] - above[1], below[3] - below[1])
-            for fragment, colored in partial_strips:
+            local_fragments = [entry for entry in narrow_fragments if len(bands) == 2 and above[3] <= entry[0][1] and (entry[0][3] <= below[1])]
+            for fragment, colored in partial_strips + local_fragments:
                 top, bottom = (fragment[1], fragment[1] + strip_height)
                 if not (left <= fragment[0] < fragment[2] <= right and all((bottom <= band[1] or top >= band[3] for band in bands))):
                     continue
                 local = colored[top:bottom, left:right]
                 if local.mean() < 0.42:
+                    continue
+                local_hsv = hsv[top:bottom, left:right]
+                palette_support = sum((((local_hsv[:, :, 0] >= low) & (local_hsv[:, :, 0] <= high) & (local_hsv[:, :, 1] >= 125) & (local_hsv[:, :, 2] >= 175)).mean() >= 0.42 for low, high in ((5, 35), (40, 75), (80, 110))))
+                if palette_support != 1:
                     continue
                 present = np.any(local, axis=1)
                 missing = np.pad((~present).astype(np.int8), (1, 1))
@@ -189,7 +197,11 @@ def opponent_cards(image):
                 sides = [edges[top:bottom, x - 8:x + 8] for x in (left, right)]
                 if not all((np.any(side, axis=1).mean() >= 0.55 for side in sides)):
                     continue
-                restored.append([left, top, right, bottom])
+                candidate = [left, top, right, bottom]
+                candidate_key = (*candidate, id(colored))
+                if candidate_key not in restored_keys:
+                    restored.append(candidate)
+                    restored_keys.add(candidate_key)
         if restored:
             if len(bands) != 2 or len(restored) != 1:
                 return []

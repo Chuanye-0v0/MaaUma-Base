@@ -20,6 +20,7 @@ public sealed class MaaUmaActivationView : UserControl
 {
     public const string UpdateNotice="基础更新无需激活，请使用主面板的“版本更新”。";
     public const string DefaultServiceUrl="https://maauma-private.2234198378.workers.dev";
+    public const string FeedbackUrl="https://github.com/Chuanye-0v0/MaaUma-Base/issues/new/choose";
     public static Func<Task<bool>>? AdditionalIdleCheck { get; set; }
     private static readonly SemaphoreSlim ActivationFlight = new(1, 1);
     private readonly string root;
@@ -27,9 +28,11 @@ public sealed class MaaUmaActivationView : UserControl
     private readonly Func<Task<bool>> idle;
     private readonly Action<ProcessStartInfo> launch;
     private readonly Action exit;
+    private readonly Action<ProcessStartInfo> openFeedback;
     private readonly TextBox address = new() { Name="MaaUmaServiceUrl", Text=DefaultServiceUrl, Watermark="维护者预置的 HTTPS 服务地址" };
     private readonly TextBox code = new() { Name="MaaUmaPersonalCode", Watermark="输入测试版激活码", PasswordChar='●' };
     private readonly ComboBox channel = new() { Name="MaaUmaChannel", ItemsSource=new[]{"稳定版","预览版"}, SelectedIndex=1 };
+    private readonly Button feedback = new() { Name="MaaUmaFeedback", Content="问题反馈" };
     private readonly Button configure = new() { Name="MaaUmaConfigureService", Content="保存设置" };
     private readonly Button activate = new() { Name="MaaUmaActivate", Content="激活" };
     private readonly Button refresh = new() { Name="MaaUmaRefreshLicense", Content="刷新状态" };
@@ -48,17 +51,19 @@ public sealed class MaaUmaActivationView : UserControl
 
     public MaaUmaActivationView() : this(AppContext.BaseDirectory) { }
     public MaaUmaActivationView(string packageRoot, Func<JObject,Task<JObject>>? service=null,
-        Func<Task<bool>>? runtimeIdle=null, Action<ProcessStartInfo>? launchHelper=null, Action? closeWindow=null)
+        Func<Task<bool>>? runtimeIdle=null, Action<ProcessStartInfo>? launchHelper=null, Action? closeWindow=null,
+        Action<ProcessStartInfo>? feedbackBrowser=null)
     {
         root=Path.GetFullPath(packageRoot); request=service ?? new SuiteClient(root).Request;
         idle=runtimeIdle ?? RuntimeIdle;
+        openFeedback=feedbackBrowser ?? (info=>{using var browser=Process.Start(info);});
         launch=launchHelper ?? (info=>{using var child=Process.Start(info) ?? throw new IOException("无法启动安装助手。");});
         exit=closeWindow ?? (()=>{if(TopLevel.GetTopLevel(this) is Window window)window.Close();});
         var body=new StackPanel {Margin=new Thickness(24),Spacing=12,MaxWidth=920,HorizontalAlignment=HorizontalAlignment.Stretch};
         body.Children.Add(new TextBlock {Name="MaaUmaUpdateTitle",Text="版本更新",FontSize=25,FontWeight=FontWeight.Bold});
         body.Children.Add(new TextBlock {Text="基础更新无需激活。下载完成后，请停止任务再安装。",TextWrapping=TextWrapping.Wrap});
         var actions=new WrapPanel {Orientation=Orientation.Horizontal};
-        foreach(var button in new[]{refresh,prepare,install}){button.Margin=new Thickness(0,0,12,8);actions.Children.Add(button);}
+        foreach(var button in new[]{refresh,prepare,install,feedback}){button.Margin=new Thickness(0,0,12,8);actions.Children.Add(button);}
         body.Children.Add(actions);body.Children.Add(progress);body.Children.Add(message);
         var serviceFields=new StackPanel {Spacing=10,Children={
             new TextBlock {Text="服务地址"},address,new TextBlock {Text="更新频道"},channel,configure}};
@@ -71,6 +76,10 @@ public sealed class MaaUmaActivationView : UserControl
         configure.Click+=async(_,_)=>await Configure();activate.Click+=async(_,_)=>await Activate();
         refresh.Click+=async(_,_)=>await RefreshInfo();prepare.Click+=async(_,_)=>await PrepareUpdate();
         install.Click+=async(_,_)=>await Install();channel.SelectionChanged+=(_,_)=>Buttons();
+        feedback.Click+=(_,_)=>{
+            try {openFeedback(new ProcessStartInfo(FeedbackUrl){UseShellExecute=true});}
+            catch {message.Text="无法打开浏览器，请稍后重试。";}
+        };
         address.TextChanged+=(_,_)=>{code.Text="";ticket=null;Buttons();};
         Loaded+=async(_,_)=>{timer.Start();await RefreshInfo();};Unloaded+=(_,_)=>timer.Stop();
         timer.Tick+=async(_,_)=>{if(!busy)await UpdateIdle();};

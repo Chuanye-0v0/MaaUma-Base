@@ -2,7 +2,7 @@
   "UmaDailyRewards": {
     "recognition": "DirectHit",
     "action": "Custom",
-    "custom_action": "UmaDailyRewardsBackend",
+    "custom_action": "UmaDailyRewardsBackendLive",
     "custom_action_param": {},
     "next": [],
     "focus": {
@@ -12,7 +12,7 @@
   "UmaStoryEvent": {
     "recognition": "DirectHit",
     "action": "Custom",
-    "custom_action": "UmaStoryEventBackend",
+    "custom_action": "UmaStoryEventBackendLive",
     "custom_action_param": {},
     "next": [],
     "focus": {
@@ -23,7 +23,7 @@
   "UmaHarvest": {
     "recognition": "DirectHit",
     "action": "Custom",
-    "custom_action": "UmaHarvestBackend",
+    "custom_action": "UmaHarvestBackendLive",
     "custom_action_param": {
       "learn_skills": true,
       "update_team": true,
@@ -39,7 +39,7 @@
   "UmaJjc": {
     "recognition": "DirectHit",
     "action": "Custom",
-    "custom_action": "UmaJjcBackend",
+    "custom_action": "UmaJjcBackendLive",
     "custom_action_param": {
       "prefer_rematch": true
     },
@@ -53,7 +53,7 @@
   "UmaActivities": {
     "recognition": "DirectHit",
     "action": "Custom",
-    "custom_action": "UmaActivitiesBackend",
+    "custom_action": "UmaActivitiesBackendLive",
     "custom_action_param": {
       "races": true
     },
@@ -70,7 +70,7 @@
   "UmaDailyLegend": {
     "recognition": "DirectHit",
     "action": "Custom",
-    "custom_action": "UmaDailyLegendBackend",
+    "custom_action": "UmaDailyLegendBackendLive",
     "custom_action_param": {
       "opponent_number": 0
     },
@@ -83,7 +83,7 @@
   "UmaPlant": {
     "recognition": "DirectHit",
     "action": "Custom",
-    "custom_action": "UmaPlantBackend",
+    "custom_action": "UmaPlantBackendLive",
     "next": [],
     "custom_action_param": {
       "trainee": "scarlet",
@@ -98,7 +98,7 @@
   "UmaLimitedLegend": {
     "recognition": "DirectHit",
     "action": "Custom",
-    "custom_action": "UmaLimitedLegendBackend",
+    "custom_action": "UmaLimitedLegendBackendLive",
     "custom_action_param": {},
     "next": [],
     "focus": {
@@ -109,7 +109,7 @@
   "UmaChampionsRegistration": {
     "recognition": "DirectHit",
     "action": "Custom",
-    "custom_action": "UmaChampionsRegistrationBackend",
+    "custom_action": "UmaChampionsRegistrationBackendLive",
     "custom_action_param": {
       "division": null
     },
@@ -122,7 +122,7 @@
   "UmaChampionsRace": {
     "recognition": "DirectHit",
     "action": "Custom",
-    "custom_action": "UmaChampionsRaceBackend",
+    "custom_action": "UmaChampionsRaceBackendLive",
     "custom_action_param": {
       "rounds": 4,
       "normal_only": false,
@@ -139,7 +139,7 @@
   "UmaSeedCycle": {
     "recognition": "DirectHit",
     "action": "Custom",
-    "custom_action": "UmaSeedCycleBackend",
+    "custom_action": "UmaSeedCycleBackendLive",
     "custom_action_param": {
       "plant": {
         "trainee": "scarlet",

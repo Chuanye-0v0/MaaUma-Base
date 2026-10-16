@@ -134,17 +134,17 @@ def choose_action(mode, observed, context):
     elif page == 'exam_detail':
         action = 'close_exam_detail' if observed.get('exam_selection_applied') is True else 'confirm_exam'
     elif page == 'inheritance':
-        if type(observed.get('inheritance_full')) is not bool:
-            raise RuntimeError('inheritance_completeness_unknown')
-        action = 'continue_inheritance' if observed.get('inheritance_full') is True else 'auto_inheritance'
+        from core.autonomous_training.plant_inheritance import choose as choose_inheritance
+        action = choose_inheritance(observed, context)
     elif page == 'inherit_confirm':
-        if type(observed.get('borrow_checked')) is not bool:
-            raise RuntimeError('borrow_checkbox_unknown')
-        action = 'confirm_inheritance' if observed['borrow_checked'] else 'toggle_borrow'
+        from core.autonomous_training.plant_inheritance import choose as choose_inheritance
+        action = choose_inheritance(observed, context)
     elif page == 'support_deck':
         if type(observed.get('support_full')) is not bool:
             raise RuntimeError('support_completeness_unknown')
-        action = 'continue_support' if observed.get('support_full') is True else 'auto_support'
+        if observed.get('support_full') is not True:
+            raise RuntimeError('current_support_incomplete')
+        action = 'continue_support'
     elif page == 'trainee' and context.get('required_trainee'):
         if context.get('required_variant'):
             if observed.get('selected_variant') == context['required_variant']:

@@ -1,18 +1,26 @@
-"""Public saved-deck/borrow selection, using the shared U1/U2 recognizer."""
+"""Public plant setup preferences; shared U1 owns execution semantics."""
 import json
 from pathlib import Path
 import sys
-from core.autonomous_training.plant_support import catalog, validate, TYPE_LABELS, OPTION_KEYS
+from core.autonomous_training.plant_support import catalog, validate as validate_support, TYPE_LABELS, OPTION_KEYS
+SETUP_KEYS = {'inheritance_selection', 'inheritance_borrow_friend'}
 STORE = Path(__file__).resolve().parents[1] / 'runs/plant-support-settings.json'
+
+def validate_settings(draft):
+    if not isinstance(draft, dict) or set(draft) - (OPTION_KEYS | SETUP_KEYS):
+        raise ValueError('support_options_invalid')
+    setup = {key: draft[key] for key in SETUP_KEYS if key in draft}
+    if 'inheritance_selection' in setup and setup['inheritance_selection'] not in ('keep', 'auto') or ('inheritance_borrow_friend' in setup and type(setup['inheritance_borrow_friend']) is not bool):
+        raise ValueError('plant_setup_options_invalid')
+    support = validate_support({key: value for key, value in draft.items() if key not in SETUP_KEYS})
+    return {**support, **setup}
 
 def request(value):
     if not isinstance(value, dict) or value.get('action') not in {'load', 'save'}:
         raise ValueError('plant_editor_request_invalid')
     stored = json.loads(STORE.read_text(encoding='utf8')) if STORE.exists() else {}
     draft = value.get('settings', {}) if value['action'] == 'save' else stored
-    if not isinstance(draft, dict) or set(draft) - OPTION_KEYS:
-        raise ValueError('support_options_invalid')
-    chosen = validate(draft)
+    chosen = validate_settings(draft)
     if value['action'] == 'save':
         STORE.parent.mkdir(parents=True, exist_ok=True)
         temporary = STORE.with_suffix('.tmp')

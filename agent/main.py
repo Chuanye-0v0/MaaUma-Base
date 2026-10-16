@@ -85,7 +85,6 @@ def main():
         'story_event':'UmaStoryEvent','daily_rewards':'UmaDailyRewards','cleanup':'UmaCleanup',
         'seed_cycle':'UmaSeedCycle'}
     for task in TASKS:
-        AgentServer.register_custom_action(names[task]+'Backend', BackendTaskAction(backend, task))
         AgentServer.register_custom_action(names[task]+'BackendLive', BackendTaskAction(backend, task, execute=True))
     if len(sys.argv) != 2:
         return 2

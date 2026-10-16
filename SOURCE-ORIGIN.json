@@ -15,5 +15,32 @@
     "Personal-name template fallback removed",
     "License and third-party notices supplied"
   ],
-  "bit_identical_release_rebuild_claimed": false
+  "bit_identical_release_rebuild_claimed": false,
+  "ordinary_updates": [
+    {
+      "version": "0.4.7",
+      "scope": "ordinary inheritance, daily execution and skill pacing fixes; public issue entry",
+      "changed_source_paths": [
+        "agent/main.py",
+        "backend/core/autonomous_training/live.py",
+        "backend/core/autonomous_training/observer.py",
+        "backend/core/autonomous_training/plant_inheritance.py",
+        "backend/core/autonomous_training/runner.py",
+        "backend/core/jjc/observer.py",
+        "backend/desktop/mfa_backend.py",
+        "backend/desktop/mfa_plant_resume.py",
+        "backend/desktop/umaa_plant_setup_resume.py",
+        "backend/desktop/umaa_public_plant.py",
+        "backend/scripts/ug_parent_skill_purchase_batch.py",
+        "gui/MFAAvalonia/Helper/MaaUmaActivationView.cs",
+        "gui/MFAAvalonia/Helper/UmaPublicPlant.cs",
+        "interface.json",
+        "resource/pipeline/public-tasks.json",
+        "tests/test_inheritance_options.py"
+      ],
+      "public_projection_sha256": "84791b8d91eb95d2f4b4403509c54b898676970c9c861b354a2e514556523797",
+      "bit_identical_release_rebuild_claimed": false
+    }
+  ],
+  "latest_ordinary_source_update": "0.4.7"
 }

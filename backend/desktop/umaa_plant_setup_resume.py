@@ -29,17 +29,24 @@ def proven(source, endpoint):
 def resume(device, source, options, emit, stop):
     from core.autonomous_training.plant_plan import validate as plan
     from core.autonomous_training.plant_support import validate as support
+    from core.autonomous_training.plant_inheritance import validate as inheritance
     from core.autonomous_training.plant_catalog import trainee_name, INITIAL_VARIANTS
     from core.autonomous_training.runner import AutonomousRunner
     source = Path(source).resolve()
     if not proven(source, device.endpoint):
         raise RuntimeError('seed_unsubmitted_setup_not_proven')
     context = json.loads((source / 'context.json').read_text(encoding='utf8'))
+
+    def inheritance_key(value):
+        value = inheritance(value)
+        selection = value.get('inheritance_selection', 'keep')
+        return (selection, value.get('inheritance_borrow_friend', True))
     key = options['trainee']
-    if context.get('plant_options') != plan(options) or context.get('support_options', {}) != support(options) or context.get('required_trainee') != trainee_name(key) or (context.get('required_variant') != INITIAL_VARIANTS.get(key, key)):
+    if context.get('plant_options') != plan(options) or context.get('support_options', {}) != support(options) or inheritance_key(context.get('inheritance_options', {})) != inheritance_key(options) or (context.get('required_trainee') != trainee_name(key)) or (context.get('required_variant') != INITIAL_VARIANTS.get(key, key)):
         raise RuntimeError('seed_setup_options_changed')
     original = json.loads((source / 'adapter_result.json').read_text(encoding='utf8'))
     device.context.update(context)
+    device.context['inheritance_options'] = inheritance(context.get('inheritance_options', {}))
     emit(dict(type='progress', message='承接原开种准备与指定卡组／借卡；尚未提交开种，不重置已核实的准备状态'))
     result = AutonomousRunner(device, emit, stop).run('start')
     result['records'] = [*original.get('records', []), *result.get('records', [])]

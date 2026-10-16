@@ -12,6 +12,14 @@ build = importlib.util.module_from_spec(spec); spec.loader.exec_module(build)
 
 
 class BuildPaths(unittest.TestCase):
+    def test_ordinary_source_version_matches_build_and_resource_contract(self):
+        for name, key in (('interface.json', 'version'),
+                          ('maauma-suite.json', 'base_version'),
+                          ('resources/required-inputs.json', 'version')):
+            with self.subTest(path=name):
+                value = json.loads((ROOT/name).read_text(encoding='utf-8-sig'))
+                self.assertEqual(value[key], build.VERSION)
+
     def test_public_project_graph_is_self_contained(self):
         self.assertTrue(build.check()['ok'])
 

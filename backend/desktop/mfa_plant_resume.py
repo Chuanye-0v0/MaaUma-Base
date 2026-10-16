@@ -194,10 +194,11 @@ def resume_submitted_plant(device, source, harvest_options, skill_database, emit
     outcome = original.get('action_outcome') or {}
     if outcome.get('action_id') == 'confirm_autonomous_start' and (outcome.get('input_attempts', 0) > 0 or outcome.get('execution_status') in {'uncertain', 'executed'}):
         device.context['start_confirmed'] = True
+    device.context['inheritance_options'] = {}
     context_path = source.parent / 'context.json'
     if context_path.is_file():
         original_context = json.loads(context_path.read_text(encoding='utf8'))
-        for key in ('required_trainee', 'required_variant', 'verified_trainee', 'verified_variant', 'plant_options', 'verified_scenario', 'plan_done', 'support_options', 'verified_support'):
+        for key in ('required_trainee', 'required_variant', 'verified_trainee', 'verified_variant', 'plant_options', 'verified_scenario', 'plan_done', 'support_options', 'verified_support', 'inheritance_options', 'inheritance_confirmation_submitted', 'inheritance_confirmed', 'inheritance_borrow_toggle', 'inheritance_requested'):
             if key in original_context:
                 device.context[key] = original_context[key]
     base = dict(kind='autonomous_training', mode='start', start_submitted=True, start_confirmed=bool(device.context.get('start_confirmed')), prior_submission=str(source), no_refill=True, started_at=original.get('started_at'))
@@ -268,7 +269,7 @@ def resume_submitted_plant(device, source, harvest_options, skill_database, emit
         with intent.open('x', encoding='utf8') as stream:
             json.dump(dict(output=str(Path(device.output_dir).resolve()), prior_submission=str(source)), stream)
         if device.context.get('resume_unsubmitted_setup') is not True:
-            for key in ('verified_scenario', 'verified_variant', 'verified_trainee', 'verified_support', 'plan_done', 'plan_phase', 'inheritance_requested', 'support_requested'):
+            for key in ('verified_scenario', 'verified_variant', 'verified_trainee', 'verified_support', 'plan_done', 'plan_phase', 'support_requested'):
                 device.context.pop(key, None)
         device.context.update(start_submitted=False, resume_unsubmitted_setup=True)
         emit(dict(type='progress', message='当前无进行中育成且原确认零输入，按原请求继续准备'))
