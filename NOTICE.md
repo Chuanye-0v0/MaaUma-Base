@@ -25,7 +25,7 @@ The copied Markdown project metadata preserves these additional attributions:
 
 ## MaaUma changes
 
-Source export and adaptation date: **2026-10-16**. The ordinary 0.4.5 source was reorganized into an independent build layout. Changes include ordinary-client projection and update/activation UI, parent-library/planner integration, code-based branding, system-font use, relative project references, source/build tools and removal of private or user-specific inputs. The Suki side-menu footer collection isolation and GUI icon rendering adaptations are retained. See [SOURCE-ORIGIN.json](SOURCE-ORIGIN.json) and [docs/PROVENANCE.md](docs/PROVENANCE.md).
+Source export and adaptation date: **2026-10-16**. The ordinary 0.4.5 source was reorganized into an independent build layout. Changes include ordinary-client UI and update workflows, local credential-helper integration, parent-library/planner integration, code-based branding, system-font use, relative project references, source/build tools and exclusion of local user-specific inputs. The Suki side-menu footer collection isolation and GUI icon rendering adaptations are retained. See [SOURCE-ORIGIN.json](SOURCE-ORIGIN.json) and [docs/PROVENANCE.md](docs/PROVENANCE.md).
 
 ## Restored dependencies and external payloads
 

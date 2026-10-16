@@ -1,5 +1,5 @@
 name: 基础版问题反馈
-description: 反馈 MaaUma 基础版的问题；涉及测试功能或私密信息请使用私密渠道。
+description: 反馈 MaaUma 普通版的问题。
 title: "[问题] "
 body:
   - type: markdown
@@ -7,9 +7,9 @@ body:
       value: |
         此表单提交的 Issue、截图和错误片段会**公开可见**。
 
-        普通基础版反馈不需要激活码；在 GitHub 提交需要先登录 GitHub 账号。
+        在 GitHub 提交需要先登录 GitHub 账号。
 
-        **涉及测试功能、账号或授权资料**，请改用[私密反馈渠道](https://maauma-private.2234198378.workers.dev/feedback)。请勿在这里填写个人码、授权回执、账号资料或令牌，也不要直接上传完整日志或配置目录。
+        请勿提交账号、密码、密钥及个人信息。截图和错误片段请先遮挡这些信息，也不要直接上传完整日志或配置目录。
   - type: input
     id: version
     attributes:
@@ -47,7 +47,7 @@ body:
     id: environment
     attributes:
       label: 运行环境（可选）
-      description: 不涉及模拟器时可注明“不涉及”；请勿填写账号或设备的个人识别信息。
+      description: 不涉及模拟器时可注明“不涉及”；请勿填写账号、密码、密钥及个人信息。
       placeholder: |
         操作系统及版本：
         模拟器名称及版本（若相关）：
@@ -58,14 +58,14 @@ body:
     id: screenshots
     attributes:
       label: 截图（可选）
-      description: 可粘贴或拖入截图。提交前请遮挡账号、个人码、授权资料等私密信息；截图会公开可见。
+      description: 可粘贴或拖入截图。提交前请遮挡账号、密码、密钥及个人信息；截图会公开可见。
     validations:
       required: false
   - type: textarea
     id: error-excerpt
     attributes:
       label: 经过遮挡的错误片段（可选）
-      description: 仅粘贴与问题相关且已去除私密信息的片段，无需添加代码围栏；请勿上传完整日志或配置文件。
+      description: 仅粘贴与问题相关且已去除账号、密码、密钥及个人信息的片段，无需添加代码围栏；请勿上传完整日志或配置文件。
       render: text
     validations:
       required: false

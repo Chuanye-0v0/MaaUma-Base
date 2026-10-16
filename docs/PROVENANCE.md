@@ -10,7 +10,7 @@ GUI 上游为 [MaaXYZ/MFAAvalonia](https://github.com/MaaXYZ/MFAAvalonia)。保�
 
 - 整理普通版 GUI、普通 Python 后端和应用自定义配置，建立仓库内相对引用与独立构建入口。
 - 补充桌面启动项目、Identity/PublicCheck 客户端工具源码及其构建入口。
-- 保留普通版版本更新、测试版激活、种马库与规划等客户端逻辑。
+- 保留普通版版本更新、本机凭据辅助、种马库与规划等客户端逻辑。
 - 补上游 Desktop 的启动程序和应用清单，调整为仓库内相对项目引用。
 - 移除 Inter/Roboto/AlibabaPuHuiTi 字体绑定和旧 Suki HintPath，使用系统字体；移除 icons8 图像引用，替换为代码 PathIcon。
 - Markdown 缺图回退改为代码生成的透明占位；窗口标题图标由自有 M 几何生成，SVG保留作标志来源说明。
@@ -19,7 +19,7 @@ GUI 上游为 [MaaXYZ/MFAAvalonia](https://github.com/MaaXYZ/MFAAvalonia)。保�
 - 保留已完成的侧栏页脚集合隔离、图标渲染及普通客户端 UI 调整。
 - 补齐 GPLv3、SukiUI/Markdown MIT 等许可副本与署名说明。
 
-上述代码改动属于本次 GPLv3 代码发布范围；第三方原有权利仍按其条款保留。私有引擎、服务端、游戏资源、模型、数据库与个人数据没有因此进入普通源码仓。
+上述代码改动属于本次 GPLv3 代码发布范围；第三方原有权利仍按其条款保留。外部游戏资源、模型、数据库与个人数据没有因此进入普通源码仓。
 
 ## 验证与适用范围
 
