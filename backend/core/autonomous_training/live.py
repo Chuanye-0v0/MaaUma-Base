@@ -7,6 +7,7 @@ import threading
 import time
 import cv2
 import numpy as np
+from core.image_io import read_image
 from core.skill_scroll import SKILL_OVERLAP_SWIPE, skill_overlap_shell, skill_rewind_shell, skill_list_frames_match
 from core.support_library.live import SupportDevice
 from core.observation_timing import observation_is_stale
@@ -470,7 +471,7 @@ class AutonomousDevice(SupportDevice):
                 settled = capture()
                 if settled.get('page') != 'skills' or settled.get('skill_list_at_bottom') is not True or (type(before.get('current_skill_points')) is int and type(settled.get('current_skill_points')) is int and (settled['current_skill_points'] != before['current_skill_points'])):
                     raise RuntimeError('skill_bottom_settlement_unverified')
-                stable = skill_list_frames_match(cv2.imread(str(after.get('screenshot_path', ''))), cv2.imread(str(settled.get('screenshot_path', ''))))
+                stable = skill_list_frames_match(read_image(str(after.get('screenshot_path', ''))), read_image(str(settled.get('screenshot_path', ''))))
                 after = settled
                 if stable:
                     break

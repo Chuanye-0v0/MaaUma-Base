@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 import cv2
+from core.image_io import read_image
 from core.autonomous_training.purchase import ExplicitDeviceTransportFacade
 from core.skill_purchase_dialog import inspect_skill_multi_purchase_success_dialog, inspect_skill_purchase_success_dialog
 from core.skill_purchase_executor import SKILL_PURCHASE_SAFETY_TOKEN, SkillPurchaseExecutor
@@ -63,7 +64,7 @@ def close_skill_purchase_success(*, device: Any, child_plan_path: str | Path, fi
     def parse_fresh_state(frame: Any) -> dict[str, Any]:
         nonlocal frame_sequence
         frame_sequence += 1
-        image = cv2.imread(str(frame), cv2.IMREAD_COLOR)
+        image = read_image(str(frame), cv2.IMREAD_COLOR)
         state = dict(inspect_skill_purchase_success_dialog(image, reviewed_rows=reviewed_rows) if reviewed_rows is not None else inspect_skill_multi_purchase_success_dialog(image, confirmed_item_ids=child_ids, verified_selection=child.get('final_authorization', {}).get('confirmation_policy') == 'verified_selection'))
         promotion = child['execution_promotion']
         state.update({'fresh': True, 'plan_id': child['plan_id'], 'sample_id': promotion['sample_id'], 'session_id': promotion['session_id'], 'capture_batch_id': promotion['fresh_capture_id'], 'frame_capture_id': f'success-close-{frame_sequence}', 'frame_sequence': frame_sequence, 'frame_sha256': _sha256_file(Path(frame)), 'planned_item_ids': child_ids, 'auto_included_item_ids': []})

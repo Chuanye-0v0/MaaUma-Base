@@ -40,7 +40,30 @@
       ],
       "public_projection_sha256": "84791b8d91eb95d2f4b4403509c54b898676970c9c861b354a2e514556523797",
       "bit_identical_release_rebuild_claimed": false
+    },
+    {
+      "version": "0.4.8",
+      "scope": "Support non-ASCII paths in skill image loading and icon output; preserve detailed skill preparation failure reasons.",
+      "changed_source_paths": [
+        "backend/core/autonomous_training/harvest.py",
+        "backend/core/autonomous_training/harvest_skills.py",
+        "backend/core/autonomous_training/live.py",
+        "backend/core/autonomous_training/skills.py",
+        "backend/core/autonomous_training/success_close.py",
+        "backend/core/image_io.py",
+        "backend/core/skill_acquisition_parser.py",
+        "backend/core/skill_purchase_live_adapter.py",
+        "backend/scripts/ug_parent_skill_purchase_batch.py",
+        "backend/scripts/ug_parent_skill_purchase_batch_final_confirm.py",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py",
+        "tests/test_image_io.py"
+      ],
+      "public_projection_sha256": "16c7aa1fdf78038b565e8913d8f60d2eefbcd381045e65417af99ecbdedae319",
+      "bit_identical_release_rebuild_claimed": false
     }
   ],
-  "latest_ordinary_source_update": "0.4.7"
+  "latest_ordinary_source_update": "0.4.8"
 }

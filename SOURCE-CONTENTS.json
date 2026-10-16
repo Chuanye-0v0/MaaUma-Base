@@ -85,6 +85,7 @@
     "backend/core/game_runtime.py",
     "backend/core/harvest_factors.py",
     "backend/core/harvest_presets.py",
+    "backend/core/image_io.py",
     "backend/core/incremental_ocr.py",
     "backend/core/jjc/__init__.py",
     "backend/core/jjc/formation.py",
@@ -1028,6 +1029,7 @@
     "scripts/build.py",
     "scripts/check_source.py",
     "tests/test_build_paths.py",
+    "tests/test_image_io.py",
     "tests/test_inheritance_options.py",
     "tests/test_public_source_boundary.py",
     "tools/MaaUmaIdentity/MaaUmaIdentity.csproj",
@@ -1051,5 +1053,5 @@
   "build_recipe": "scripts/build.py",
   "resource_contract": "resources/required-inputs.json",
   "bit_identical_binary_rebuild_claimed": false,
-  "latest_ordinary_source_update": "0.4.7"
+  "latest_ordinary_source_update": "0.4.8"
 }

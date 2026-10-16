@@ -12,6 +12,7 @@ PROJECT_ROOT = ROOT.parents[1] if ROOT.parent.name == '.worktrees' else ROOT
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from config.settings import ADB_ENDPOINT, ADB_PORT
+from core.image_io import read_image
 from core.autonomous_training.final_authorization import validate_completed_selection
 from core.skill_purchase_dialog import CurrentRunMultiPageSkillDialogVerifier, inspect_skill_multi_page_purchase_confirmation_dialog, inspect_verified_selection_confirmation
 from core.skill_purchase_executor import SKILL_PURCHASE_SAFETY_TOKEN, SkillPurchaseExecutor
@@ -85,15 +86,15 @@ def validate_closure_contract(contract: Any, *, plan: dict[str, Any], plan_path:
     return None
 
 def build_multi_page_dialog_state(*, plan: dict[str, Any], contract: dict[str, Any], top_frame: Path, current_frame: Path, frame_sequence: int) -> dict[str, Any]:
-    current = cv2.imread(str(current_frame), cv2.IMREAD_COLOR)
+    current = read_image(str(current_frame), cv2.IMREAD_COLOR)
     frames = [current]
     selection_verified = contract.get('confirmation_policy') == 'verified_selection'
     if len(contract['expected_rows']) > 5 and (not selection_verified):
-        top = cv2.imread(str(top_frame), cv2.IMREAD_COLOR)
+        top = read_image(str(top_frame), cv2.IMREAD_COLOR)
         middle = contract.get('intermediate_frames', [])
         if any((not Path(item['path']).is_file() or _sha256_file(Path(item['path'])) != item['sha256'] for item in middle)):
             return {'accepted': False, 'page_kind': 'unknown', 'reason': 'intermediate_frame_mismatch'}
-        frames = [top, *[cv2.imread(item['path'], cv2.IMREAD_COLOR) for item in middle], current]
+        frames = [top, *[read_image(item['path'], cv2.IMREAD_COLOR) for item in middle], current]
     state = inspect_verified_selection_confirmation(current) if selection_verified else inspect_skill_multi_page_purchase_confirmation_dialog(frames, expected_rows=contract['expected_rows'])
     promotion = plan['execution_promotion']
     frame_sha256 = _sha256_file(current_frame)

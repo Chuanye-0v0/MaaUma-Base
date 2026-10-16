@@ -13,6 +13,7 @@ from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 from typing import Any
 import cv2
+from core.image_io import read_image
 from core.autonomous_training.confirmation import confirm_final_skill_learning
 from core.autonomous_training.finish import canonical_finish_evidence, finish_control_visible
 from core.autonomous_training.final_issuer import _expected_rows, issue_final_confirmation_artifacts
@@ -74,7 +75,8 @@ def learn_harvest_skills(device: Any, output_dir: Path, build_context: dict, sto
     prepared = prepare_skills(device, Path(output_dir) / 'prepare', planner_context, expected_endpoint=expected_endpoint)
     base = _include_prepare_actions(base, prepared)
     if not isinstance(prepared, Mapping) or prepared.get('status') != 'ready':
-        return {**base, 'reason': 'skill_prepare_not_ready'}
+        failure = {key: prepared[key] for key in ('reason', 'detail', 'report_path') if isinstance(prepared.get(key), str) and prepared[key]} if isinstance(prepared, Mapping) else {}
+        return {**base, 'reason': 'skill_prepare_not_ready', **({'prepare_failure': failure} if failure else {})}
     plan = _read_mapping(prepared.get('batch_plan_path'))
     if plan is None:
         return {**base, 'reason': 'prepared_plan_unreadable'}
@@ -255,7 +257,7 @@ def _issue_final_confirmation(device: Any, selection_root: Path, selection: Mapp
         if not isinstance(frame_path, str) or type(captured_at) is not int:
             reason = 'confirmation_capture_invalid'
         else:
-            image = cv2.imread(frame_path, cv2.IMREAD_COLOR)
+            image = read_image(frame_path, cv2.IMREAD_COLOR)
             if image is None:
                 reason = 'confirmation_frame_unreadable'
             else:
@@ -416,7 +418,7 @@ def manifest_page_sha256(manifest_path: Path) -> str | None:
 
 def skill_list_region_sha256(path: Path) -> str | None:
     """Bind the original rows/footer; live animation matching is separate."""
-    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    image = read_image(str(path), cv2.IMREAD_COLOR)
     if image is None or image.shape != (1280, 720, 3):
         return None
     digest = hashlib.sha256()
@@ -435,7 +437,7 @@ def _skill_list_matches_no_purchase_evidence(path: Path, evidence: Mapping[str, 
     source_path = pages[-1].get('path')
     if not isinstance(source_path, str) or skill_list_region_sha256(Path(source_path)) != expected:
         return False
-    source, current = (cv2.imread(source_path), cv2.imread(str(path)))
+    source, current = (read_image(source_path), read_image(str(path)))
     return skill_list_frames_match(source, current)
 
 def _observed_fresh_frame(observed: Mapping[str, Any]) -> bool:

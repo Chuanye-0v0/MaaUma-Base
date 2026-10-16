@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping
 import cv2
+from core.image_io import read_image
 from core.skill_acquisition_parser import SkillAcquisitionOcrRuntimeError
 from core.skill_ocr_performance import active_harvest_ocr, harvest_skill_ocr
 from core.skill_scroll import SKILL_OVERLAP_SWIPE, measure_skill_overlap
@@ -224,7 +225,7 @@ def prepare_skills(device: Any, output_dir: Path, build_context: dict[str, Any] 
             return _blocked(destination, 'skill_scroll_fresh_observation_missing', capture_manifest={'page_evidence': page_evidence})
         next_observation = response['observation']
         if forward_action == 'scroll_skill_overlap':
-            coverage = measure_skill_overlap(cv2.imread(str(local_page)), cv2.imread(str(next_observation.get('screenshot_path', ''))))
+            coverage = measure_skill_overlap(read_image(str(local_page)), read_image(str(next_observation.get('screenshot_path', ''))))
             coverage['page_index'] = len(pages)
             overlap_evidence.append(coverage)
             if coverage.get('verified') is not True or next_observation.get('page') != 'skills' or (type(observation.get('current_skill_points')) is int and type(next_observation.get('current_skill_points')) is int and (next_observation['current_skill_points'] != observation['current_skill_points'])):

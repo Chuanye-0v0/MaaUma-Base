@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Iterable
 import cv2
 import numpy as np
+from core.image_io import read_image, write_image
 from core.skill_ocr_performance import active_harvest_ocr, tesseract_stdin
 SCHEMA_VERSION = 'uma.skill_acquisition_manifest.v1'
 REFERENCE_WIDTH = 720
@@ -83,7 +84,7 @@ def resolve_tesseract_runtime(*, tessdata_dir: str | Path | None=None) -> Tesser
     raise SkillAcquisitionOcrRuntimeError(f'tessdata_eng_missing:{rendered}')
 
 def _read_image(path: Path) -> np.ndarray:
-    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    image = read_image(str(path), cv2.IMREAD_COLOR)
     if image is None:
         raise ValueError(f'cannot read skill acquisition image: {path}')
     if image.ndim != 3 or image.shape[2] != 3:
@@ -685,7 +686,7 @@ def _parse_row(normalized: np.ndarray, bbox: tuple[int, int, int, int], *, sourc
         icon_dir.mkdir(parents=True, exist_ok=True)
         icon_name = f'page_{page_index:02d}_row_{row_index:02d}_icon.png'
         icon_path = icon_dir / icon_name
-        if not cv2.imwrite(str(icon_path), icon):
+        if not write_image(str(icon_path), icon):
             raise OSError(f'failed to write icon crop: {icon_path}')
         icon_crop_relative = str(Path('icons') / icon_name).replace('\\', '/')
     unknown_reason: list[str] = []

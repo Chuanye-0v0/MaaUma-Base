@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping
 import cv2
 import numpy as np
+from core.image_io import read_image
 from core.perception import Perception
 from core.skill_batch_purchase import _canonical_plan_sha256, skill_selection_groups
 from core.skill_acquisition_parser import _normalize_image, _ocr_data, read_current_skill_points, inspect_skill_acquisition_page, parse_skill_acquisition_pages
@@ -70,7 +71,7 @@ class SkillPurchaseLiveCaptureSession:
         frame_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
         if frame_sha256 in self._seen_sha256:
             raise ValueError('frame SHA already seen')
-        image = cv2.imread(str(path))
+        image = read_image(str(path))
         if image is None:
             raise ValueError(f'image cannot be decoded: {path}')
         if navigation_only:

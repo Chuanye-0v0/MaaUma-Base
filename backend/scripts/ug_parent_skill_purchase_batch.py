@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from config.settings import ADB_ENDPOINT, ADB_PORT
+from core.image_io import read_image
 from core.skill_batch_purchase import build_skill_batch_plan, select_local_skill_action_ids, validate_skill_batch_plan, validate_skill_inventory_packet
 from core.skill_batch_purchase_executor import MAX_TOP_REWIND_SWIPES, SKILL_BATCH_PURCHASE_SAFETY_TOKEN, SkillBatchPurchaseExecutor
 from core.skill_planner.preferences import load_skill_preference_profile
@@ -387,9 +388,9 @@ class _LiveBatchAdapter:
         if self._reverse_first_step:
             import cv2
             from core.skill_scroll import measure_skill_overlap
-            before = cv2.imread(str(before_path))
+            before = read_image(str(before_path))
             state = self.capture_page(())
-            after = cv2.imread(str(self.screenshot_dir / f'batch_{self.capture_index:03d}.png'))
+            after = read_image(str(self.screenshot_dir / f'batch_{self.capture_index:03d}.png'))
             overlap = measure_skill_overlap(after, before)
             for _ in range(2):
                 if self._top_probe_sha(state) is None or state.get('current_skill_points') != before_points or overlap.get('verified') is not True:
@@ -402,7 +403,7 @@ class _LiveBatchAdapter:
                     break
                 time.sleep(0.15)
                 state = self.capture_page(())
-                after = cv2.imread(str(self.screenshot_dir / f'batch_{self.capture_index:03d}.png'))
+                after = read_image(str(self.screenshot_dir / f'batch_{self.capture_index:03d}.png'))
                 overlap = measure_skill_overlap(after, before)
             if self._top_probe_sha(state) is None or type(before_points) is not int or state.get('current_skill_points') != before_points or (overlap.get('verified') is not True) or (abs(round(overlap['shift']) - round(expected_shift)) > 2):
                 raise ValueError('reverse_bottom_step_unverified')

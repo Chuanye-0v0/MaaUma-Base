@@ -676,6 +676,9 @@ class HarvestRunner:
             if result.get('reason') == 'no_harvest_eligible_skills_return_required' and result.get('ok') is False:
                 break
             if result.get('ok') is not True:
+                failure = result.get('prepare_failure')
+                if result.get('reason') == 'skill_prepare_not_ready' and isinstance(failure, dict) and failure.get('reason'):
+                    self.emit(dict(type='progress', phase='skills', message='技能列表准备失败：' + str(failure['reason'])))
                 raise RuntimeError(result.get('reason') or 'skill_learning_not_verified')
             if not purchase_allowed:
                 raise RuntimeError('harvest_skill_purchase_limit_not_enforced')
