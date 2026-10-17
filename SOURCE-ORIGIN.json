@@ -343,8 +343,36 @@
         "scripts/build.py"
       ],
       "bit_identical_release_rebuild_claimed": false
+    },
+    {
+      "version": "0.4.19",
+      "revision": "r1",
+      "scope": "Advance the ordinary source version while retaining the released announcement behavior and public-source portability changes.",
+      "ordinary_backend_baseline": "0.4.18",
+      "ordinary_backend_changed": false,
+      "ordinary_gui_baseline": "0.4.18",
+      "ordinary_gui_release_baseline": "0.4.18",
+      "public_projection_sha256": "8d9e7188c4758741ee2e714f526f26baf8976dfb2bb533170c8b98ed5323580f",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.19.zip",
+      "ordinary_gui_archive_sha256": "b6ae85f869087d01fe5aeae0f2dda78e832feaa107cbd73d88aee725f51d17d1",
+      "ordinary_gui_archive_size_bytes": 30830993,
+      "ordinary_gui_archive_version": "0.4.19",
+      "ordinary_gui_code_version": "0.4.19",
+      "ordinary_gui_release_version": "0.4.19",
+      "ordinary_gui_code_reused_from": null,
+      "ordinary_gui_rebuilt_for_release": true,
+      "changed_source_paths": [
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "gui/MFAAvalonia/Helper/MaaUmaUpdateAnnouncement.cs",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false
     }
   ],
-  "latest_ordinary_source_update": "0.4.18",
+  "latest_ordinary_source_update": "0.4.19",
   "latest_ordinary_source_revision": "r1"
 }
