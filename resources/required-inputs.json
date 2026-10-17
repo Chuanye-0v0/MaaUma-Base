@@ -1,6 +1,6 @@
 {
   "schema_version": "maauma.external_resources.v1",
-  "version": "0.4.19",
+  "version": "0.4.20",
   "files": [
     "backend/core/account_inventory/assets/title_logo.png",
     "backend/core/autonomous_training/assets/100401_outfit_title.png",
