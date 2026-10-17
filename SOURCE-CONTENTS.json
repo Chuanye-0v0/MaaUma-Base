@@ -1066,7 +1066,7 @@
   "build_recipe": "scripts/build.py",
   "resource_contract": "resources/required-inputs.json",
   "bit_identical_binary_rebuild_claimed": false,
-  "latest_ordinary_source_update": "0.4.12",
+  "latest_ordinary_source_update": "0.4.13",
   "ordinary_updates": [
     {
       "version": "0.4.10",
@@ -1156,6 +1156,28 @@
       "bit_identical_release_rebuild_claimed": false,
       "source_revision": 2,
       "revision_reason": "Full update compatibility after public updater bootstrap"
+    },
+    {
+      "version": "0.4.13",
+      "scope": "Domestic COS download transport; GUI and corresponding source unchanged from 0.4.12.",
+      "ordinary_backend_baseline": "0.4.12",
+      "ordinary_gui_baseline": "0.4.12",
+      "gui_code_reused_from": "0.4.12",
+      "public_projection_sha256": "043d0c95fac117bb4d4873bd0dc0d0685ae6ba023ca90c435ae716ed71a4f34d",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.12.zip",
+      "ordinary_gui_archive_sha256": "6e4981574dac5d790e17b1eccef4324cca4c2ccbec1ba915d9653fdc694a6016",
+      "changed_source_paths": [
+        "README.md",
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "backend/desktop/maauma_components.py",
+        "backend/desktop/maauma_updater_bootstrap.py",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false
     }
   ]
 }

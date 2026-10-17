@@ -12,6 +12,8 @@ import stat
 import subprocess
 import sys
 from urllib.parse import urlsplit
+from urllib.error import HTTPError
+from urllib.request import Request, build_opener
 import uuid
 from zipfile import ZipFile,BadZipFile
 
@@ -23,6 +25,7 @@ STATE='config/maauma-modules.json'
 TRANSACTION='updates/maauma-suite-state.json'
 MAX_ARCHIVE=updates.MAX_ARCHIVE
 MUTABLE={'local_backend.json','pacer/portable_config.json'}
+PUBLIC_DOWNLOAD_HOST='maauma-downloads-1508966578.cos.ap-guangzhou.myqcloud.com'
 
 
 def _error(code):raise updates.UpdateError(code)
@@ -154,14 +157,40 @@ def _entry_url(root,entry):
     return url[len(base):]
 
 
+def _public_download_url(entry,product):
+    if 'public_download_url' not in entry:return None
+    if (product!='umaa-public' or entry.get('product_id')!='umaa-public'
+            or entry.get('component_id') not in (None,'base')):_error('wrong_product')
+    url=entry['public_download_url']
+    if not isinstance(url,str):_error('invalid_public_download_url')
+    # A literal origin and plain object path prevent credentials, ports, escaped
+    # separators and query strings from changing the selected destination.
+    prefix='https://'+PUBLIC_DOWNLOAD_HOST
+    match=re.fullmatch(re.escape(prefix)+r'/public/([0-9A-Za-z.-]+)/([A-Za-z0-9][A-Za-z0-9._-]*\.zip)',url)
+    if not match or match[1]!=entry.get('version'):_error('invalid_public_download_url')
+    try:updates.version_parts(match[1])
+    except updates.UpdateError:_error('invalid_public_download_url')
+    return url
+
+
+def _anonymous_download(url):
+    # Deliberately independent of service configuration, device identity and
+    # authorization. No service header or grant crosses to the public bucket.
+    request=Request(url,headers={'Accept':'application/octet-stream','User-Agent':'MaaUma-Suite/1'},method='GET')
+    try:return build_opener(service.NoRedirect()).open(request,timeout=90)
+    except (HTTPError,OSError,ValueError):raise service.ServiceError('service_unavailable') from None
+
+
 def download(root,entry,target,*,product,public=False,progress=None,item_id=None):
     from desktop.update_progress import content_length,read_chunk
     if progress is not None:progress.start_item(item_id)
-    path=_entry_url(root,entry)
     if public and product!='umaa-public':_error('wrong_product')
+    public_url=_public_download_url(entry,product)
+    path=_entry_url(root,entry) if public_url is None else None
     size=0
     try:
-        response=(service.public_wire(root,path,binary=True,timeout=90) if public else
+        response=(_anonymous_download(public_url) if public_url is not None else
+                  service.public_wire(root,path,binary=True,timeout=90) if public else
                   service.wire(root,path,product=product,binary=True,timeout=90))
         with response,Path(target).open('wb') as output:
             if progress is not None:progress.connected(content_length(response))

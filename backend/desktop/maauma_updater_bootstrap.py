@@ -1,4 +1,4 @@
-"""Small public updater-only bridge for 0.4.10/0.4.11; keeps product version."""
+"""Small public updater-only bridge for 0.4.10/0.4.11/0.4.12; keeps product version."""
 import argparse
 import ctypes
 import hashlib
@@ -14,7 +14,7 @@ from desktop import product_updates as updates
 from desktop import maauma_components as components
 
 SCHEMA='maauma.updater_bootstrap.v1'
-SUPPORTED=frozenset({'0.4.10','0.4.11'})
+SUPPORTED=frozenset({'0.4.10','0.4.11','0.4.12'})
 ALLOWLIST=frozenset('backend/'+name for name in (
     'desktop/__init__.py','desktop/maauma_service.py','desktop/maauma_components.py',
     'desktop/product_updates.py','desktop/update_progress.py','desktop/maauma_file_patches.py',
