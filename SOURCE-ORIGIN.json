@@ -191,7 +191,30 @@
         "scripts/build.py"
       ],
       "bit_identical_release_rebuild_claimed": false
+    },
+    {
+      "version": "0.4.14",
+      "scope": "Selectable update download channel with existing incremental/full paths; new ordinary GUI source.",
+      "ordinary_backend_baseline": "0.4.13",
+      "ordinary_gui_baseline": "0.4.13",
+      "public_projection_sha256": "5be7fda3d8b23d49e4caebd73278b30f5a38886343761bac952576cce2290dcf",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.14.zip",
+      "ordinary_gui_archive_sha256": "d16c2d2f699d8eade594c991bdc11be338e78db16f8f40dac245ee2352a15031",
+      "changed_source_paths": [
+        "README.md",
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "backend/desktop/maauma_components.py",
+        "backend/desktop/maauma_service.py",
+        "backend/desktop/maauma_updater_bootstrap.py",
+        "gui/MFAAvalonia/Helper/MaaUmaActivationView.cs",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false
     }
   ],
-  "latest_ordinary_source_update": "0.4.13"
+  "latest_ordinary_source_update": "0.4.14"
 }

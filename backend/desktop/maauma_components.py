@@ -183,27 +183,44 @@ def _anonymous_download(url):
 
 def download(root,entry,target,*,product,public=False,progress=None,item_id=None):
     from desktop.update_progress import content_length,read_chunk
-    if progress is not None:progress.start_item(item_id)
     if public and product!='umaa-public':_error('wrong_product')
-    public_url=_public_download_url(entry,product)
-    path=_entry_url(root,entry) if public_url is None else None
-    size=0
-    try:
-        response=(_anonymous_download(public_url) if public_url is not None else
-                  service.public_wire(root,path,binary=True,timeout=90) if public else
-                  service.wire(root,path,product=product,binary=True,timeout=90))
-        with response,Path(target).open('wb') as output:
-            if progress is not None:progress.connected(content_length(response))
-            while True:
-                block=read_chunk(response)
-                if not block:break
-                size+=len(block)
-                if size>MAX_ARCHIVE:_error('package_too_large')
-                output.write(block)
-                if progress is not None:progress.received(len(block))
-    except IncompleteRead:raise updates.UpdateError('package_download_incomplete') from None
-    if not size:_error('package_integrity_failed')
-    if progress is not None:progress.transferred()
+    source=service.config(root)['download_source']
+    public_url=_public_download_url(entry,product) if source!='origin' else None
+    if source=='cos' and product=='umaa-public' and public_url is None:
+        raise service.ServiceError('source_unavailable')
+    # Only public base files can go directly to COS. An authorized extension
+    # always stays on the signed service route, including an explicit source.
+    attempts=[('cos',public_url)] if public_url is not None else [(source,None)]
+    if public_url is not None and source=='auto':attempts.append(('origin',None))
+    for index,(selected,url) in enumerate(attempts):
+        if progress is not None:progress.start_item(item_id)
+        size=0
+        try:
+            if url is not None:response=_anonymous_download(url)
+            else:
+                path=_entry_url(root,entry)
+                response=(service.public_wire(root,path,binary=True,timeout=90,download_source=selected) if public else
+                          service.wire(root,path,product=product,binary=True,timeout=90,download_source=selected))
+            with response,Path(target).open('wb') as output:
+                expected=content_length(response)
+                if progress is not None:progress.connected(expected)
+                while True:
+                    try:block=read_chunk(response)
+                    except IncompleteRead:raise
+                    except OSError:raise service.ServiceError('service_unavailable') from None
+                    if not block:break
+                    size+=len(block)
+                    if size>MAX_ARCHIVE:_error('package_too_large')
+                    output.write(block)
+                    if progress is not None:progress.received(len(block))
+                if expected is not None and size!=expected:raise IncompleteRead(b'',max(0,expected-size))
+        except (service.ServiceError,IncompleteRead) as error:
+            if index+1<len(attempts):continue
+            if isinstance(error,IncompleteRead):raise updates.UpdateError('package_download_incomplete') from None
+            raise
+        if not size:_error('package_integrity_failed')
+        if progress is not None:progress.transferred()
+        return
 
 
 def _select_component(catalog,base_version):

@@ -19,6 +19,7 @@ CONFIG='config/private-service.json'
 AUTH='config/private-service-auth.json'
 RECEIPT='config/distribution-receipt.json'
 PRODUCTS={'umaa-public','uma-cut'}
+DOWNLOAD_SOURCES={'auto','cos','origin'}
 
 
 class ServiceError(RuntimeError):
@@ -103,17 +104,24 @@ def config(root):
     if not value.get('base_url'):raise ServiceError('service_not_configured')
     value['base_url']=service_base(value['base_url'])
     if value.get('channel') not in {'preview','stable'}:raise ServiceError('invalid_channel')
+    value['download_source']=_download_source(value.get('download_source','auto'))
     return value
 
 
-def configure(root,base_url,channel='preview'):
+def _download_source(value):
+    if not isinstance(value,str) or value not in DOWNLOAD_SOURCES:raise ServiceError('invalid_download_source')
+    return value
+
+
+def configure(root,base_url,channel='preview',download_source=None):
     base=service_base(base_url)
     if channel not in {'stable','preview'}:raise ServiceError('invalid_channel')
     path=contained(root,CONFIG);previous=read_json(path) if path.exists() else {}
-    write_json(path,{'schema_version':'uma.private_service_config.v1','base_url':base,'channel':channel})
+    source=_download_source(previous.get('download_source','auto') if download_source is None else download_source)
+    write_json(path,{'schema_version':'uma.private_service_config.v1','base_url':base,'channel':channel,'download_source':source})
     if previous.get('base_url')!=base:
         for name in (AUTH,RECEIPT):contained(root,name).unlink(missing_ok=True)
-    return {'ok':True,'status':'configured','base_url':base,'channel':channel}
+    return {'ok':True,'status':'configured','base_url':base,'channel':channel,'download_source':source}
 
 
 def credentials(root,product='umaa-public'):
@@ -129,7 +137,7 @@ def credentials(root,product='umaa-public'):
     return value
 
 
-def wire(root,path,body=None,*,authenticated=True,product='umaa-public',timeout=45,binary=False):
+def wire(root,path,body=None,*,authenticated=True,product='umaa-public',timeout=45,binary=False,download_source=None):
     cfg=config(root)
     token=credentials(root,product)['access_token'] if authenticated else ''
     data=json.dumps(body,ensure_ascii=False,separators=(',',':')).encode('utf8') if body is not None else b''
@@ -137,6 +145,7 @@ def wire(root,path,body=None,*,authenticated=True,product='umaa-public',timeout=
     headers={'Accept':'application/json','User-Agent':'MaaUma-Suite/1',**signed_headers(root,method,path,data,token)}
     if token:headers['Authorization']='Bearer '+token
     if body is not None:headers['Content-Type']='application/json'
+    if binary:headers['X-MaaUma-Download-Source']=_download_source(cfg['download_source'] if download_source is None else download_source)
     request=Request(cfg['base_url']+path,data=data if body is not None else None,headers=headers,method=method)
     try:
         response=build_opener(NoRedirect()).open(request,timeout=timeout)
@@ -153,13 +162,14 @@ def wire(root,path,body=None,*,authenticated=True,product='umaa-public',timeout=
     return value
 
 
-def public_wire(root,path,*,timeout=45,binary=False):
+def public_wire(root,path,*,timeout=45,binary=False,download_source=None):
     """Read the explicitly public base feed without a device or a grant."""
     if not re.fullmatch(r'/v1/public/(?:catalog\?channel=(?:stable|preview)|downloads/[1-9][0-9]{0,19}|patches\?from_version=[0-9A-Za-z.+_%-]+&to_version=[0-9A-Za-z.+_%-]+&channel=(?:stable|preview)|patches/fp_[0-9a-f]{32}/download)',str(path)):
         raise ServiceError('invalid_public_service_path')
     cfg=config(root)
-    request=Request(cfg['base_url']+path,headers={'Accept':'application/octet-stream' if binary else 'application/json',
-                    'User-Agent':'MaaUma-Suite/1'},method='GET')
+    headers={'Accept':'application/octet-stream' if binary else 'application/json','User-Agent':'MaaUma-Suite/1'}
+    if binary:headers['X-MaaUma-Download-Source']=_download_source(cfg['download_source'] if download_source is None else download_source)
+    request=Request(cfg['base_url']+path,headers=headers,method='GET')
     try:
         response=build_opener(NoRedirect()).open(request,timeout=timeout)
         if binary:return response
@@ -288,7 +298,7 @@ def info(root):
     except (ServiceError,UpdateError,OSError,ValueError):auth={};active=False
     state=contained(root,'config/maauma-modules.json')
     return {'ok':True,'status':'service_info','configured':True,'activated':active,
-            'base_url':cfg['base_url'],'channel':cfg['channel'],'products':auth.get('products',[]),
+            'base_url':cfg['base_url'],'channel':cfg['channel'],'download_source':cfg['download_source'],'products':auth.get('products',[]),
             'allow_preview':active and auth.get('allow_preview') is True,
             'trace_id':auth.get('distribution_receipt',{}).get('trace_id'),
             'modules':read_json(state) if state.is_file() else {'components':{}},'authorization_root':str(Path(root).resolve())}
@@ -299,7 +309,7 @@ def dispatch(root,value,*,progress=None):
     if not isinstance(value,dict):raise ServiceError('invalid_request')
     action=value.get('action')
     if action=='info':return info(root)
-    if action=='configure':return configure(root,value.get('base_url'),value.get('channel','preview'))
+    if action=='configure':return configure(root,value.get('base_url'),value.get('channel','preview'),value.get('download_source'))
     if action=='activate':return activate(root,value.get('invite_code'),progress=progress)
     if action=='catalog':return catalog(root)
     if action=='license':return license_check(root,value.get('product_id','umaa-public'))

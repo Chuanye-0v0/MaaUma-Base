@@ -38,6 +38,7 @@ public sealed class MaaUmaActivationView : UserControl
     private readonly TextBox address = new() { Name="MaaUmaServiceUrl", Text=DefaultServiceUrl, Watermark="维护者预置的 HTTPS 服务地址" };
     private readonly TextBox code = new() { Name="MaaUmaPersonalCode", Watermark="输入测试版激活码", PasswordChar='●' };
     private readonly ComboBox channel = new() { Name="MaaUmaChannel", ItemsSource=new[]{"稳定版","预览版"}, SelectedIndex=1 };
+    private readonly ComboBox downloadSource = new() { Name="MaaUmaDownloadSource", ItemsSource=new[]{"自动（国内优先）","国内下载（腾讯云）","原下载通道"}, SelectedIndex=0 };
     private readonly Button feedback = new() { Name="MaaUmaFeedback", Content="问题反馈" };
     private readonly Button configure = new() { Name="MaaUmaConfigureService", Content="保存设置" };
     private readonly Button activate = new() { Name="MaaUmaActivate", Content="激活" };
@@ -53,7 +54,7 @@ public sealed class MaaUmaActivationView : UserControl
     private readonly DispatcherTimer timer = new() { Interval=TimeSpan.FromSeconds(2) };
     private bool busy, autoPrepared, pacerAuthorized, pacerInstalled, previewAllowed, currentIdle;
     private string? ticket;
-    private string savedChannel="preview",savedAddress=DefaultServiceUrl;
+    private string savedChannel="preview",savedAddress=DefaultServiceUrl,savedDownloadSource="auto";
 
     public MaaUmaActivationView() : this(AppContext.BaseDirectory) { }
     public MaaUmaActivationView(string packageRoot, Func<JObject,Task<JObject>>? service=null,
@@ -73,7 +74,9 @@ public sealed class MaaUmaActivationView : UserControl
         foreach(var button in new[]{refresh,prepare,install,feedback}){button.Margin=new Thickness(0,0,12,8);actions.Children.Add(button);}
         body.Children.Add(actions);body.Children.Add(progress);body.Children.Add(downloadProgress);body.Children.Add(message);
         var serviceFields=new StackPanel {Spacing=10,Children={
-            new TextBlock {Text="服务地址"},address,new TextBlock {Text="更新频道"},channel,configure}};
+            new TextBlock {Text="服务地址"},address,new TextBlock {Text="更新频道"},channel,
+            new TextBlock {Text="下载渠道"},downloadSource,
+            new TextBlock {Text="选择后请保存设置，再检查更新。下载渠道不影响激活状态。",TextWrapping=TextWrapping.Wrap},configure}};
         var activationFields=new StackPanel {Spacing=10,Children={code,activate,rights,trace}};
         serviceFields.Bind(IsVisibleProperty,settings.GetObservable(Expander.IsExpandedProperty));
         activationFields.Bind(IsVisibleProperty,activation.GetObservable(Expander.IsExpandedProperty));
@@ -83,6 +86,7 @@ public sealed class MaaUmaActivationView : UserControl
         configure.Click+=async(_,_)=>await Configure();activate.Click+=async(_,_)=>await Activate();
         refresh.Click+=async(_,_)=>await RefreshInfo();prepare.Click+=async(_,_)=>await PrepareUpdate();
         install.Click+=async(_,_)=>await Install();channel.SelectionChanged+=(_,_)=>Buttons();
+        downloadSource.SelectionChanged+=(_,_)=>Buttons();
         feedback.Click+=(_,_)=>{
             try {openFeedback(new ProcessStartInfo(FeedbackUrl){UseShellExecute=true});}
             catch {message.Text="无法打开浏览器，请稍后重试。";}
@@ -93,13 +97,15 @@ public sealed class MaaUmaActivationView : UserControl
     }
 
     private string SelectedChannel=>channel.SelectedIndex==1 ? "preview" : "stable";
+    private string SelectedDownloadSource=>downloadSource.SelectedIndex switch {1=>"cos",2=>"origin",_=>"auto"};
+    private bool SettingsSaved=>SelectedChannel==savedChannel && SelectedDownloadSource==savedDownloadSource && (address.Text??"").Trim()==savedAddress;
     private void Buttons()
     {
         configure.IsEnabled=refresh.IsEnabled=!busy;
-        activate.IsEnabled=!busy && (address.Text??"").Trim()==savedAddress;
+        activate.IsEnabled=!busy && SettingsSaved;
         prepare.IsEnabled=activate.IsEnabled && SelectedChannel==savedChannel;
-        code.IsEnabled=address.IsEnabled=channel.IsEnabled=!busy;
-        install.IsEnabled=!busy && ticket!=null && currentIdle && SelectedChannel==savedChannel && (address.Text??"").Trim()==savedAddress;
+        code.IsEnabled=address.IsEnabled=channel.IsEnabled=downloadSource.IsEnabled=!busy;
+        install.IsEnabled=!busy && ticket!=null && currentIdle && SettingsSaved;
         progress.IsVisible=busy&&!downloadProgress.IsActive;
         prepare.Content=downloadProgress.HasFailed?"重新尝试下载":"检查并准备更新";
     }
@@ -130,6 +136,9 @@ public sealed class MaaUmaActivationView : UserControl
         channel.ItemsSource=canPreview ? new[]{"稳定版","预览版"} : new[]{"稳定版"};
         channel.SelectedIndex=canPreview && selected=="preview" ? 1 : 0;savedChannel=selected;
         if((string?)result["base_url"] is string url){address.Text=url;savedAddress=url;}
+        if((string?)result["download_source"] is string source && source is "auto" or "cos" or "origin") {
+            savedDownloadSource=source;downloadSource.SelectedIndex=source switch {"cos"=>1,"origin"=>2,_=>0};
+        }
         var prepared=result["component"] as JObject;
         if(result.Property("ticket")!=null)ticket=result["ticket"]?.Type==JTokenType.String ? (string?)result["ticket"] : null;
         else if((bool?)prepared?["ok"]==true && prepared?["ticket"]?.Type==JTokenType.String)ticket=(string?)prepared["ticket"];
@@ -179,10 +188,10 @@ public sealed class MaaUmaActivationView : UserControl
 
     public async Task RefreshInfo()
     {
-        if(busy)return;Busy(true);
+        if(busy)return;var allowAutomaticPrepare=SettingsSaved;Busy(true);
         try {
             var result=await request(new JObject {["action"]="info"});Apply(result);
-            if((bool?)result["ok"]==true && SelectedChannel==savedChannel && pacerAuthorized && !pacerInstalled && ticket==null && !autoPrepared){
+            if(allowAutomaticPrepare && (bool?)result["ok"]==true && SettingsSaved && pacerAuthorized && !pacerInstalled && ticket==null && !autoPrepared){
                 autoPrepared=true;Apply(await RequestPreparation(new JObject {["action"]="prepare_pacer"}));
             }
         }catch{message.Text="版本信息读取未完成，可以重试；当前程序与任务未修改。";}
@@ -192,7 +201,7 @@ public sealed class MaaUmaActivationView : UserControl
     {
         if(busy)return;Busy(true);ticket=null;
         try {
-            var result=await request(new JObject {["action"]="configure",["base_url"]=(address.Text??"").Trim(),["channel"]=SelectedChannel});
+            var result=await request(new JObject {["action"]="configure",["base_url"]=(address.Text??"").Trim(),["channel"]=SelectedChannel,["download_source"]=SelectedDownloadSource});
             Apply(result);autoPrepared=false;
             if((bool?)result["ok"]==true)Apply(await request(new JObject {["action"]="info"}));
         }
@@ -200,7 +209,7 @@ public sealed class MaaUmaActivationView : UserControl
     }
     public async Task Activate()
     {
-        if(busy || (address.Text??"").Trim()!=savedAddress || string.IsNullOrWhiteSpace(code.Text) || !ActivationFlight.Wait(0))return;
+        if(busy || !SettingsSaved || string.IsNullOrWhiteSpace(code.Text) || !ActivationFlight.Wait(0))return;
         Busy(true);autoPrepared=true;ticket=null;
         var input=new JObject {["action"]="activate",["invite_code"]=(code.Text??"").Trim()};code.Text="";
         message.Text="正在确认激活并准备内容，请稍候。";
@@ -215,7 +224,7 @@ public sealed class MaaUmaActivationView : UserControl
     }
     public async Task PrepareUpdate()
     {
-        if(busy || SelectedChannel!=savedChannel || (address.Text??"").Trim()!=savedAddress)return;Busy(true);ticket=null;
+        if(busy || !SettingsSaved)return;Busy(true);ticket=null;
         message.Text="正在准备更新，可切换到其它页面。";
         try {Apply(await RequestPreparation(new JObject {["action"]="prepare_update"}));}
         catch{message.Text="更新准备未确认，可以重试；当前安装未被替换。";}finally{Busy(false);await UpdateIdle();}
@@ -251,7 +260,7 @@ public sealed class MaaUmaActivationView : UserControl
     }
     public async Task Install()
     {
-        if(busy || ticket==null || SelectedChannel!=savedChannel || (address.Text??"").Trim()!=savedAddress)return;Busy(true);
+        if(busy || ticket==null || !SettingsSaved)return;Busy(true);
         try {
             if(!await idle()){message.Text="仍有任务运行或状态未确认，请全部停止后安装。";return;}
             var result=await request(new JObject {["action"]="install",["ticket"]=ticket,["parent_pid"]=Environment.ProcessId});
