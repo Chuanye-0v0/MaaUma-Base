@@ -19,6 +19,8 @@ public static class MaaUmaUpdateProgressPipe
     public const string Schema="maauma.update_progress.v1";
     private static readonly HashSet<string> Stages=new(){"checking","connecting","downloading","verifying","preparing","prepared","current","failed"};
     private static readonly HashSet<string> Steps=new(){"archive_integrity","file_integrity","personalized_integrity","archive_metadata","receipt"};
+    private static readonly HashSet<string> TransferKinds=new(){"file_patch","full"};
+    private static readonly HashSet<string> FallbackReasons=new(){"no_patch","local_state_mismatch","patch_unusable"};
     public static bool Normalize(JObject value,out JObject safe)
     {
         safe=new JObject();
@@ -45,6 +47,15 @@ public static class MaaUmaUpdateProgressPipe
             safe["waiting"]=(bool?)value["waiting"]==true;
             var status=(string?)value["item_status"];safe["item_status"]=status is "active" or "verified" or "failed"?status:null;
             var step=(string?)value["verification_step"];safe["verification_step"]=step!=null&&Steps.Contains(step)?step:null;
+            // Optional 0.4.12 display data. Ignore unknown values without
+            // discarding otherwise valid 0.4.11 byte/stage progress.
+            if(value["transfer_kind"]?.Type==JTokenType.String
+                &&TransferKinds.Contains((string)value["transfer_kind"]!))safe["transfer_kind"]=value["transfer_kind"];
+            if(value.Property("fallback_reason") is {} fallback) {
+                if(fallback.Value.Type==JTokenType.Null)safe["fallback_reason"]=null;
+                else if(fallback.Value.Type==JTokenType.String&&FallbackReasons.Contains((string)fallback.Value))
+                    safe["fallback_reason"]=fallback.Value;
+            }
             if(DateTimeOffset.TryParse((string?)value["last_received_at"],CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out var last))
                 safe["last_received_at"]=last.ToString("O");
             return true;
@@ -82,6 +93,7 @@ public sealed class MaaUmaUpdateProgressView : Border
         public double Received,Speed,Idle,VerificationBytes;
         public double? Total,Eta,VerificationTotal;
         public string? VerificationStep;
+        public string? TransferKind,FallbackReason;
         public DateTimeOffset? LastReceived;
         public bool Waiting;
         public readonly TextBlock Phase=new(){TextWrapping=TextWrapping.Wrap};
@@ -89,6 +101,8 @@ public sealed class MaaUmaUpdateProgressView : Border
         public readonly TextBlock Rate=new(){TextWrapping=TextWrapping.Wrap};
         public readonly TextBlock Last=new(){TextWrapping=TextWrapping.Wrap};
         public readonly TextBlock VerifyText=new(){TextWrapping=TextWrapping.Wrap};
+        public readonly TextBlock Transfer=new(){TextWrapping=TextWrapping.Wrap};
+        public readonly TextBlock Fallback=new(){TextWrapping=TextWrapping.Wrap};
         public readonly ProgressBar Download=new(){Height=8,Minimum=0,Maximum=100};
         public readonly ProgressBar Verify=new(){Height=6,Minimum=0,Maximum=100};
         public readonly StackPanel View=new(){Spacing=7};
@@ -149,6 +163,8 @@ public sealed class MaaUmaUpdateProgressView : Border
         if((string?)data["item_id"] is string id) {
             if(!items.TryGetValue(id,out var item)){item=CreateItem(id);items[id]=item;rows.Children.Add(item.View);}
             item.Stage=phase;item.Status=(string?)data["item_status"]??"active";
+            if(data.Property("transfer_kind")!=null)item.TransferKind=(string?)data["transfer_kind"];
+            if(data.Property("fallback_reason")!=null)item.FallbackReason=(string?)data["fallback_reason"];
             item.Received=(double)data["received_bytes"]!;item.Total=(double?)data["total_bytes"];
             item.Speed=(double)data["bytes_per_second"]!;item.Eta=(double?)data["eta_seconds"];
             item.Idle=(double)data["idle_seconds"]!;item.Waiting=(bool)data["waiting"]!;
@@ -165,9 +181,10 @@ public sealed class MaaUmaUpdateProgressView : Border
         item.Phase.Name="MaaUmaItemPhase_"+id;item.Bytes.Name="MaaUmaItemBytes_"+id;
         item.Rate.Name="MaaUmaItemRate_"+id;item.Download.Name="MaaUmaItemDownload_"+id;
         item.Verify.Name="MaaUmaItemVerification_"+id;
+        item.Transfer.Name="MaaUmaItemTransfer_"+id;item.Fallback.Name="MaaUmaItemFallback_"+id;
         item.View.Name="MaaUmaDownloadItem_"+id;
         item.View.Children.Add(new TextBlock {Text=label,FontWeight=FontWeight.SemiBold,FontSize=15});
-        foreach(var child in new Control[]{item.Phase,item.Download,item.Bytes,item.Rate,item.Last})item.View.Children.Add(child);
+        foreach(var child in new Control[]{item.Transfer,item.Fallback,item.Phase,item.Download,item.Bytes,item.Rate,item.Last})item.View.Children.Add(child);
         item.Verification.Children.Add(item.VerifyText);item.Verification.Children.Add(item.Verify);
         item.View.Children.Add(item.Verification);return item;
     }
@@ -187,6 +204,10 @@ public sealed class MaaUmaUpdateProgressView : Border
         foreach(var item in items.Values) {
             var done=item.Status=="verified";var bad=item.Status=="failed";
             item.Phase.Text=bad?"本项未准备完成":done?"校验完成":StageText(item.Stage);
+            item.Transfer.IsVisible=item.TransferKind!=null;
+            item.Transfer.Text=item.TransferKind switch {"file_patch"=>"传输方式：增量更新","full"=>"传输方式：完整更新",_=>""};
+            item.Fallback.IsVisible=item.FallbackReason!=null;
+            item.Fallback.Text=(item.TransferKind=="full"?"改用完整更新：":"回退说明：")+FallbackText(item.FallbackReason);
             item.Download.IsIndeterminate=item.Total is not >0;
             item.Download.Value=Percent(item.Received,item.Total);
             item.Bytes.Text="本项接收："+SizeProgress(item.Received,item.Total);
@@ -233,5 +254,6 @@ public sealed class MaaUmaUpdateProgressView : Border
     private static string SizeProgress(double bytes,double? total)=>Size(bytes)+(total is {} known?" / "+Size(known)+(known>0?$"（{bytes/known*100:0.0}%）":""):" / 总大小未知");
     private static string Eta(double? seconds){if(seconds is not {} value)return "暂无法估算";var span=TimeSpan.FromSeconds(Math.Min(value,TimeSpan.MaxValue.TotalSeconds-1));return span.TotalHours>=1?$"约 {span.TotalHours:0} 小时":span.TotalMinutes>=1?$"约 {(int)span.TotalMinutes} 分 {span.Seconds} 秒":$"约 {Math.Ceiling(value):0} 秒";}
     private static string StageText(string value)=>value switch {"checking"=>"正在检查可用更新", "connecting"=>"正在连接下载服务", "downloading"=>"正在下载", "verifying"=>"正在校验下载内容", "preparing"=>"正在准备安装文件", "prepared"=>"文件已准备，正在确认最终结果", "current"=>"当前项目无需更新", "failed"=>"本次准备未完成", _=>"正在等待进度"};
+    private static string FallbackText(string? value)=>value switch {"no_patch"=>"没有适用的增量包。","local_state_mismatch"=>"本机文件与增量更新基础不一致。","patch_unusable"=>"增量包无法使用。",_=>""};
     private static string VerificationText(string? value)=>value switch {"archive_integrity"=>"压缩包完整性校验","file_integrity"=>"文件完整性校验","personalized_integrity"=>"分发包完整性校验","archive_metadata"=>"压缩包信息核验","receipt"=>"分发凭据核验",_=>"校验"};
 }

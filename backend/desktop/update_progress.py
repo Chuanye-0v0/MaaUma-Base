@@ -37,6 +37,8 @@ class ProgressReporter:
         self._verification_bytes = 0
         self._verification_total = None
         self._verification_step = None
+        self._transfer_kind = None
+        self._fallback_reason = None
 
     def __enter__(self):
         self._emit(force=True)
@@ -81,6 +83,7 @@ class ProgressReporter:
             return
         with self._lock:
             self._item_id = item_id
+            self._items[item_id].update(received=0,complete=False,failed=False)
             self._item_started = time.monotonic()
             self._last_byte = None
             self._last_byte_at = None
@@ -99,6 +102,16 @@ class ProgressReporter:
             if total is not None:
                 self._items[self._item_id].update(total=total, total_source='response')
             self._stage = 'downloading'
+            self._emit(force=True)
+
+    def transfer(self,item_id,kind,total=None,fallback_reason=None):
+        if item_id not in self._items or kind not in {'file_patch','full'}:return
+        if fallback_reason not in {None,'no_patch','local_state_mismatch','patch_unusable'}:return
+        with self._lock:
+            self._item_id=item_id
+            self._items[item_id].update(total=self._size(total),total_source='manifest' if self._size(total) else 'unknown',
+                                        received=0,complete=False,failed=False)
+            self._transfer_kind=kind;self._fallback_reason=fallback_reason
             self._emit(force=True)
 
     def received(self, count):
@@ -204,6 +217,7 @@ class ProgressReporter:
                 'verification_step': self._verification_step,
                 'verification_bytes': self._verification_bytes,
                 'verification_total_bytes': self._verification_total,
+                'transfer_kind': self._transfer_kind,'fallback_reason': self._fallback_reason,
             }
             try:
                 self._sink(value)

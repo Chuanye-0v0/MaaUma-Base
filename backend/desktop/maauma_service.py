@@ -155,7 +155,7 @@ def wire(root,path,body=None,*,authenticated=True,product='umaa-public',timeout=
 
 def public_wire(root,path,*,timeout=45,binary=False):
     """Read the explicitly public base feed without a device or a grant."""
-    if not re.fullmatch(r'/v1/public/(?:catalog\?channel=(?:stable|preview)|downloads/[1-9][0-9]{0,19})',str(path)):
+    if not re.fullmatch(r'/v1/public/(?:catalog\?channel=(?:stable|preview)|downloads/[1-9][0-9]{0,19}|patches\?from_version=[0-9A-Za-z.+_%-]+&to_version=[0-9A-Za-z.+_%-]+&channel=(?:stable|preview)|patches/fp_[0-9a-f]{32}/download)',str(path)):
         raise ServiceError('invalid_public_service_path')
     cfg=config(root)
     request=Request(cfg['base_url']+path,headers={'Accept':'application/octet-stream' if binary else 'application/json',
@@ -261,6 +261,23 @@ def verify_receipt(root,receipt):
     if result.get('verified') is not True or any(result.get(k)!=receipt.get(k) for k in ('trace_id','product_id','version','base_sha256')):
         raise ServiceError('distribution_receipt_unverified')
     return True
+
+
+def patch_catalog(root,*,kind,from_version,to_version,base_version):
+    """Optional transfer lookup, after the ordinary authorized target selection."""
+    from desktop.product_updates import version_parts
+    for version in (from_version,to_version,base_version):version_parts(version)
+    channel=config(root)['channel']
+    if kind=='base':
+        path='/v1/public/patches?'+urlencode({'from_version':from_version,'to_version':to_version,'channel':channel})
+        value=public_wire(root,path)
+    elif kind=='pacer':
+        path='/v1/suite/patches/pacer?'+urlencode({'from_version':from_version,'to_version':to_version,
+                                               'base_version':base_version,'channel':channel})
+        value=wire(root,path,product='uma-cut')
+    else:raise ServiceError('wrong_product')
+    if value.get('schema_version')!='maauma.patch_catalog.v1' or 'patch' not in value:raise ServiceError('service_mismatch')
+    return value['patch']
 
 
 def info(root):

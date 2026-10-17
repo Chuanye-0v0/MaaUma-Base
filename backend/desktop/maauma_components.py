@@ -239,31 +239,45 @@ def prepare(root,*,mode='pacer',progress=None):
     stage=root/'updates/suite-staged'/uuid.uuid4().hex;stage.mkdir(parents=True)
     ticket={'schema_version':'maauma.prepared_suite.v1','from_version':installed['version'],'base_version':target_version,
             'base_manifest':name,'trace_id':auth['distribution_receipt']['trace_id'] if component_entry else None,'entries':[]}
-    if base_entry:
-        path=stage/'base.zip';download(root,base_entry,path,product='umaa-public',public=not private_required,
-                                     progress=progress,item_id='base')
-        if path.stat().st_size!=base_entry['size_bytes'] or _digest(path,progress=progress)!=base_entry['sha256']:_error('package_integrity_failed')
-        if progress is not None:progress.verification('archive_metadata',0,None)
-        manifest_name,manifest=updates.inspect_archive(path,base_entry,local_test=False)
-        if manifest_name!=name:_error('manifest_name_changed')
-        ticket['entries'].append({'kind':'base','file':'base.zip','entry':base_entry})
-        if progress is not None:progress.complete_item()
-    if component_entry:
-        try:
-            path=stage/'pacer.zip';download(root,component_entry,path,product='uma-cut',
-                                          progress=progress,item_id='authorized_extension')
-            manifest,receipt=inspect_component(path,component_entry,trace_id=ticket['trace_id'],
-                                              verify=lambda value:service.verify_receipt(root,value),progress=progress)
-            ticket['entries'].append({'kind':'pacer','file':'pacer.zip','entry':component_entry,'receipt':receipt,
-                                      'personal_sha256':_digest(path,progress=progress,verification_step='personalized_integrity'),
-                                      'personal_size_bytes':path.stat().st_size})
+    from desktop import maauma_file_patches as patches
+    plans=[]
+    try:
+        if base_entry:
+            row,plan=patches.prepare_transfer(root,stage,kind='base',full=base_entry,
+                source_version=installed['version'],trace_id=None,public=not private_required,progress=progress)
+            if plan['manifest_name']!=name:_error('manifest_name_changed')
+            ticket['entries'].append(row);plans.append(plan)
             if progress is not None:progress.complete_item()
-        except (service.ServiceError,updates.UpdateError,OSError,ValueError) as error:
-            if progress is not None:progress.fail_item()
-            if private_required:raise
-            context['pacer_warning']={'status':'failed','code':str(error)
-                if isinstance(error,(service.ServiceError,updates.UpdateError)) else 'pacer_prepare_failed'}
-            component_entry=None;ticket['trace_id']=None
+        if component_entry:
+            try:
+                previous_component=current['components'].get('pacer',{})
+                row,plan=patches.prepare_transfer(root,stage,kind='pacer',full=component_entry,
+                    source_version=previous_component.get('version'),trace_id=ticket['trace_id'],public=False,progress=progress)
+                ticket['entries'].append(row);plans.append(plan)
+                if progress is not None:progress.complete_item()
+            except (service.ServiceError,updates.UpdateError,OSError,ValueError) as error:
+                if progress is not None:progress.fail_item()
+                if private_required:raise
+                context['pacer_warning']={'status':'failed','code':str(error)
+                    if isinstance(error,(service.ServiceError,updates.UpdateError)) else 'pacer_prepare_failed'}
+                component_entry=None;ticket['trace_id']=None
+        while True:
+            try:
+                patches.validate_reuse(root,patches.effective(plans),progress=progress)
+                break
+            except patches.LocalMismatch as error:
+                kind=error.owner
+                index=next(i for i,row in enumerate(ticket['entries']) if row['kind']==kind)
+                previous_row=ticket['entries'][index]
+                if previous_row.get('delivery')!='file_patch':raise
+                patches.close([plans[index]])
+                row,plan=patches.prepare_transfer(root,stage,kind=kind,full=previous_row['entry'],
+                    source_version=previous_row['from_version'],trace_id=ticket['trace_id'],
+                    public=kind=='base' and not private_required,progress=progress,
+                    force_full=True,fallback_reason='local_state_mismatch')
+                ticket['entries'][index]=row;plans[index]=plan
+                if progress is not None:progress.complete_item()
+    finally:patches.close(plans)
     if not ticket['entries']:return {'ok':True,'status':'current','version':installed['version'],**context}
     if progress is not None:progress.stage('preparing')
     updates.write_json(stage/'ticket.json',ticket)
@@ -333,37 +347,56 @@ def apply_prepared(root,ticket_path,*,parent_pid=None):
         if 'pacer' in previous['components'] and not any(row.get('kind')=='pacer' for row in entries):_error('compatible_pacer_required')
         old_managed=set(installed['files'])|{manifest_name}|set(previous.get('managed_files',[]))
         incoming={};mutable_payloads={};base_manifest=installed;component_record=previous['components'].get('pacer')
-        archives=[]
+        from desktop import maauma_file_patches as patches
+        archives=[];plans=[]
         try:
             for row in entries:
                 path=updates.contained(stage,updates.relative_path(row['file']));entry=row['entry']
-                if row['kind']=='base':
-                    if path.stat().st_size!=entry['size_bytes'] or _digest(path)!=entry['sha256']:_error('package_integrity_failed')
-                    name,base_manifest=updates.inspect_archive(path,entry,local_test=False)
-                    if name!=manifest_name or base_manifest['version']!=ticket['base_version']:_error('component_base_mismatch')
-                    archive=ZipFile(path);archives.append(archive)
-                    incoming.update({name:(archive,name) for name in base_manifest['files']+[manifest_name]})
-                elif row['kind']=='pacer':
+                if row['kind'] not in {'base','pacer'}:_error('invalid_update_ticket')
+                if row['kind']=='pacer':
                     auth=service.credentials(root,'uma-cut')
                     if auth['distribution_receipt']['trace_id']!=ticket['trace_id']:_error('distribution_receipt_mismatch')
                     if entry['base_version']!=ticket['base_version']:_error('component_base_mismatch')
                     if path.stat().st_size!=row['personal_size_bytes'] or _digest(path)!=row['personal_sha256']:_error('package_integrity_failed')
-                    # Preparation verified the server signature. Revalidation is
-                    # against that exact personalized archive and exact receipt.
-                    manifest,receipt=inspect_component(path,entry,trace_id=ticket['trace_id'],verify=lambda value:value==row['receipt'])
-                    archive=ZipFile(path);archives.append(archive)
+                if row.get('delivery')=='file_patch':
+                    if row['kind']=='base' and _digest(root/manifest_name)!=row['patch_entry']['from_manifest_sha256']:
+                        patches.mark_full(root,'base',row['from_version'],entry)
+                        _error('incremental_source_changed')
+                    plan=patches.patch_plan(root,stage,row,verify=lambda value:value==row.get('receipt'))
+                elif row.get('delivery') is None:
+                    plan=patches.full_plan(path,entry,kind=row['kind'],trace_id=ticket['trace_id'],
+                                           verify=lambda value:value==row.get('receipt'))
+                else:_error('invalid_update_ticket')
+                plans.append(plan);archives.extend(plan['archives'])
+                if row['kind']=='base':
+                    base_manifest=plan['manifest']
+                    if plan['manifest_name']!=manifest_name or base_manifest['version']!=ticket['base_version']:_error('component_base_mismatch')
+                elif row['kind']=='pacer':
+                    manifest=plan['manifest'];receipt=plan['receipt']
                     mutable=set(manifest.get('mutable_files',[]))
-                    incoming.update({name:(archive,name) for name in manifest['files'] if not preserved(name) and name not in mutable})
-                    mutable_payloads.update({name:archive.read(name) for name in mutable})
+                    mutable_payloads.update(plan['mutable_payloads'])
                     component_record={'product_id':'uma-cut','version':manifest['version'],'base_version':manifest['base_version'],
                                       'receipt':receipt,'managed_files':[n for n in manifest['files'] if not preserved(n) and n not in mutable],
-                                      'receipt_targets':manifest.get('receipt_targets',[]),'mutable_files':sorted(mutable)}
-                else:_error('invalid_update_ticket')
+                                      'receipt_targets':manifest.get('receipt_targets',[]),'mutable_files':sorted(mutable),
+                                      'manifest_sha256':row['patch_entry']['target_manifest_sha256'] if row.get('delivery')=='file_patch' else None}
             if base_manifest['version']!=ticket['base_version']:_error('component_base_mismatch')
-            incoming={name:value for name,value in incoming.items() if not preserved(name)}
+            effective=patches.effective(plans)
+            try:patches.validate_reuse(root,effective)
+            except patches.LocalMismatch as error:
+                for row in entries:
+                    if row.get('delivery')=='file_patch' and row['kind']==error.owner:
+                        patches.mark_full(root,row['kind'],row['from_version'],row['entry'])
+                _error('incremental_source_changed')
+            for name,value in effective.items():
+                if value['source'] is None:continue
+                target=updates.contained(root,name)
+                if (value['sha256'] and target.is_file() and target.stat().st_size==value['size_bytes'] and
+                        _digest(target)==value['sha256']):
+                    continue
+                incoming[name]=value['source']
             new_managed=set(base_manifest['files'])|{manifest_name}
             if component_record:new_managed.update(component_record['managed_files'])
-            changes=sorted((old_managed|new_managed)-{STATE})
+            changes=sorted((set(incoming)|(old_managed-new_managed))-{STATE})
             changes=[name for name in changes if not preserved(name) and name not in MUTABLE]
             new_state={'schema_version':'maauma.modules.v1','base_version':ticket['base_version'],
                        'components':{'pacer':component_record} if component_record else {},
@@ -415,8 +448,11 @@ def apply_prepared(root,ticket_path,*,parent_pid=None):
                         temporary=updates.transaction_io_path(updates.contained(stage/'incoming',name));temporary.parent.mkdir(parents=True,exist_ok=True)
                         if name in generated:temporary.write_bytes(generated[name])
                         else:
-                            archive,member=incoming[name]
-                            with archive.open(member) as source,temporary.open('wb') as output:shutil.copyfileobj(source,output)
+                            incoming_source=incoming[name]
+                            if incoming_source[0]=='file':shutil.copy2(incoming_source[1],temporary)
+                            else:
+                                _,archive,member=incoming_source
+                                with archive.open(member) as source,temporary.open('wb') as output:shutil.copyfileobj(source,output)
                         target.parent.mkdir(parents=True,exist_ok=True);os.replace(temporary,target)
                     elif target.exists() and name not in new_managed:
                         retired=updates.transaction_io_path(updates.contained(stage/'retired',name));retired.parent.mkdir(parents=True,exist_ok=True);os.replace(target,retired)
@@ -464,6 +500,7 @@ def launch_install(root,ticket_path,*,parent_pid=None):
         if source.is_file() and source.suffix not in {'.pyc','.pyo'}:
             shutil.copy2(source,isolated_runtime/source.name)
     for module in ('desktop/maauma_service.py','desktop/maauma_components.py','desktop/product_updates.py',
+                   'desktop/maauma_file_patches.py','desktop/zip_recipe.py','desktop/update_progress.py',
                    'desktop/__init__.py','scripts/maauma_service.py'):
         source=Path(__file__).resolve().parents[1]/module;target=helper/'backend'/module
         target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target)
