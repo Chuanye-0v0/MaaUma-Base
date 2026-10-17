@@ -1070,7 +1070,7 @@
   "build_recipe": "scripts/build.py",
   "resource_contract": "resources/required-inputs.json",
   "bit_identical_binary_rebuild_claimed": false,
-  "latest_ordinary_source_update": "0.4.16",
+  "latest_ordinary_source_update": "0.4.17",
   "ordinary_updates": [
     {
       "version": "0.4.10",
@@ -1280,6 +1280,30 @@
       "ordinary_gui_baseline_revision": "r2",
       "assets_projection_sha256": "7439ebc6d30a1ea13ecfa8db571bdc4f4914e9cb38b25ee4f1696d75ed9638f4",
       "ordinary_gui_archive_version": "0.4.16"
+    },
+    {
+      "version": "0.4.17",
+      "revision": "r1",
+      "scope": "Preserve framework preferences during ordinary incremental and complete updates; retain public-source portability changes.",
+      "ordinary_backend_baseline": "0.4.16",
+      "ordinary_gui_baseline": "0.4.16",
+      "public_projection_sha256": "e85cea291f8177d8403a28f557b1d9b2d37edc842d9b69f1a04a544f5c75166d",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.16.zip",
+      "ordinary_gui_archive_sha256": "2cdbf409555e473867558180f2e2d81b101beeb5d69eb34d036e883a08bb622e",
+      "ordinary_gui_archive_version": "0.4.16",
+      "ordinary_gui_code_version": "0.4.16",
+      "ordinary_gui_release_version": "0.4.17",
+      "ordinary_gui_code_reused_from": "0.4.16",
+      "changed_source_paths": [
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "backend/desktop/product_updates.py",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false
     }
   ],
   "latest_ordinary_source_revision": "r1"

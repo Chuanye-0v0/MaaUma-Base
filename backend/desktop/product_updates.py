@@ -70,6 +70,9 @@ def contained(root, relative):
     return path
 
 def preserved(relative):
+    # The framework stores mutable preferences beside config/, not inside it.
+    if relative.casefold() == 'appsettings.json':
+        return True
     parts = PurePosixPath(relative).parts
     if parts[0].lower() in PRESERVED or parts[0].lower() == 'runs':
         return True
