@@ -399,8 +399,42 @@
         "scripts/build.py"
       ],
       "bit_identical_release_rebuild_claimed": false
+    },
+    {
+      "version": "0.4.21",
+      "revision": "r1",
+      "scope": "Two ordinary TP refill sources and the announcement version; retain other public-source behavior.",
+      "ordinary_backend_baseline": "0.4.20",
+      "ordinary_backend_changed": true,
+      "ordinary_backend_source_paths": [
+        "backend/core/autonomous_training/tp_refill.py",
+        "backend/core/tp_refill_perception.py"
+      ],
+      "ordinary_gui_baseline": "0.4.20",
+      "ordinary_gui_release_baseline": "0.4.20",
+      "public_projection_sha256": "d3cbb61d8c45bf127044eb6fea629132428cbd0d06de78dd10029b844a927e19",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.21.zip",
+      "ordinary_gui_archive_sha256": "74aa7d7b1f1af51838ca834351fb25625d55962da25c49860059190408ba3153",
+      "ordinary_gui_archive_size_bytes": 30830993,
+      "ordinary_gui_archive_version": "0.4.21",
+      "ordinary_gui_code_version": "0.4.21",
+      "ordinary_gui_release_version": "0.4.21",
+      "ordinary_gui_code_reused_from": null,
+      "ordinary_gui_rebuilt_for_release": true,
+      "changed_source_paths": [
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "backend/core/autonomous_training/tp_refill.py",
+        "backend/core/tp_refill_perception.py",
+        "gui/MFAAvalonia/Helper/MaaUmaUpdateAnnouncement.cs",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false
     }
   ],
-  "latest_ordinary_source_update": "0.4.20",
+  "latest_ordinary_source_update": "0.4.21",
   "latest_ordinary_source_revision": "r1"
 }
