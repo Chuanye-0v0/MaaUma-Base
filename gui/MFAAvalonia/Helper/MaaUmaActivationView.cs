@@ -71,7 +71,10 @@ public sealed class MaaUmaActivationView : UserControl
         body.Children.Add(new TextBlock {Name="MaaUmaUpdateTitle",Text="版本更新",FontSize=25,FontWeight=FontWeight.Bold});
         body.Children.Add(new TextBlock {Text="基础更新无需激活。下载完成后，请停止任务再安装。",TextWrapping=TextWrapping.Wrap});
         var actions=new WrapPanel {Orientation=Orientation.Horizontal};
-        foreach(var button in new[]{refresh,prepare,install,feedback}){button.Margin=new Thickness(0,0,12,8);actions.Children.Add(button);}
+        // MaaUma local update announcement v1
+        var announcement = new Button { Name="MaaUmaShowUpdateAnnouncement", Content="更新公告" };
+        announcement.Click += (_, _) => MaaUmaUpdateAnnouncement.ShowCurrent(TopLevel.GetTopLevel(this) as Window, root);
+        foreach(var button in new[]{refresh,prepare,install,feedback,announcement}){button.Margin=new Thickness(0,0,12,8);actions.Children.Add(button);}
         body.Children.Add(actions);body.Children.Add(progress);body.Children.Add(downloadProgress);body.Children.Add(message);
         var serviceFields=new StackPanel {Spacing=10,Children={
             new TextBlock {Text="服务地址"},address,new TextBlock {Text="更新频道"},channel,

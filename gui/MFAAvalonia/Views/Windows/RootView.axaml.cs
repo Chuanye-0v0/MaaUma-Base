@@ -78,6 +78,8 @@ public partial class RootView : SukiWindow
         {
             LoggerHelper.Info("界面初始化开始");
             _ = InitializeAfterLoadedAsync();
+            // MaaUma local update announcement v1
+            MaaUmaUpdateAnnouncement.Attach(this);
         };
         if (AppRuntime.IsNewInstance)
         {
