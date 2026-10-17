@@ -55,7 +55,6 @@ public sealed class MaaUmaErrorFeedbackPanel : StackPanel
     {
         try {
             var path=Path.Combine(root,"interface.json");
-            if(new FileInfo(path).Length>65536)return "unknown";
             var value=(string?)JObject.Parse(File.ReadAllText(path,Encoding.UTF8))["version"];
             return value!=null && Regex.IsMatch(value,@"\A[0-9A-Za-z.+_-]{1,64}\z") ? value : "unknown";
         }catch{return "unknown";}

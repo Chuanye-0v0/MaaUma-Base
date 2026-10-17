@@ -238,7 +238,25 @@
         "scripts/build.py"
       ],
       "bit_identical_release_rebuild_claimed": false
+    },
+    {
+      "version": "0.4.15",
+      "revision": "r2",
+      "scope": "R2: read the real product version for current-error feedback; version remains 0.4.15.",
+      "ordinary_backend_baseline": "0.4.15",
+      "ordinary_gui_baseline": "0.4.15",
+      "public_projection_sha256": "97a102cee95b5a2048cb9241eeefa47b6d178c9b1df7f8c05b7c1c298af2d8cd",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.15.zip",
+      "ordinary_gui_archive_sha256": "26183159e3b80f646f33b97ffada37c856233f8501435adb73d25be57db70427",
+      "supersedes_gui_archive_sha256": "65c5ebb6c0eaaee8c55fb67bd19e46a026b8b7cafafd9700bd568ab174923792",
+      "changed_source_paths": [
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "gui/MFAAvalonia/Helper/MaaUmaErrorFeedbackPanel.cs"
+      ],
+      "bit_identical_release_rebuild_claimed": false
     }
   ],
-  "latest_ordinary_source_update": "0.4.15"
+  "latest_ordinary_source_update": "0.4.15",
+  "latest_ordinary_source_revision": "r2"
 }
