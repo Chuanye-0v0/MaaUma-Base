@@ -15,6 +15,14 @@ from desktop.product_updates import contained,read_json,write_json
 SCHEMA='maauma.error_feedback.v1'
 DEFAULT_ENDPOINT='https://maauma-private.2234198378.workers.dev/v1/bug-feedback'
 REPORT_FOLDER='logs/error-feedback'
+TASK_FAILURE_POINTER='logs/task-failures/latest.json'
+TASK_FAILURE_SCHEMA='maauma.task_failure_pointer.v1'
+TASK_NAMES={'plant':'开种','harvest':'收菜','jjc':'JJC','activities':'日常赛事',
+    'daily_legend':'日常传奇赛事','limited_legend':'限时传奇赛','story_event':'活动领奖／转盘',
+    'daily_rewards':'每日任务领奖／礼物箱','champions_registration':'大赛报名',
+    'champions_race':'大赛','cleanup':'收尾','seed_cycle':'连续育成'}
+JOB_ID=re.compile(r'job-[A-Za-z0-9_-]{1,128}')
+DIAGNOSTIC_ID=re.compile(r'[A-Za-z][A-Za-z0-9_.:-]{0,119}')
 MAX_REQUEST=256*1024
 MAX_REPORT=64*1024
 FEEDBACK_ID=re.compile(r'BF-[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}',re.I)
@@ -101,10 +109,12 @@ def _payload(value,report_id):
     message=redact(value.get('message',''),800)
     stack=redact(value.get('stack_trace',''),4000)
     actual=_excerpt('\n'.join(part for part in (kind,message,stack) if part),4000)
+    training=value.get('report_context')=='training'
     return {'submission_id':report_id,'app_version':redact(value.get('app_version','unknown'),100) or 'unknown',
-        'area':'界面异常','title':_excerpt('界面异常：'+kind,160),
+        'area':'育成中心' if training else '界面异常','title':_excerpt(('育成中心：' if training else '界面异常：')+kind,160),
         'steps':'\n'.join(redact(item,300) for item in actions[-8:]),
-        'expected':'界面正常响应并完成当前操作。','actual':actual,'contact':''}
+        'expected':'育成按当前设置继续，或给出明确的停止原因。' if training else '界面正常响应并完成当前操作。',
+        'actual':actual,'contact':''}
 
 
 def _load(root,report_id):
@@ -138,6 +148,151 @@ def prepare(root,value):
                 'payload':_payload(value,report_id)}
         write_json(_path(root,report_id),report)
     return {'ok':True,'report_id':report_id,'preview_text':_preview(report),'notice':NOTICE}
+
+
+def _text(value,limit):
+    return redact(value,limit) if isinstance(value,str) else ''
+
+
+def _job_id(value):
+    if not isinstance(value,str) or not JOB_ID.fullmatch(value):
+        raise FeedbackError('error_feedback_invalid')
+    return value
+
+
+def _diagnostic_id(value):
+    return value if isinstance(value,str) and DIAGNOSTIC_ID.fullmatch(value) else ''
+
+
+def _failed(value):
+    return isinstance(value,dict) and value.get('ok') is False and value.get('reason')!='operator_stop'
+
+
+def record_task_failure(root,task,result,job_id,failed_at=None):
+    """Point at this completed failure only; the caller keeps reporting errors nonfatal."""
+    if not _failed(result):return False
+    if not isinstance(task,str) or task not in TASK_NAMES:raise FeedbackError('error_feedback_invalid')
+    job_id=_job_id(job_id)
+    fallback={key:_text(result.get(key),limit) for key,limit in
+              (('reason',800),('error_type',140),('error',1200))}
+    pointer={'schema_version':TASK_FAILURE_SCHEMA,'job_id':job_id,'task':task,
+        'failed_at':_text(failed_at,100) or datetime.now(timezone.utc).isoformat(),
+        'fallback':{key:text for key,text in fallback.items() if text}}
+    write_json(contained(Path(root).resolve(strict=True),TASK_FAILURE_POINTER),pointer)
+    return True
+
+
+def _event_tail(path):
+    """Read only this job's small tail, never historical jobs or arbitrary log paths."""
+    if not path.is_file():return []
+    with path.open('rb') as stream:
+        stream.seek(0,2);size=stream.tell();start=max(0,size-64*1024);stream.seek(start)
+        raw=stream.read(64*1024)
+    lines=raw.decode('utf8',errors='replace').splitlines()
+    if start and lines:lines=lines[1:]
+    events=[]
+    for line in lines[-32:]:
+        try:event=json.loads(line)
+        except (ValueError,TypeError):continue
+        if isinstance(event,dict):events.append(event)
+    return events
+
+
+def _recent_task_actions(result,events):
+    actions=[]
+    records=result.get('records')
+    if isinstance(records,list):
+        for record in records[-8:]:
+            if not isinstance(record,dict):continue
+            action=_diagnostic_id(record.get('action_id') or record.get('action'))
+            if action:actions.append(action)
+    for event in events:
+        action=_diagnostic_id(event.get('action_id') or event.get('action'))
+        phase=_diagnostic_id(event.get('phase') or event.get('stage'))
+        # The shipped JJC progress event has no action field; keep only the
+        # identifier pair in its known message, never free-form account text.
+        message=event.get('message')
+        transition=(re.search(r'\b([A-Za-z][A-Za-z0-9_]{0,79})\s*→\s*([A-Za-z][A-Za-z0-9_]{0,79})(?:[；;\s]|$)',message)
+                    if isinstance(message,str) else None)
+        if transition:action=transition[1]+' → '+transition[2]
+        elif action and phase:action=phase+' → '+action
+        if action and (not actions or actions[-1]!=action):actions.append(action)
+    return actions[-8:]
+
+
+def _task_failure(root,value):
+    root=Path(root).resolve(strict=True)
+    pointer={}
+    if value.get('job_id') is None:
+        path=contained(root,TASK_FAILURE_POINTER)
+        if not path.is_file():raise FeedbackError('error_feedback_no_task_failure')
+        pointer=read_json(path)
+        if pointer.get('schema_version')!=TASK_FAILURE_SCHEMA:
+            raise FeedbackError('error_feedback_no_task_failure')
+    job_id=_job_id(value.get('job_id') or pointer.get('job_id'))
+    task=value.get('task') or pointer.get('task')
+    result_path=contained(root,'runs/jobs/'+job_id+'/result.json')
+    if result_path.is_file():
+        result=read_json(result_path)
+        if not _failed(result):raise FeedbackError('error_feedback_no_task_failure')
+        actual_task=result.get('kind') or result.get('task')
+        if isinstance(actual_task,str) and actual_task in TASK_NAMES:
+            if task and task!=actual_task:raise FeedbackError('error_feedback_no_task_failure')
+            task=actual_task
+    else:
+        fallback=pointer.get('fallback')
+        if not isinstance(fallback,dict) or not any(_text(fallback.get(key),800)
+                for key in ('reason','error_type','error')):
+            raise FeedbackError('error_feedback_no_task_failure')
+        result={key:fallback.get(key) for key in ('reason','error_type','error')}
+    if not isinstance(task,str) or task not in TASK_NAMES:raise FeedbackError('error_feedback_no_task_failure')
+    failed_at=_text(pointer.get('failed_at'),100)
+    if not failed_at and result_path.is_file():
+        failed_at=datetime.fromtimestamp(result_path.stat().st_mtime,timezone.utc).isoformat()
+    events=_event_tail(contained(root,'runs/jobs/'+job_id+'/events.jsonl'))
+    observed=result.get('last_observation')
+    outcome=result.get('action_outcome')
+    stage=(_diagnostic_id(result.get('stage') or result.get('phase'))
+           or (_diagnostic_id(observed.get('page')) if isinstance(observed,dict) else '')
+           or next((_diagnostic_id(event.get('phase') or event.get('stage'))
+                    for event in reversed(events) if _diagnostic_id(event.get('phase') or event.get('stage'))),'')
+           or (_diagnostic_id(outcome.get('observed_page')) if isinstance(outcome,dict) else ''))
+    details=['任务：'+TASK_NAMES[task]+' ('+task+')','失败时间：'+(failed_at or '未记录'),
+             '任务记录：'+job_id]
+    if stage:details.append('最后阶段：'+stage)
+    for key,label,limit in (('reason','原因',800),('error_type','异常类型',140),
+                            ('error','异常信息',1200),('traceback','调用栈',2400)):
+        text=_text(result.get(key),limit)
+        if text:details.append(label+'：'+text)
+    if isinstance(outcome,dict):
+        boundary='; '.join(key+'='+text for key in
+            ('action_id','execution_status','source_page','observed_page','decision')
+            if (text:=_diagnostic_id(outcome.get(key))))
+        if boundary:details.append('最近动作状态：'+boundary)
+    return {'task':task,'job_id':job_id,'failed_at':failed_at,
+            'details':'\n'.join(details),'recent_actions':_recent_task_actions(result,events)}
+
+
+def prepare_task_failure(root,value):
+    if not isinstance(value,dict):raise FeedbackError('error_feedback_invalid')
+    if value.get('report_id') is not None:
+        report_id=_report_id(value['report_id']);report=_load(root,report_id)
+    else:
+        failure=_task_failure(root,value);report_id=str(uuid.uuid4())
+        task=failure['task']
+        payload={'submission_id':report_id,
+            'app_version':_text(value.get('app_version'),100) or 'unknown',
+            'area':'任务失败','title':_excerpt('任务失败：'+TASK_NAMES[task],160),
+            'steps':'\n'.join(_text(action,300) for action in failure['recent_actions']),
+            'expected':'当前任务正常执行并返回完成结果。',
+            'actual':_excerpt(failure['details'],4000),'contact':''}
+        report={'schema_version':SCHEMA,'report_id':report_id,
+            'created_at':datetime.now(timezone.utc).isoformat(),'payload':payload,
+            'task_failure':{key:failure[key] for key in ('task','job_id','failed_at')}}
+        write_json(_path(root,report_id),report)
+    metadata=report.get('task_failure')
+    return {'ok':True,'report_id':report_id,'preview_text':_preview(report),'notice':NOTICE,
+            **(metadata if isinstance(metadata,dict) else {})}
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -175,5 +330,6 @@ def submit(root,report_id,*,endpoint=DEFAULT_ENDPOINT,timeout=20):
 def dispatch(root,value):
     if not isinstance(value,dict):raise FeedbackError('error_feedback_invalid')
     if value.get('action')=='prepare':return prepare(root,value)
+    if value.get('action')=='prepare_task_failure':return prepare_task_failure(root,value)
     if value.get('action')=='submit':return submit(root,value.get('report_id'))
     raise FeedbackError('error_feedback_invalid')

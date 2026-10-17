@@ -11,7 +11,11 @@ from core.jjc.formation import _control_state
 
 @lru_cache(maxsize=4)
 def template(name):
-    return cv2.imread(str(Path(__file__).parent / 'assets' / (name + '.png')), 0)
+    try:
+        data = np.frombuffer((Path(__file__).parent / 'assets' / (name + '.png')).read_bytes(), np.uint8)
+        return cv2.imdecode(data, cv2.IMREAD_GRAYSCALE) if data.size else None
+    except (OSError, cv2.error):
+        return None
 
 def observe_skip(raw, image):
     """Playback-only fast path: the exact skip glyph, not an arbitrary white circle."""
@@ -19,6 +23,9 @@ def observe_skip(raw, image):
         return None
     crop = cv2.cvtColor(image[1110:1230, 610:715], cv2.COLOR_BGR2GRAY)
     asset = template('skip')
+    if (asset is None or asset.ndim != 2 or asset.dtype != crop.dtype
+            or min(asset.shape) == 0 or asset.shape[0] > crop.shape[0] or asset.shape[1] > crop.shape[1]):
+        return None
     _, score, _, point = cv2.minMaxLoc(cv2.matchTemplate(crop, asset, cv2.TM_CCOEFF_NORMED))
     if score < 0.96:
         return None
@@ -288,6 +295,9 @@ def observe(raw, tokens, *, settlement=False):
         if asset is None:
             return
         gray = cv2.cvtColor(image[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
+        if (asset.ndim != 2 or asset.dtype != gray.dtype or min(asset.shape) == 0
+                or asset.shape[0] > gray.shape[0] or asset.shape[1] > gray.shape[1]):
+            return None
         score = cv2.matchTemplate(gray, asset, cv2.TM_CCOEFF_NORMED)
         _, confidence, _, position = cv2.minMaxLoc(score)
         result[name + '_confidence'] = float(confidence)

@@ -23,13 +23,13 @@ def main():
     os.environ['PATH'] = str(ocr) + os.pathsep + os.environ.get('PATH', '')
     os.environ['TESSDATA_PREFIX'] = str(ocr / 'tessdata')
     from scripts.mfa_worker import FileStop
-    from desktop.mfa_backend import CurrentAccountBackend
     stop = FileStop(request_path.parent / 'stop', request.get('parent_pid'))
 
     def emit(event):
         with (request_path.parent / 'events.jsonl').open('a', encoding='utf8') as stream:
             stream.write(json.dumps(event, ensure_ascii=False) + '\n')
     try:
+        from desktop.mfa_backend import CurrentAccountBackend
         if request['task'] == 'seed_cycle':
             from desktop.umaa_seed_cycle import SeedCycle
             backend = SeedCycle(ROOT / 'runs/seed-cycles', endpoint=endpoint(), adb_path=request['connection']['adb_path'], skill_database=ROOT / 'data/skill_database.json')
@@ -39,7 +39,16 @@ def main():
             result = backend.run(request['task'], request['options'], emit, stop, execute=request.get('execute') is True)
     except Exception as error:
         reason = str(error) if request['task'] == 'seed_cycle' and isinstance(error, (ValueError, RuntimeError)) else 'worker_exception'
-        result = dict(ok=False, game_task_complete=False, reason=reason, error_type=type(error).__name__, device_action_count_complete=False)
+        try:
+            from core.action_recovery import exception_details
+            diagnostic = exception_details(error)
+        except Exception:
+            diagnostic = dict(error_type=type(error).__name__, error='exception_details_unavailable', traceback='')
+        result = dict(ok=False, game_task_complete=False, reason=reason, **diagnostic, device_action_count_complete=False)
+        try:
+            emit(dict(type='error', message=f"{request['task']}: {result['error_type']}: {result['error']}", reason=result['reason'], error_type=result['error_type']))
+        except Exception:
+            pass
     finally:
         stop.close()
     (request_path.parent / 'result.json').write_text(json.dumps(result, ensure_ascii=False), encoding='utf8')

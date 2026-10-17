@@ -22,6 +22,8 @@ public sealed class MaaUmaErrorFeedbackPanel : StackPanel
     private JObject? current;
     private string? reportId, previewText, feedbackId;
     private bool busy, submitted;
+    private bool taskFailure;
+    private string? prepareCode;
 
     public MaaUmaErrorFeedbackPanel() : this(AppContext.BaseDirectory) { }
     public MaaUmaErrorFeedbackPanel(string packageRoot, Func<JObject, Task<JObject>>? service=null)
@@ -38,16 +40,30 @@ public sealed class MaaUmaErrorFeedbackPanel : StackPanel
     private void Buttons()=>submit.IsEnabled=current!=null && !busy && !submitted;
     private static string Limited(string? text,int count)=>text==null ? "" : text.Length<=count ? text : text[..count];
 
-    public void SetReport(string? message,string? details,string? exceptionType=null)
+    public void SetReport(string? message,string? details,string? exceptionType=null,string? reportContext=null)
     {
         if(busy)return;
+        taskFailure=false;
         current=new JObject { ["action"]="prepare", ["app_version"]=AppVersion(),
             ["exception_type"]=Limited(exceptionType,256), ["message"]=Limited(message,8000),
             ["stack_trace"]=Limited(details,24000), ["recent_actions"]=new JArray() };
+        if(reportContext=="training")current["report_context"]="training";
         reportId=previewText=feedbackId=null;
         submitted=false;
         submit.Content="私密提交错误报告";
         status.Text="仅提交版本和脱敏后的当前异常，不含配置或截图；仅维护者可见。";
+        Buttons();
+    }
+
+    public void SetLatestTaskFailure()
+    {
+        if(busy)return;
+        taskFailure=true;
+        current=new JObject { ["action"]="prepare_task_failure", ["app_version"]=AppVersion() };
+        reportId=previewText=feedbackId=prepareCode=null;
+        submitted=false;
+        submit.Content="私密提交失败报告";
+        status.Text="仅提交最近一次失败的任务、版本和脱敏异常；不含配置或截图，仅维护者可见。";
         Buttons();
     }
 
@@ -65,6 +81,7 @@ public sealed class MaaUmaErrorFeedbackPanel : StackPanel
         if(reportId!=null && previewText!=null)return true;
         if(current==null)return false;
         var value=await request((JObject)current.DeepClone());
+        prepareCode=(string?)value["code"];
         if((bool?)value["ok"]!=true || !Guid.TryParseExact((string?)value["report_id"],"D",out var id)
             || value["preview_text"]?.Type!=JTokenType.String)return false;
         var preview=(string?)value["preview_text"];
@@ -76,7 +93,7 @@ public sealed class MaaUmaErrorFeedbackPanel : StackPanel
     public async Task SubmitCurrentAsync()
     {
         if(busy || submitted || current==null)return;
-        busy=true;Buttons();status.Text="正在准备并私密提交本次错误…";
+        busy=true;Buttons();prepareCode=null;status.Text="正在准备并私密提交本次错误…";
         try {
             if(!await PrepareCurrentAsync())throw new IOException();
             var result=await request(new JObject { ["action"]="submit", ["report_id"]=reportId });
@@ -88,7 +105,9 @@ public sealed class MaaUmaErrorFeedbackPanel : StackPanel
             status.Text="提交成功，反馈编号："+feedback+"。仅维护者可见。";
         }catch {
             submit.Content="重试私密提交";
-            status.Text="提交未完成，可重试或复制脱敏错误报告。";
+            status.Text=taskFailure && prepareCode=="error_feedback_no_task_failure"
+                ? "尚无可提交的任务失败记录。请在任务失败后使用此入口；旧版本的历史失败仍可通过“导出日志”提供。"
+                : "提交未完成，可重试或复制脱敏错误报告。";
         }finally{busy=false;Buttons();}
     }
 

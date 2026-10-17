@@ -52,6 +52,75 @@ def failure_details(error):
     details = getattr(error, 'action_outcome', None)
     return {'action_outcome': details} if isinstance(details, dict) else {}
 
+
+def exception_details(error):
+    """Bounded private-report metadata; never include locals, source or commands.
+
+    This is the backend's first redaction pass. The receiving feedback service
+    must independently redact and enforce its own report limits.
+    """
+    kind = 'Exception'
+    try:
+        import re
+        import subprocess
+        kind = type(error).__name__
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,79}', kind):
+            kind = 'Exception'
+        if isinstance(error, subprocess.CalledProcessError):
+            code = error.returncode
+            message = 'process_exit_status:' + (str(code) if type(code) is int else 'unknown')
+        elif isinstance(error, subprocess.TimeoutExpired):
+            message = 'process_timeout'
+        else:
+            message = str(error)
+            if len(message) > 4096:
+                message = 'exception_message_too_long'
+            # Payloads may contain nested or unlabeled personal fields. Preserve
+            # their surrounding technical explanation, not a partial payload.
+            message = re.sub(r'\{.*\}|\[.*\]', '<payload>', message, flags=re.S)
+            message = re.sub(r'[\[{].*', '<payload>', message, flags=re.S)
+            message = re.sub(r'\b[A-Za-z][A-Za-z0-9+.-]*://[^\s<>]+', '<url>', message)
+            # Quoted paths may contain spaces. Unquoted absolute paths stop at
+            # the next colon so OpenCV's error code and assertion remain useful.
+            message = re.sub(r"([\"'])(?:[A-Za-z]:[\\/]|\\\\|/(?:Users|home|private|var|tmp|mnt)/).*?\1",
+                             '<path>', message, flags=re.S)
+            message = re.sub(r'(?:[A-Za-z]:[\\/]|\\\\|/(?:(?:Users|home|private|var|tmp|mnt)/))[^:\r\n]+',
+                             '<path>', message)
+            labels = (r'password|passwd|pwd|secret|credentials?|'
+                      r'(?:access[_-]?|refresh[_-]?)?token|api[_-]?key|'
+                      r'auth(?:orization)?|cookie|user[_-]?name|'
+                      r'account(?:[_-]?(?:id|name|number))?|'
+                      r'sdk(?:[_-]?(?:id|key|token|secret|session))?|session[_-]?id')
+            value = r""""(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|[^;,|\r\n]+"""
+            message = re.sub(r'(?i)\b([A-Za-z0-9_.-]*(?:' + labels
+                             + r")[A-Za-z0-9_.-]*)\b[\"']?\s*(?:[:=]\s*|\s+)(?:" + value + ')',
+                             lambda match: match.group(1) + '=<redacted>', message)
+            message = re.sub(r"(?i)\bcookies?\b[\"']?\s*[:=]\s*[^\r\n]+",
+                             'cookie=<redacted>', message)
+            message = re.sub(r'(?i)\b(?:Bearer|Basic)\s+[^\s;,]+', '<credential>', message)
+            message = re.sub(r'\bsk-[A-Za-z0-9_-]{8,}|\beyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){1,2}',
+                             '<credential>', message)
+            message = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', message)
+            message = message.strip()[:512] or 'exception_message_unavailable'
+        frames, trace = [], error.__traceback__
+        while trace is not None and len(frames) < 16:
+            code = trace.tb_frame.f_code
+            parts = code.co_filename.replace('\\', '/').split('/')
+            starts = [i for i, part in enumerate(parts) if part in {'core', 'desktop', 'scripts', 'agent', 'tests'}]
+            relative = '/'.join(parts[starts[-1]:]) if starts else '<external>'
+            if ('..' in relative.split('/') or len(relative) > 160
+                    or not re.fullmatch(r'[A-Za-z0-9_./-]+|<external>', relative)):
+                relative = '<external>'
+            name = code.co_name
+            if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,79}|<module>|<lambda>', name):
+                name = '<function>'
+            frames.append(f'{relative}:{int(trace.tb_lineno)} in {name}')
+            trace = trace.tb_next
+        return {'error_type': kind, 'error': message, 'traceback': '\n'.join(frames)}
+    except BaseException:
+        return {'error_type': kind if type(kind) is str else 'Exception',
+                'error': 'exception_message_unavailable', 'traceback': ''}
+
 def receipt_replan(receipt, budget):
     """Normalize existing explicit zero-input handoffs without running hooks."""
     if receipt.get('execution_status') != 'not_executed' or not (receipt.get('performed') is False or ('action' in receipt and receipt['action'] is None)):

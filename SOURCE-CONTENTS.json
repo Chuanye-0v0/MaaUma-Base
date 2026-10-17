@@ -411,6 +411,7 @@
     "gui/MFAAvalonia/Helper/MaaUmaNotificationSettingsView.cs",
     "gui/MFAAvalonia/Helper/MaaUmaNotifications.cs",
     "gui/MFAAvalonia/Helper/MaaUmaSettingsNavigation.cs",
+    "gui/MFAAvalonia/Helper/MaaUmaTaskFailureReportButton.cs",
     "gui/MFAAvalonia/Helper/MaaUmaUpdateProgressView.cs",
     "gui/MFAAvalonia/Helper/MobileInstanceCoordinator.cs",
     "gui/MFAAvalonia/Helper/MobileLocalization.cs",
@@ -1069,7 +1070,7 @@
   "build_recipe": "scripts/build.py",
   "resource_contract": "resources/required-inputs.json",
   "bit_identical_binary_rebuild_claimed": false,
-  "latest_ordinary_source_update": "0.4.15",
+  "latest_ordinary_source_update": "0.4.16",
   "ordinary_updates": [
     {
       "version": "0.4.10",
@@ -1245,7 +1246,41 @@
         "gui/MFAAvalonia/Helper/MaaUmaErrorFeedbackPanel.cs"
       ],
       "bit_identical_release_rebuild_claimed": false
+    },
+    {
+      "version": "0.4.16",
+      "scope": "Ordinary task failure reports from the log panel and daily race fixes; preserve public-source portability changes.",
+      "ordinary_backend_baseline": "0.4.15",
+      "ordinary_gui_baseline": "0.4.15",
+      "public_projection_sha256": "4b3de38ff0b39e6259e28c43f648518a94a808da81b9b1cd4f9c0349e9037f06",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.16.zip",
+      "ordinary_gui_archive_sha256": "2cdbf409555e473867558180f2e2d81b101beeb5d69eb34d036e883a08bb622e",
+      "changed_source_paths": [
+        "README.md",
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "agent/main.py",
+        "backend/core/action_recovery.py",
+        "backend/core/jjc/observer.py",
+        "backend/core/skill_ocr_performance.py",
+        "backend/desktop/maauma_error_feedback.py",
+        "backend/desktop/mfa_backend.py",
+        "backend/scripts/umaa_public_worker.py",
+        "gui/MFAAvalonia/Helper/MaaUmaErrorFeedbackPanel.cs",
+        "gui/MFAAvalonia/Helper/MaaUmaTaskFailureReportButton.cs",
+        "gui/MFAAvalonia/Views/Pages/TaskQueueView.axaml",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false,
+      "revision": "r1",
+      "ordinary_backend_baseline_revision": "r2",
+      "ordinary_gui_baseline_revision": "r2",
+      "assets_projection_sha256": "7439ebc6d30a1ea13ecfa8db571bdc4f4914e9cb38b25ee4f1696d75ed9638f4",
+      "ordinary_gui_archive_version": "0.4.16"
     }
   ],
-  "latest_ordinary_source_revision": "r2"
+  "latest_ordinary_source_revision": "r1"
 }

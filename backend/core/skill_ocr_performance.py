@@ -36,13 +36,13 @@ def tesseract_stdin(image, runtime, languages, psm, whitelist):
     encoded, png = cv2.imencode('.png', image)
     if not encoded:
         raise ValueError('ocr_image_encode_failed')
-    command = [str(runtime.executable), 'stdin', 'stdout', '--tessdata-dir', str(runtime.tessdata_dir), '-l', languages, '--psm', str(psm)]
+    command = [str(runtime.executable), 'stdin', 'stdout', '--tessdata-dir', '.', '-l', languages, '--psm', str(psm)]
     if whitelist:
         command += ['-c', 'tessedit_char_whitelist=' + whitelist]
     command += ['-c', 'tessedit_create_tsv=1']
     if state is not None:
         state['tesseract_calls'] += 1
-    result = subprocess.run(command, input=png.tobytes(), capture_output=True, check=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+    result = subprocess.run(command, cwd=runtime.tessdata_dir, input=png.tobytes(), capture_output=True, check=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
     rows = list(csv.DictReader(io.StringIO(result.stdout.decode('utf-8')), delimiter='\t'))
     data = {field: [row[field] for row in rows] for field in ('text', 'conf')}
     if state is not None:

@@ -23,6 +23,14 @@ class ProcessBackend:
         except OSError:
             return None
 
+    def _remember_failure(self, task, result, directory):
+        try:
+            from desktop.maauma_error_feedback import record_task_failure
+            record_task_failure(PACKAGE, task, result, directory.name)
+        except Exception:
+            # Reporting is optional and cannot change the task outcome.
+            pass
+
     def run(self, task, options, emit, stop, *, execute=False):
         from desktop.umaa_public_context import check_task
         check_task(task)
@@ -62,9 +70,13 @@ class ProcessBackend:
                 time.sleep(.1)
         result = directory/'result.json'
         if not result.is_file():
-            return dict(ok=False, reason='worker_result_missing', game_task_complete=False,
-                        device_action_count_complete=False)
-        return json.loads(result.read_text(encoding='utf8'))
+            answer = dict(ok=False, reason='worker_result_missing', game_task_complete=False,
+                          device_action_count_complete=False)
+            self._remember_failure(task, answer, directory)
+            return answer
+        answer = json.loads(result.read_text(encoding='utf8'))
+        self._remember_failure(task, answer, directory)
+        return answer
 
 
 def main():

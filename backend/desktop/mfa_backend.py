@@ -601,7 +601,17 @@ class CurrentAccountBackend:
                 result['stop_queue'] = options['return_home']
         except Exception as error:
             entry_failure = isinstance(error, RuntimeError) and str(error).startswith(('task_entry_page_unverified:', 'return_home_'))
-            result = {**base, **failure_details(error), 'reason': str(error) if entry_failure else 'mfa_backend_exception', 'error_type': type(error).__name__, 'output_dir': str(output), 'device_action_count_complete': False}
+            try:
+                from core.action_recovery import exception_details
+                diagnostic = exception_details(error)
+            except Exception:
+                diagnostic = dict(error_type=type(error).__name__, error='exception_details_unavailable', traceback='')
+            result = {**base, **failure_details(error), **diagnostic, 'reason': str(error) if entry_failure else 'mfa_backend_exception', 'output_dir': str(output), 'device_action_count_complete': False}
+            if not entry_failure:
+                try:
+                    emit(dict(type='error', message=f"{task}: {result['error_type']}: {result['error']}", reason=result['reason'], error_type=result['error_type'], phase=(result.get('action_outcome') or {}).get('source_page')))
+                except Exception:
+                    pass
         if isinstance(popup_scope, PassivePopupSession):
             popup_scope.annotate(result)
             if popup_scope.failure:

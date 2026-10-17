@@ -1547,6 +1547,8 @@
                     <StackPanel Orientation="Horizontal"
                                 ClipToBounds="False"
                                 HorizontalAlignment="Right">
+                        <helper:MaaUmaTaskFailureReportButton Name="MaaUmaReportTaskFailure"
+                            Classes="BasicTight TaskQueueBasicTight" Margin="3,-3,6,0" VerticalAlignment="Center" />
                         <Button Classes="BasicTight TaskQueueBasicTight"
                                 Command="{Binding ExportCommand}"
                                 IsEnabled="{Binding CurrentInstanceIdle, Source={x:Static helper:Instances.RootViewModel}}"
