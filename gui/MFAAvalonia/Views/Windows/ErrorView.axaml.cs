@@ -56,6 +56,7 @@ public partial class ErrorView : SukiWindow
 
     public ErrorView(Exception? exception, bool shouldExit = false) : this()
     {
+        var maaumaExceptionType=exception?.GetType().FullName;
         var errorStr = new StringBuilder();
         while (exception != null)
         {
@@ -71,6 +72,8 @@ public partial class ErrorView : SukiWindow
         ExceptionMessage = errorStr.ToString();
         ExceptionDetails = exception.ToString();
         _shouldExit = shouldExit;
+        this.FindControl<MaaUmaErrorFeedbackPanel>("MaaUmaPrivateErrorFeedback")?.SetReport(
+            ExceptionMessage,ExceptionDetails,maaumaExceptionType);
     }
     // 显示异常窗口
     public static void ShowException(Exception e, bool shouldExit = false)
@@ -157,24 +160,11 @@ public partial class ErrorView : SukiWindow
     }
     
 #pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
-    // 复制到剪贴板
-    private void CopyErrorMessage_Click(object sender, RoutedEventArgs e)
+    // 复制本次错误的脱敏报告；准备过程仅保存在本地。
+    private async void CopyErrorMessage_Click(object sender, RoutedEventArgs e)
     {
-        var text = $"{ExceptionMessage}\n\n{ExceptionDetails}";
-        TaskManager.RunTaskAsync(async () =>
-        {
-            DispatcherHelper.PostOnMainThread(async () => await Clipboard.SetTextAsync(text));
-
-            // 显示提示（使用Avalonia原生ToolTip）
-            if (sender is Control control)
-            {
-                DispatcherHelper.PostOnMainThread(() => control.Bind(ToolTip.TipProperty, new I18nBinding(LangKeys.CopiedToClipboard)));
-                DispatcherHelper.PostOnMainThread(() => ToolTip.SetIsOpen(control, true));
-                await Task.Delay(1000);
-                DispatcherHelper.PostOnMainThread(() => ToolTip.SetIsOpen(control, false));
-                DispatcherHelper.PostOnMainThread(() => control.Bind(ToolTip.TipProperty, new I18nBinding(LangKeys.CopyToClipboard)));
-            }
-        },name:"复制错误信息到剪贴板");
+        var feedback=this.FindControl<MaaUmaErrorFeedbackPanel>("MaaUmaPrivateErrorFeedback");
+        if(feedback!=null)await feedback.CopyCurrentAsync(text=>Clipboard.SetTextAsync(text));
     }
 
     // // 打开反馈链接

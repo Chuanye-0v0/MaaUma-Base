@@ -214,7 +214,31 @@
         "scripts/build.py"
       ],
       "bit_identical_release_rebuild_claimed": false
+    },
+    {
+      "version": "0.4.15",
+      "scope": "Current-error private feedback and corresponding ordinary ErrorView sources; retain existing download channels.",
+      "ordinary_backend_baseline": "0.4.14",
+      "ordinary_gui_baseline": "0.4.14",
+      "public_projection_sha256": "b0e01087eff480a97d15597edaea639b2e195b52710085742be29aea239f9023",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.15.zip",
+      "ordinary_gui_archive_sha256": "65c5ebb6c0eaaee8c55fb67bd19e46a026b8b7cafafd9700bd568ab174923792",
+      "changed_source_paths": [
+        "README.md",
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "backend/desktop/maauma_error_feedback.py",
+        "backend/scripts/maauma_error_feedback.py",
+        "gui/MFAAvalonia/Helper/MaaUmaErrorFeedbackPanel.cs",
+        "gui/MFAAvalonia/Views/Windows/ErrorView.axaml",
+        "gui/MFAAvalonia/Views/Windows/ErrorView.axaml.cs",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false
     }
   ],
-  "latest_ordinary_source_update": "0.4.14"
+  "latest_ordinary_source_update": "0.4.15"
 }
