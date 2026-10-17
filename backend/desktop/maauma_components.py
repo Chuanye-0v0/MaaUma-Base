@@ -390,6 +390,15 @@ def apply_prepared(root,ticket_path,*,parent_pid=None):
             for name,value in effective.items():
                 if value['source'] is None:continue
                 target=updates.contained(root,name)
+                if (value['sha256'] is None and name not in old_managed and target.is_file() and
+                        target.stat().st_size==value['size_bytes']):
+                    # Full base manifests do not carry per-file hashes. A bridge
+                    # may already have installed a newly managed updater module;
+                    # compare only this unowned candidate with its authenticated
+                    # full-ZIP member instead of rejecting an identical file.
+                    _,source_archive,source_member=value['source']
+                    with source_archive.open(source_member) as source:
+                        value['sha256']=hashlib.file_digest(source,'sha256').hexdigest()
                 if (value['sha256'] and target.is_file() and target.stat().st_size==value['size_bytes'] and
                         _digest(target)==value['sha256']):
                     continue

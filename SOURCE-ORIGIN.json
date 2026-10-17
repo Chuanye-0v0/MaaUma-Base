@@ -146,7 +146,7 @@
       "scope": "Incremental update transport with complete-package fallback; retain public-source portability changes.",
       "ordinary_backend_baseline": "0.4.11",
       "ordinary_gui_baseline": "0.4.11",
-      "public_projection_sha256": "8893db9088301168bf3fe15ceed7da51031c0c7861fff98356f494c09c05cd5b",
+      "public_projection_sha256": "83aa8648bd1bd8579e06880fc79f47373433b052d1391867fe99ce3ad05a7ebf",
       "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.12.zip",
       "ordinary_gui_archive_sha256": "6e4981574dac5d790e17b1eccef4324cca4c2ccbec1ba915d9653fdc694a6016",
       "changed_source_paths": [
@@ -166,7 +166,9 @@
         "resources/required-inputs.json",
         "scripts/build.py"
       ],
-      "bit_identical_release_rebuild_claimed": false
+      "bit_identical_release_rebuild_claimed": false,
+      "source_revision": 2,
+      "revision_reason": "Full update compatibility after public updater bootstrap"
     }
   ],
   "latest_ordinary_source_update": "0.4.12"
