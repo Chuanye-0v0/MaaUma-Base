@@ -24,6 +24,7 @@ def _relaunch(root):
 def main(argv=None,*,relaunch=None):
     from desktop.maauma_service import dispatch,ServiceError
     from desktop.product_updates import UpdateError
+    from desktop.update_connectivity import bind_reporter,failure_details
     parser=argparse.ArgumentParser();parser.add_argument('--root',type=Path,required=True)
     parser.add_argument('--request-file',type=Path)
     parser.add_argument('--progress-jsonl',action='store_true',help='Emit credential-free update progress JSON lines to stderr.')
@@ -41,7 +42,7 @@ def main(argv=None,*,relaunch=None):
         from desktop.update_progress import ProgressReporter,jsonl_sink
         progress_context=ProgressReporter(jsonl_sink(sys.stderr))
     else:progress_context=nullcontext(None)
-    with progress_context as progress:
+    with progress_context as progress,bind_reporter(progress):
         try:
             response=dispatch(args.root,value,progress=progress) if progress is not None else dispatch(args.root,value)
             if response.get('ok') and value.get('action')=='apply' and value.get('restart') is True:
@@ -53,7 +54,7 @@ def main(argv=None,*,relaunch=None):
                     # The transaction already succeeded. A GUI startup failure is
                     # reported separately and never described as an install failure.
                     response.update(restarted=False,restart_code='gui_restart_failed')
-        except (ServiceError,UpdateError) as error:response={'ok':False,'code':str(error)}
+        except (ServiceError,UpdateError) as error:response={'ok':False,'code':str(error),**failure_details(error)}
         except (OSError,ValueError,TypeError,KeyError):response={'ok':False,'code':'suite_operation_failed'}
         if progress is not None:progress.finish(response)
     print(json.dumps(response,ensure_ascii=False));return 0 if response.get('ok') else 1

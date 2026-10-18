@@ -17,6 +17,8 @@ def receipt_text(event, account=''):
     elif kind == 'finished' and isinstance(message, dict):
         if message.get('dry_run'):
             text = '预演完成，未操作游戏'
+        elif message.get('reason') in {'task_options_invalid', 'task_assets_invalid'}:
+            text = message.get('configuration_message') or '本项任务配置无效，请检查设置'
         elif message.get('reason') == 'harvest_empty_home_verified':
             text = '没有可收取的育成，已回主页并跳过收菜'
         elif message.get('kind') == 'batch':

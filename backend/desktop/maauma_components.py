@@ -19,6 +19,7 @@ from zipfile import ZipFile,BadZipFile
 
 from desktop import maauma_service as service
 from desktop import product_updates as updates
+from desktop.update_connectivity import observed_phase, transport_failure
 
 MANIFEST='maauma-component-manifest.json'
 STATE='config/maauma-modules.json'
@@ -173,12 +174,13 @@ def _public_download_url(entry,product):
     return url
 
 
+@observed_phase('public_cos_download')
 def _anonymous_download(url):
     # Deliberately independent of service configuration, device identity and
     # authorization. No service header or grant crosses to the public bucket.
     request=Request(url,headers={'Accept':'application/octet-stream','User-Agent':'MaaUma-Suite/1'},method='GET')
     try:return build_opener(service.NoRedirect()).open(request,timeout=90)
-    except (HTTPError,OSError,ValueError):raise service.ServiceError('service_unavailable') from None
+    except (HTTPError,OSError,ValueError) as error:raise transport_failure(service.ServiceError('service_unavailable'),error) from None
 
 
 def download(root,entry,target,*,product,public=False,progress=None,item_id=None):
@@ -207,7 +209,7 @@ def download(root,entry,target,*,product,public=False,progress=None,item_id=None
                 while True:
                     try:block=read_chunk(response)
                     except IncompleteRead:raise
-                    except OSError:raise service.ServiceError('service_unavailable') from None
+                    except OSError as error:raise transport_failure(service.ServiceError('service_unavailable'),error,phase='package_download') from None
                     if not block:break
                     size+=len(block)
                     if size>MAX_ARCHIVE:_error('package_too_large')
@@ -555,7 +557,7 @@ def launch_install(root,ticket_path,*,parent_pid=None):
         if source.is_file() and source.suffix not in {'.pyc','.pyo'}:
             shutil.copy2(source,isolated_runtime/source.name)
     for module in ('desktop/maauma_service.py','desktop/maauma_components.py','desktop/product_updates.py',
-                   'desktop/maauma_file_patches.py','desktop/zip_recipe.py','desktop/update_progress.py',
+                   'desktop/maauma_file_patches.py','desktop/zip_recipe.py','desktop/update_progress.py','desktop/update_connectivity.py',
                    'desktop/__init__.py','scripts/maauma_service.py'):
         source=Path(__file__).resolve().parents[1]/module;target=helper/'backend'/module
         target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target)

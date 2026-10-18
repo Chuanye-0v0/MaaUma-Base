@@ -1,6 +1,7 @@
 """Daily navigation with ordinal/template binding before the existing race gate."""
 import json
 import cv2
+import numpy as np
 import re
 import hashlib
 from functools import lru_cache
@@ -18,7 +19,11 @@ def crop_tokens(image, ocr, box):
 
 @lru_cache(maxsize=6)
 def display_template(name):
-    return cv2.imread(str(Path(__file__).with_name('assets') / (name + '.png')), cv2.IMREAD_GRAYSCALE)
+    try:
+        raw = (Path(__file__).with_name('assets') / (name + '.png')).read_bytes()
+        return cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_GRAYSCALE) if raw else None
+    except (OSError, cv2.error):
+        return None
 
 def fast_display(raw, image, ocr, event=None, pending=False):
     """Recognize static display anchors; no full-screen OCR or consuming actions."""

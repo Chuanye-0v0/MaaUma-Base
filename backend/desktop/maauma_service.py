@@ -14,6 +14,7 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from desktop.product_updates import contained, read_json, write_json, installation, UpdateError
+from desktop.update_connectivity import observed_request, observed_phase, transport_failure, diagnose
 
 CONFIG='config/private-service.json'
 AUTH='config/private-service-auth.json'
@@ -137,6 +138,7 @@ def credentials(root,product='umaa-public'):
     return value
 
 
+@observed_request
 def wire(root,path,body=None,*,authenticated=True,product='umaa-public',timeout=45,binary=False,download_source=None):
     cfg=config(root)
     token=credentials(root,product)['access_token'] if authenticated else ''
@@ -156,12 +158,13 @@ def wire(root,path,body=None,*,authenticated=True,product='umaa-public',timeout=
     except HTTPError as error:
         try:code=json.loads(error.read(8192)).get('code')
         except (ValueError,OSError):code=None
-        raise ServiceError(code if isinstance(code,str) and re.fullmatch('[a-z0-9_]{1,80}',code) else 'service_unavailable') from None
-    except (OSError,ValueError):raise ServiceError('service_unavailable') from None
+        raise transport_failure(ServiceError(code if isinstance(code,str) and re.fullmatch('[a-z0-9_]{1,80}',code) else 'service_unavailable'),error) from None
+    except (OSError,ValueError) as error:raise transport_failure(ServiceError('service_unavailable'),error) from None
     if not isinstance(value,dict) or value.get('ok') is not True:raise ServiceError('service_mismatch')
     return value
 
 
+@observed_request
 def public_wire(root,path,*,timeout=45,binary=False,download_source=None):
     """Read the explicitly public base feed without a device or a grant."""
     if not re.fullmatch(r'/v1/public/(?:catalog\?channel=(?:stable|preview)|downloads/[1-9][0-9]{0,19}|patches\?from_version=[0-9A-Za-z.+_%-]+&to_version=[0-9A-Za-z.+_%-]+&channel=(?:stable|preview)|patches/fp_[0-9a-f]{32}/download)',str(path)):
@@ -179,12 +182,13 @@ def public_wire(root,path,*,timeout=45,binary=False,download_source=None):
     except HTTPError as error:
         try:code=json.loads(error.read(8192)).get('code')
         except (ValueError,OSError):code=None
-        raise ServiceError(code if isinstance(code,str) and re.fullmatch('[a-z0-9_]{1,80}',code) else 'service_unavailable') from None
-    except (OSError,ValueError):raise ServiceError('service_unavailable') from None
+        raise transport_failure(ServiceError(code if isinstance(code,str) and re.fullmatch('[a-z0-9_]{1,80}',code) else 'service_unavailable'),error) from None
+    except (OSError,ValueError) as error:raise transport_failure(ServiceError('service_unavailable'),error) from None
     if not isinstance(value,dict) or value.get('ok') is not True:raise ServiceError('service_mismatch')
     return value
 
 
+@observed_phase('public_catalog')
 def public_catalog(root):
     cfg=config(root)
     result=public_wire(root,'/v1/public/catalog?'+urlencode({'channel':cfg['channel']}))
@@ -247,6 +251,7 @@ def activate(root,invite_code,*,automatic=True,progress=None):
     return answer
 
 
+@observed_phase('license_check')
 def license_check(root,product='umaa-public'):
     auth=credentials(root,product)
     response=wire(root,'/v1/license/check?'+urlencode({'product_id':product}),product=product)
@@ -257,6 +262,7 @@ def license_check(root,product='umaa-public'):
     return {'ok':True,'status':'license_valid','product_id':product,'valid_for_seconds':min(300,duration)}
 
 
+@observed_phase('authorized_catalog')
 def catalog(root,*,base_version=None):
     if base_version is None:base_version=installation(root)[2]['version']
     cfg=config(root)
@@ -309,6 +315,7 @@ def dispatch(root,value,*,progress=None):
     if not isinstance(value,dict):raise ServiceError('invalid_request')
     action=value.get('action')
     if action=='info':return info(root)
+    if action=='check_update_connectivity':return diagnose(root)
     if action=='configure':return configure(root,value.get('base_url'),value.get('channel','preview'),value.get('download_source'))
     if action=='activate':return activate(root,value.get('invite_code'),progress=progress)
     if action=='catalog':return catalog(root)

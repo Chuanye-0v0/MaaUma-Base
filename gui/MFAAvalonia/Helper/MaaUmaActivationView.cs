@@ -39,6 +39,7 @@ public sealed class MaaUmaActivationView : UserControl
     private readonly TextBox code = new() { Name="MaaUmaPersonalCode", Watermark="输入测试版激活码", PasswordChar='●' };
     private readonly ComboBox channel = new() { Name="MaaUmaChannel", ItemsSource=new[]{"稳定版","预览版"}, SelectedIndex=1 };
     private readonly ComboBox downloadSource = new() { Name="MaaUmaDownloadSource", ItemsSource=new[]{"自动（国内优先）","国内下载（腾讯云）","原下载通道"}, SelectedIndex=0 };
+    private readonly Button networkCheck = new() { Name="MaaUmaCheckNetwork", Content="检查网络" };
     private readonly Button feedback = new() { Name="MaaUmaFeedback", Content="问题反馈" };
     private readonly Button configure = new() { Name="MaaUmaConfigureService", Content="保存设置" };
     private readonly Button activate = new() { Name="MaaUmaActivate", Content="激活" };
@@ -74,7 +75,7 @@ public sealed class MaaUmaActivationView : UserControl
         // MaaUma local update announcement v1
         var announcement = new Button { Name="MaaUmaShowUpdateAnnouncement", Content="更新公告" };
         announcement.Click += (_, _) => MaaUmaUpdateAnnouncement.ShowCurrent(TopLevel.GetTopLevel(this) as Window, root);
-        foreach(var button in new[]{refresh,prepare,install,feedback,announcement}){button.Margin=new Thickness(0,0,12,8);actions.Children.Add(button);}
+        foreach(var button in new[]{refresh,prepare,install,feedback,announcement,networkCheck}){button.Margin=new Thickness(0,0,12,8);actions.Children.Add(button);}
         body.Children.Add(actions);body.Children.Add(progress);body.Children.Add(downloadProgress);body.Children.Add(message);
         var serviceFields=new StackPanel {Spacing=10,Children={
             new TextBlock {Text="服务地址"},address,new TextBlock {Text="更新频道"},channel,
@@ -88,6 +89,7 @@ public sealed class MaaUmaActivationView : UserControl
         Content=new ScrollViewer {Content=body};
         configure.Click+=async(_,_)=>await Configure();activate.Click+=async(_,_)=>await Activate();
         refresh.Click+=async(_,_)=>await RefreshInfo();prepare.Click+=async(_,_)=>await PrepareUpdate();
+        networkCheck.Click+=async(_,_)=>await CheckConnectivity();
         install.Click+=async(_,_)=>await Install();channel.SelectionChanged+=(_,_)=>Buttons();
         downloadSource.SelectionChanged+=(_,_)=>Buttons();
         feedback.Click+=(_,_)=>{
@@ -104,7 +106,7 @@ public sealed class MaaUmaActivationView : UserControl
     private bool SettingsSaved=>SelectedChannel==savedChannel && SelectedDownloadSource==savedDownloadSource && (address.Text??"").Trim()==savedAddress;
     private void Buttons()
     {
-        configure.IsEnabled=refresh.IsEnabled=!busy;
+        configure.IsEnabled=refresh.IsEnabled=!busy;networkCheck.IsEnabled=!busy&&SettingsSaved;
         activate.IsEnabled=!busy && SettingsSaved;
         prepare.IsEnabled=activate.IsEnabled && SelectedChannel==savedChannel;
         code.IsEnabled=address.IsEnabled=channel.IsEnabled=downloadSource.IsEnabled=!busy;
@@ -146,7 +148,7 @@ public sealed class MaaUmaActivationView : UserControl
         if(result.Property("ticket")!=null)ticket=result["ticket"]?.Type==JTokenType.String ? (string?)result["ticket"] : null;
         else if((bool?)prepared?["ok"]==true && prepared?["ticket"]?.Type==JTokenType.String)ticket=(string?)prepared["ticket"];
         if(displayMessage)message.Text=(bool?)result["ok"]==false
-            ? "操作未完成，请检查更新设置后重试。当前安装未修改。"
+            ? MaaUmaUpdateConnectivity.FailureText(result) is { Length:>0 } failure?failure:"操作未完成，请检查更新设置后重试。当前安装未修改。"
             : (string?)result["status"] switch {
                 "prepared"=>"更新已准备；停止任务后可安装并重开。",
                 "current" or "no_update"=>"当前已是可用的最新版本。",
@@ -224,6 +226,14 @@ public sealed class MaaUmaActivationView : UserControl
                 : "激活未完成，请检查激活码或更新设置后重试。";
         }catch{message.Text="激活结果未确认，请先刷新状态；不会自动重复提交激活码。";}
         finally{input.Remove("invite_code");ActivationFlight.Release();Busy(false);await UpdateIdle();}
+    }
+    public async Task CheckConnectivity()
+    {
+        if(busy||!SettingsSaved)return;Busy(true);
+        message.Text="正在检查版本服务与下载连接；不会修改设置、授权或安装。";
+        try {message.Text=MaaUmaUpdateConnectivity.DiagnosticText(await request(new JObject {["action"]="check_update_connectivity"}));}
+        catch {message.Text="网络检查未完成；当前设置、授权和安装未修改。";}
+        finally {Busy(false);}
     }
     public async Task PrepareUpdate()
     {

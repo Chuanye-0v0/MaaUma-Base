@@ -3,6 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 import re
 import cv2
+import numpy as np
 from core.daily_legend.catalog import opponent
 
 def help_close(tokens):
@@ -22,7 +23,11 @@ def help_close(tokens):
 
 @lru_cache(maxsize=46)
 def template(number):
-    image = cv2.imread(str(Path(__file__).with_name('assets') / f'{number:02d}.png'), 0)
+    try:
+        raw = (Path(__file__).with_name('assets') / f'{number:02d}.png').read_bytes()
+        image = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_GRAYSCALE) if raw else None
+    except (OSError, cv2.error):
+        image = None
     if image is None:
         raise RuntimeError('daily_legend_template_missing')
     return image

@@ -4,6 +4,28 @@ from maa.custom_action import CustomAction
 from harvest_adapter import HarvestOptions, MaaStopSignal, run_preview
 
 
+def configuration_failure_can_continue(result):
+    """Only a proved pre-device option rejection may fail one queue item."""
+    if (not isinstance(result, dict) or result.get('ok') is not False
+            or (result.get('reason'), result.get('failure_stage')) not in {
+                ('task_options_invalid', 'options_validation'), ('task_assets_invalid', 'asset_validation')}
+            or result.get('game_task_complete') is not False
+            or type(result.get('device_actions')) is not int or result['device_actions'] != 0
+            or result.get('device_action_count_complete') is not True):
+        return False
+    if any(result.get(key) is not None and result.get(key) is not False for key in (
+            'stop_queue', 'pending', 'pending_race', 'pending_exchange', 'pending_spin',
+            'pending_setting', 'start_submitted', 'start_confirmed', 'account_conflict',
+            'account_paused', 'tap_in_flight', 'uncertain')):
+        return False
+    outcome = result.get('action_outcome')
+    return outcome is None or (isinstance(outcome, dict)
+        and outcome.get('execution_status') == 'not_executed'
+        and type(outcome.get('input_attempts')) is int and outcome['input_attempts'] == 0
+        and type(outcome.get('acknowledged_inputs')) is int and outcome['acknowledged_inputs'] == 0
+        and outcome.get('decision') != 'pause_account')
+
+
 class HarvestAction(CustomAction):
     def run(self, context, argv):
         self.last_result = None
@@ -62,7 +84,9 @@ class BackendTaskAction(CustomAction):
             self.last_result = self.backend.run(self.task, options, emit, stop, execute=execute)
             emit(dict(type='finished', message=self.last_result))
             # Never block waiting for a stop Job inside its own action callback.
-            if self.last_result.get('stop_queue') or not self.last_result.get('ok'):
+            if (stop.is_set() or self.last_result.get('stop_queue')
+                    or (not self.last_result.get('ok')
+                        and not configuration_failure_can_continue(self.last_result))):
                 self.backend.queue_stopped = True
                 self.backend.stopped_generation = generation
                 context.tasker.post_stop()

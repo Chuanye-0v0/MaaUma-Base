@@ -39,6 +39,7 @@ class ProgressReporter:
         self._verification_step = None
         self._transfer_kind = None
         self._fallback_reason = None
+        self._network = {}
 
     def __enter__(self):
         self._emit(force=True)
@@ -76,6 +77,16 @@ class ProgressReporter:
             return
         with self._lock:
             self._stage = stage
+            self._emit(force=True)
+
+    def network(self, phase, status, **details):
+        from desktop.update_connectivity import PHASES, STATUSES, CAUSES
+        if phase not in PHASES or status not in STATUSES:return
+        with self._lock:
+            self._network = {'network_phase':phase,'network_status':status}
+            if details.get('cause') in CAUSES:self._network['network_cause']=details['cause']
+            code=details.get('http_status')
+            if type(code) is int and 100<=code<=599:self._network['network_http_status']=code
             self._emit(force=True)
 
     def start_item(self, item_id):
@@ -218,6 +229,7 @@ class ProgressReporter:
                 'verification_bytes': self._verification_bytes,
                 'verification_total_bytes': self._verification_total,
                 'transfer_kind': self._transfer_kind,'fallback_reason': self._fallback_reason,
+                **self._network,
             }
             try:
                 self._sink(value)

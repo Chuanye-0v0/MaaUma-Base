@@ -58,6 +58,7 @@ public static class MaaUmaUpdateProgressPipe
             }
             if(DateTimeOffset.TryParse((string?)value["last_received_at"],CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out var last))
                 safe["last_received_at"]=last.ToString("O");
+            MaaUmaUpdateConnectivity.CopyProgress(value,safe);
             return true;
         }catch {safe=new JObject();return false;}
     }
@@ -120,6 +121,7 @@ public sealed class MaaUmaUpdateProgressView : Border
     private string? operation;
     private long sequence;
     private string phase="checking";
+    private JObject? connectivity;
     private double overallReceived;
     private double? overallTotal;
     private double globalIdle;
@@ -141,13 +143,13 @@ public sealed class MaaUmaUpdateProgressView : Border
     }
     public void Begin(Guid localInvocation)
     {
-        invocation=localInvocation;operation=null;sequence=0;phase="checking";
+        invocation=localInvocation;operation=null;sequence=0;phase="checking";connectivity=null;
         items.Clear();rows.Children.Clear();overallReceived=0;overallTotal=null;itemCount=completed=failed=0;
         globalIdle=0;globalWaiting=false;globalLastByte=null;
         IsActive=true;HasFailed=false;IsVisible=true;eventAt=now();
         overall.IsVisible=overallBytes.IsVisible=counts.IsVisible=true;
         stage.Text="正在检查更新与准备下载";overall.IsIndeterminate=true;overall.Value=0;
-        overallBytes.Text="等待服务返回实际下载项目和大小。";counts.Text="";wait.Text="";lastByte.Text="尚未收到网络数据";
+        overallBytes.Text="等待服务返回实际下载项目和大小。";counts.Text="";wait.Text="";lastByte.Text="正在查询版本，尚未开始接收更新文件。";
     }
     public void Accept(Guid localInvocation,JObject value)
     {
@@ -155,6 +157,7 @@ public sealed class MaaUmaUpdateProgressView : Border
         var op=(string)data["op_id"]!;var next=(long)data["sequence"]!;
         if(operation!=null&&operation!=op||next<=sequence)return;
         operation=op;sequence=next;eventAt=now();phase=(string)data["stage"]!;
+        if(data.Property("network_phase")!=null)connectivity=data;
         overallReceived=(double)data["overall_received_bytes"]!;overallTotal=(double?)data["overall_total_bytes"];
         itemCount=(int)(double)data["item_count"]!;completed=(int)(double)data["completed_items"]!;failed=(int)(double)data["failed_items"]!;
         globalIdle=(double)data["idle_seconds"]!;globalWaiting=(bool)data["waiting"]!;
@@ -192,6 +195,8 @@ public sealed class MaaUmaUpdateProgressView : Border
     private void Render()
     {
         stage.Text=StageText(phase);
+        var connectionText=MaaUmaUpdateConnectivity.ProgressText(connectivity);
+        if(phase=="checking"&&connectionText.Length>0)stage.Text=connectionText;
         overall.IsIndeterminate=overallTotal is not >0||phase is "checking" or "verifying" or "preparing";
         overall.Value=Percent(overallReceived,overallTotal);
         overallBytes.Text="总接收："+SizeProgress(overallReceived,overallTotal);
@@ -200,7 +205,7 @@ public sealed class MaaUmaUpdateProgressView : Border
         var extra=Math.Max(0,(now()-eventAt).TotalSeconds);
         var waiting=IsActive&&(phase is "connecting" or "downloading")&&(globalWaiting||globalIdle+extra>=8);
         wait.Text=waiting?$"正在等待网络数据 · 已有 {Math.Floor(globalIdle+extra):0} 秒没有新增字节；仍在等待响应。":"";
-        lastByte.Text=globalLastByte is {} receivedAt?"最后收到数据："+receivedAt.ToLocalTime().ToString("HH:mm:ss"):"尚未收到网络数据";
+        lastByte.Text=globalLastByte is {} receivedAt?"最后收到数据："+receivedAt.ToLocalTime().ToString("HH:mm:ss"):phase=="checking"?"版本查询不计入文件流量；尚未开始接收更新文件。":"尚未接收更新文件字节";
         foreach(var item in items.Values) {
             var done=item.Status=="verified";var bad=item.Status=="failed";
             item.Phase.Text=bad?"本项未准备完成":done?"校验完成":StageText(item.Stage);
@@ -231,6 +236,7 @@ public sealed class MaaUmaUpdateProgressView : Border
         stage.Text=HasFailed?partial?"部分内容未准备完成，请查看本次结果。":"更新准备未完成，可以重新尝试。":
             (string?)result["status"] is "current" or "no_update"?"检查完成，当前无需下载更新。":
             (string?)result["status"]=="prepared"||(string?)result["component"]?["status"]=="prepared"?"更新文件已准备，安装状态以本次结果为准。":"本次操作已完成，请查看结果。";
+        if(HasFailed&&MaaUmaUpdateConnectivity.FailureText(result) is { Length:>0 } networkFailure)stage.Text=networkFailure;
         if(items.Count==0){overall.IsVisible=false;overallBytes.IsVisible=false;counts.IsVisible=false;}
         else {overall.IsIndeterminate=false;overall.IsVisible=overallTotal is >0;}
         foreach(var item in items.Values){item.Download.IsIndeterminate=false;item.Verify.IsIndeterminate=false;item.Rate.Text="";

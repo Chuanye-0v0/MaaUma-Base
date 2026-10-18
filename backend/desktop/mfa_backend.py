@@ -516,8 +516,38 @@ class CurrentAccountBackend:
             return dict(kind=task, ok=False, game_task_complete=False, reason='device_busy', device_actions=0, device_owner=error.owner)
 
     def _run(self, task, options, emit, stop, *, execute=False):
-        options = validate_options(task, options)
         base = dict(kind=task, ok=False, game_task_complete=False, current_account_only=True)
+        validation_stage = 'options_validation'
+        try:
+            options = validate_options(task, options)
+            if task == 'daily_legend':
+                validation_stage = 'asset_validation'
+                from core.daily_legend.catalog import NAMES
+                from core.daily_legend.listing import template
+                for number in {options['opponent_number'], *range(1, len(NAMES)+1, 3)}:
+                    template(number)  # Required target/anchors, before any device input.
+        except (ValueError, RuntimeError) as error:
+            if (validation_stage == 'options_validation' and not isinstance(error, ValueError)
+                    or validation_stage == 'asset_validation' and str(error) != 'daily_legend_template_missing'):
+                raise
+            try:
+                from core.action_recovery import exception_details
+                diagnostic = exception_details(error)
+            except Exception:
+                diagnostic = dict(error_type=type(error).__name__, error='exception_details_unavailable', traceback='')
+            message = ('传奇对手模板资源不可用，本项未执行' if validation_stage == 'asset_validation'
+                else '请先选择每日传奇对手' if task == 'daily_legend'
+                and diagnostic.get('error') == 'daily_legend_opponent_invalid'
+                else '本项任务配置无效，请检查设置')
+            result = dict(base, **diagnostic, reason=(
+                'task_assets_invalid' if validation_stage == 'asset_validation' else 'task_options_invalid'),
+                failure_stage=validation_stage, configuration_message=message,
+                device_actions=0, device_action_count_complete=True)
+            try:
+                emit(dict(type='error', message=message, reason=result['reason']))
+            except Exception:
+                pass  # A reporting failure cannot turn a zero-input rejection into a crash.
+            return result
         if stop.is_set():
             return {**base, 'reason': 'operator_stop', 'device_actions': 0}
         if not execute:
