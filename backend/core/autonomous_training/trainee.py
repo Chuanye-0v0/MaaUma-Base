@@ -7,11 +7,20 @@ import numpy as np
 REQUIRED_TRAINEE = '樱花进王'
 ASSET_DIR = Path(__file__).with_name('assets')
 
+def _read_image(path):
+    """Decode bundled artwork without Windows narrow-path imread failures."""
+    try:
+        raw = Path(path).read_bytes()
+        return cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR) if raw else None
+    except (OSError, cv2.error):
+        return None
+
+
 @lru_cache(maxsize=160)
 def portrait_templates(key):
     """Face-only hints; exact outfit identity is still checked after selection."""
     root = Path(__file__).resolve().parents[2]
-    portrait = cv2.imread(str(root.parent / f'resource/portraits/{key}.png'))
+    portrait = _read_image(root.parent / f'resource/portraits/{key}.png')
     templates = []
     if portrait is not None:
         portrait = cv2.resize(portrait, (256, 256))
@@ -20,7 +29,7 @@ def portrait_templates(key):
     for appearance in ('school', 'race'):
         path = ASSET_DIR / f'{key}_{appearance}_face.png'
         if path.exists():
-            face = cv2.imread(str(path))
+            face = _read_image(path)
             if face is not None:
                 templates.extend((cv2.resize(face, None, fx=s, fy=s) for s in (0.9, 1.0, 1.1)))
     return templates
@@ -56,7 +65,7 @@ def variant_observation(image, tokens, key):
     if name_matched and (not matched):
         path = ASSET_DIR / f'{key}_outfit_title.png'
         if path.exists():
-            title = cv2.imread(str(path))
+            title = _read_image(path)
             if title is not None:
                 score = cv2.minMaxLoc(cv2.matchTemplate(image[385:420, 30:330], title, cv2.TM_CCOEFF_NORMED))[1]
                 matched = score >= 0.94
@@ -109,11 +118,11 @@ def initial_candidate(image, key):
     for name in (f'{key}_face.png', f'{key}_race_face.png'):
         path = ASSET_DIR / name
         if path.exists():
-            template = cv2.imread(str(path))
+            template = _read_image(path)
             if template is not None:
                 templates.append((template, (0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1)))
     if key == 'scarlet':
-        reference = cv2.imread(str(ASSET_DIR / 'scarlet_reference.png'))
+        reference = _read_image(ASSET_DIR / 'scarlet_reference.png')
         if reference is not None:
             templates.append((reference[20:100, 20:78], (*np.arange(0.8, 1.61, 0.025), 4 / 3)))
     region = image[640:1010, 10:710]

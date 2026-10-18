@@ -1,4 +1,5 @@
 """Finish each team race and stop on a freshly observed empty RP bar."""
+import time
 from desktop.umaa_public_context import endpoint as _public_endpoint
 from core.jjc.live import ACTION_PAGES
 from core.action_recovery import ReobserveRequired, ReobserveBudget, failure_details
@@ -35,6 +36,19 @@ class JjcRunner:
                 if self.stop.is_set():
                     raise RuntimeError('operator_stop')
                 page = observed['page']
+                if page == 'results' and not observed['actions']:
+                    # Reopening a pending race can land on the results entrance
+                    # animation before Continue appears. Observe only; never
+                    # accelerate with an invented click or resubmit race entry.
+                    deadline = time.monotonic() + 20
+                    while observed['page'] == 'results' and not observed['actions']:
+                        if time.monotonic() >= deadline:
+                            raise RuntimeError('jjc_results_controls_timeout')
+                        if self.stop.wait(.5):
+                            raise RuntimeError('operator_stop')
+                        observed = self.device.capture()
+                        report['last_observation'] = observed
+                    page = observed['page']
                 if page == 'arena' and observed.get('arena_tallying'):
                     report.update(remaining_rp=observed.get('rp'), tally_period=observed.get('tally_period'))
                     raise RuntimeError('jjc_weekly_tally_in_progress')

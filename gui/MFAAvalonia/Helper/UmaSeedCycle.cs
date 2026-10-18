@@ -140,6 +140,22 @@ public static class UmaSeedCycle
     }
     private static void ConvertPlantNode(MaaProcessor.NodeAndParam node) {
         var value=JToken.Parse(node.Param ?? "[]");var rows=value is JArray array ? array : new JArray(value);
+        // MaaFramework replaces custom_action_param as a whole. Consolidate
+        // the ordered GUI fragments before wrapping them inside plant.
+        var plantParts=rows.OfType<JObject>().Select(part=>part["UmaPlant"])
+            .OfType<JObject>().ToArray();
+        var merged=new JObject();
+        JObject? lastParameters=null;
+        foreach(var part in plantParts)if(part["custom_action_param"] is JObject parameters) {
+            merged.Merge(parameters,new JsonMergeSettings {
+                MergeArrayHandling=MergeArrayHandling.Replace,
+                MergeNullValueHandling=MergeNullValueHandling.Merge });
+            lastParameters=part;
+        }
+        if(lastParameters!=null) {
+            foreach(var part in plantParts)part.Remove("custom_action_param");
+            lastParameters["custom_action_param"]=merged;
+        }
         foreach(var part in rows.OfType<JObject>())if(part["UmaPlant"] is JObject old) {
             part.Remove("UmaPlant");
             if(old["custom_action"] is JValue action)old["custom_action"]=((string)action!).Replace("UmaPlant","UmaSeedCycle");

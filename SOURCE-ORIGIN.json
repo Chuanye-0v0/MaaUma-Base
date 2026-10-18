@@ -518,8 +518,43 @@
         "scripts/build.py"
       ],
       "bit_identical_release_rebuild_claimed": false
+    },
+    {
+      "version": "0.4.24",
+      "revision": "r1",
+      "scope": "Ordinary announcement version, merged plant target parameters, Unicode trainee image reads, passive JJC result-control wait and six metadata files; resources unchanged.",
+      "ordinary_backend_baseline": "0.4.23",
+      "ordinary_backend_changed": true,
+      "ordinary_backend_source_paths": [
+        "backend/core/autonomous_training/trainee.py",
+        "backend/core/jjc/runner.py"
+      ],
+      "ordinary_gui_baseline": "0.4.23",
+      "ordinary_gui_release_baseline": "0.4.23",
+      "public_projection_sha256": "3063093fc2ccc207dad3d1cd756b610775afe14b21b16b5cbef5840c30bfc5b4",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.24.zip",
+      "ordinary_gui_archive_sha256": "de7473b1cdc25ecc4d6ed783feeabfbd1c183229dc4ddafb8721b9e48ebd2c94",
+      "ordinary_gui_archive_size_bytes": 30834186,
+      "ordinary_gui_archive_version": "0.4.24",
+      "ordinary_gui_code_version": "0.4.24",
+      "ordinary_gui_release_version": "0.4.24",
+      "ordinary_gui_code_reused_from": null,
+      "ordinary_gui_rebuilt_for_release": true,
+      "changed_source_paths": [
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "backend/core/autonomous_training/trainee.py",
+        "backend/core/jjc/runner.py",
+        "gui/MFAAvalonia/Helper/MaaUmaUpdateAnnouncement.cs",
+        "gui/MFAAvalonia/Helper/UmaSeedCycle.cs",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false
     }
   ],
-  "latest_ordinary_source_update": "0.4.23",
+  "latest_ordinary_source_update": "0.4.24",
   "latest_ordinary_source_revision": "r1"
 }
