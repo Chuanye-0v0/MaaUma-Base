@@ -15,6 +15,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from desktop.product_updates import contained, read_json, write_json, installation, UpdateError
 from desktop.update_connectivity import observed_request, observed_phase, transport_failure, diagnose
+from desktop import service_transport as transport
 
 CONFIG='config/private-service.json'
 AUTH='config/private-service-auth.json'
@@ -99,14 +100,23 @@ def unseal(root,value):
     return value
 
 
-def config(root):
-    path=contained(root,CONFIG)
-    value=read_json(path) if path.is_file() else {}
+def _transport_call(function,*args,**kwargs):
+    try:return function(*args,**kwargs)
+    except transport.TransportError as error:raise ServiceError(str(error)) from None
+
+
+def _config_value(raw):
+    value=json.loads(raw.decode('utf-8-sig')) if raw else {}
     if not value.get('base_url'):raise ServiceError('service_not_configured')
     value['base_url']=service_base(value['base_url'])
     if value.get('channel') not in {'preview','stable'}:raise ServiceError('invalid_channel')
     value['download_source']=_download_source(value.get('download_source','auto'))
+    if value.get('api_transport','cn') not in {'cn','overseas'}:raise ServiceError('invalid_transport_preference')
     return value
+
+
+def config(root):
+    return _config_value(_transport_call(transport.snapshot,root)[CONFIG])
 
 
 def _download_source(value):
@@ -114,22 +124,27 @@ def _download_source(value):
     return value
 
 
-def configure(root,base_url,channel='preview',download_source=None):
+def configure(root,base_url,channel='preview',download_source=None,api_transport=None):
     base=service_base(base_url)
     if channel not in {'stable','preview'}:raise ServiceError('invalid_channel')
-    path=contained(root,CONFIG);previous=read_json(path) if path.exists() else {}
-    source=_download_source(previous.get('download_source','auto') if download_source is None else download_source)
-    write_json(path,{'schema_version':'uma.private_service_config.v1','base_url':base,'channel':channel,'download_source':source})
-    if previous.get('base_url')!=base:
-        for name in (AUTH,RECEIPT):contained(root,name).unlink(missing_ok=True)
+    with transport.guard(root):
+        _transport_call(transport.recover,root)
+        path=contained(root,CONFIG);previous=read_json(path) if path.exists() else {}
+        source=_download_source(previous.get('download_source','auto') if download_source is None else download_source)
+        preference=previous.get('api_transport','cn') if api_transport is None else api_transport
+        if preference not in {'cn','overseas'}:raise ServiceError('invalid_transport_preference')
+        write_json(path,{'schema_version':'uma.private_service_config.v1','base_url':base,'channel':channel,
+            'download_source':source,'api_transport':preference})
+        if previous.get('base_url')!=base:
+            for name in (AUTH,RECEIPT):contained(root,name).unlink(missing_ok=True)
     return {'ok':True,'status':'configured','base_url':base,'channel':channel,'download_source':source}
 
 
 def credentials(root,product='umaa-public'):
     if product not in PRODUCTS:raise ServiceError('wrong_product')
-    cfg=config(root);path=contained(root,AUTH)
-    if not path.is_file():raise ServiceError('activation_required')
-    value=unseal(root,read_json(path));current=identity(root)
+    state=_transport_call(transport.snapshot,root);cfg=_config_value(state[CONFIG])
+    if not state[AUTH]:raise ServiceError('activation_required')
+    value=unseal(root,json.loads(state[AUTH].decode('utf-8-sig')));current=identity(root)
     if value.get('base_url')!=cfg['base_url'] or product not in value.get('products',[]):raise ServiceError('activation_required')
     if value.get('device_id')!=current['device_id']:raise ServiceError('device_changed')
     if value.get('public_key')!=current['public_key']:raise ServiceError('device_key_mismatch')
@@ -140,15 +155,25 @@ def credentials(root,product='umaa-public'):
 
 @observed_request
 def wire(root,path,body=None,*,authenticated=True,product='umaa-public',timeout=45,binary=False,download_source=None):
+    if authenticated:_ensure_transport(root,timeout=timeout)
     cfg=config(root)
-    token=credentials(root,product)['access_token'] if authenticated else ''
+    origins=_transport_call(transport.api_origins,cfg,binary=binary,anonymous=not authenticated)
+    return _transport_call(transport.attempt,origins,lambda base:_wire_origin(root,base,path,body,
+        authenticated=authenticated,product=product,timeout=timeout,binary=binary,download_source=download_source))
+
+
+def _wire_origin(root,base,path,body=None,*,authenticated=True,product='umaa-public',timeout=45,
+                 binary=False,download_source=None,_token=None,_signed=True):
+    cfg=config(root)
+    token=(credentials(root,product)['access_token'] if authenticated else '') if _token is None else _token
     data=json.dumps(body,ensure_ascii=False,separators=(',',':')).encode('utf8') if body is not None else b''
     method='POST' if body is not None else 'GET'
-    headers={'Accept':'application/json','User-Agent':'MaaUma-Suite/1',**signed_headers(root,method,path,data,token)}
+    headers={'Accept':'application/json','User-Agent':'MaaUma-Suite/1'}
+    if _signed:headers.update(signed_headers(root,method,path,data,token))
     if token:headers['Authorization']='Bearer '+token
     if body is not None:headers['Content-Type']='application/json'
     if binary:headers['X-MaaUma-Download-Source']=_download_source(cfg['download_source'] if download_source is None else download_source)
-    request=Request(cfg['base_url']+path,data=data if body is not None else None,headers=headers,method=method)
+    request=Request(base+path,data=data if body is not None else None,headers=headers,method=method)
     try:
         response=build_opener(NoRedirect()).open(request,timeout=timeout)
         if binary:return response
@@ -158,21 +183,27 @@ def wire(root,path,body=None,*,authenticated=True,product='umaa-public',timeout=
     except HTTPError as error:
         try:code=json.loads(error.read(8192)).get('code')
         except (ValueError,OSError):code=None
-        raise transport_failure(ServiceError(code if isinstance(code,str) and re.fullmatch('[a-z0-9_]{1,80}',code) else 'service_unavailable'),error) from None
-    except (OSError,ValueError) as error:raise transport_failure(ServiceError('service_unavailable'),error) from None
+        raise transport.mark(transport_failure(ServiceError(code if isinstance(code,str) and re.fullmatch('[a-z0-9_]{1,80}',code) else 'service_unavailable'),error),error,code) from None
+    except (OSError,ValueError) as error:raise transport.mark(transport_failure(ServiceError('service_unavailable'),error),error) from None
     if not isinstance(value,dict) or value.get('ok') is not True:raise ServiceError('service_mismatch')
     return value
 
 
 @observed_request
 def public_wire(root,path,*,timeout=45,binary=False,download_source=None):
+    cfg=config(root)
+    origins=_transport_call(transport.api_origins,cfg,binary=binary,anonymous=True)
+    return _transport_call(transport.attempt,origins,lambda base:_public_wire_origin(root,base,path,timeout=timeout,binary=binary,download_source=download_source))
+
+
+def _public_wire_origin(root,base,path,*,timeout=45,binary=False,download_source=None):
     """Read the explicitly public base feed without a device or a grant."""
     if not re.fullmatch(r'/v1/public/(?:catalog\?channel=(?:stable|preview)|downloads/[1-9][0-9]{0,19}|patches\?from_version=[0-9A-Za-z.+_%-]+&to_version=[0-9A-Za-z.+_%-]+&channel=(?:stable|preview)|patches/fp_[0-9a-f]{32}/download)',str(path)):
         raise ServiceError('invalid_public_service_path')
     cfg=config(root)
     headers={'Accept':'application/octet-stream' if binary else 'application/json','User-Agent':'MaaUma-Suite/1'}
     if binary:headers['X-MaaUma-Download-Source']=_download_source(cfg['download_source'] if download_source is None else download_source)
-    request=Request(cfg['base_url']+path,headers=headers,method='GET')
+    request=Request(base+path,headers=headers,method='GET')
     try:
         response=build_opener(NoRedirect()).open(request,timeout=timeout)
         if binary:return response
@@ -182,10 +213,36 @@ def public_wire(root,path,*,timeout=45,binary=False,download_source=None):
     except HTTPError as error:
         try:code=json.loads(error.read(8192)).get('code')
         except (ValueError,OSError):code=None
-        raise transport_failure(ServiceError(code if isinstance(code,str) and re.fullmatch('[a-z0-9_]{1,80}',code) else 'service_unavailable'),error) from None
-    except (OSError,ValueError) as error:raise transport_failure(ServiceError('service_unavailable'),error) from None
+        raise transport.mark(transport_failure(ServiceError(code if isinstance(code,str) and re.fullmatch('[a-z0-9_]{1,80}',code) else 'service_unavailable'),error),error,code) from None
+    except (OSError,ValueError) as error:raise transport.mark(transport_failure(ServiceError('service_unavailable'),error),error) from None
     if not isinstance(value,dict) or value.get('ok') is not True:raise ServiceError('service_mismatch')
     return value
+
+
+def api_path(root,value):
+    return _transport_call(transport.api_path,config(root),value)
+
+
+def migrate_service_transport(root,target=None,*,timeout=45):
+    return _transport_call(transport.migrate,root,target,config_loader=config,
+        credentials_loader=lambda value:credentials(value,'umaa-public'),sealer=seal,
+        request_info=lambda base:_wire_origin(root,base,'/v1/info',authenticated=False,_signed=False,timeout=timeout),
+        request_license=lambda base,auth,product:_wire_origin(root,base,
+            '/v1/license/check?'+urlencode({'product_id':product}),product=product,_token=auth['access_token'],timeout=timeout),
+        receipt_validator=lambda value,product:validate_receipt(value,product=product,kind='activation'))
+
+
+def _ensure_transport(root,*,timeout=45):
+    selected=transport.policy()
+    if selected.cn_origin is None:return
+    cfg=config(root)
+    if cfg['base_url']!=selected.legacy_origin:return
+    state=_transport_call(transport.snapshot,root)
+    if not state[AUTH] or json.loads(state[AUTH].decode('utf-8-sig'))=={}:return
+    try:migrate_service_transport(root,selected.cn_origin,timeout=timeout)
+    except ServiceError as error:
+        if getattr(error,'maauma_transport_retryable',False) is not True:raise
+        # A failed target proof never changes cfg/auth. Use the original route.
 
 
 @observed_phase('public_catalog')
@@ -316,7 +373,9 @@ def dispatch(root,value,*,progress=None):
     action=value.get('action')
     if action=='info':return info(root)
     if action=='check_update_connectivity':return diagnose(root)
-    if action=='configure':return configure(root,value.get('base_url'),value.get('channel','preview'),value.get('download_source'))
+    if action=='configure':return configure(root,value.get('base_url'),value.get('channel','preview'),value.get('download_source'),value.get('api_transport'))
+    if action=='migrate_service_transport':return migrate_service_transport(root,value.get('base_url'))
+    if action=='rollback_service_transport':return _transport_call(transport.rollback,root)
     if action=='activate':return activate(root,value.get('invite_code'),progress=progress)
     if action=='catalog':return catalog(root)
     if action=='license':return license_check(root,value.get('product_id','umaa-public'))

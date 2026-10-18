@@ -172,6 +172,7 @@
     "backend/desktop/__init__.py",
     "backend/desktop/adb_probe.py",
     "backend/desktop/maauma_components.py",
+    "backend/desktop/maauma_direct_delivery.py",
     "backend/desktop/maauma_error_feedback.py",
     "backend/desktop/maauma_file_patches.py",
     "backend/desktop/maauma_service.py",
@@ -194,6 +195,7 @@
     "backend/desktop/product_updates.py",
     "backend/desktop/pushplus_settings.py",
     "backend/desktop/receipts.py",
+    "backend/desktop/service_transport.py",
     "backend/desktop/umaa_plant_setup_resume.py",
     "backend/desktop/umaa_public_context.py",
     "backend/desktop/umaa_public_plant.py",
@@ -1073,7 +1075,7 @@
   "build_recipe": "scripts/build.py",
   "resource_contract": "resources/required-inputs.json",
   "bit_identical_binary_rebuild_claimed": false,
-  "latest_ordinary_source_update": "0.4.24",
+  "latest_ordinary_source_update": "0.4.25",
   "ordinary_updates": [
     {
       "version": "0.4.10",
@@ -1547,6 +1549,52 @@
         "scripts/build.py"
       ],
       "bit_identical_release_rebuild_claimed": false
+    },
+    {
+      "version": "0.4.25",
+      "revision": "r1",
+      "scope": "Ordinary update transport, current announcement, local verification wording and known carousel exclusions.",
+      "ordinary_backend_baseline": "0.4.24",
+      "ordinary_backend_changed": true,
+      "ordinary_backend_source_paths": [
+        "backend/core/story_event/banner.py",
+        "backend/core/story_event/cycle.py",
+        "backend/core/story_event/runner.py",
+        "backend/desktop/maauma_components.py",
+        "backend/desktop/maauma_direct_delivery.py",
+        "backend/desktop/maauma_file_patches.py",
+        "backend/desktop/maauma_service.py",
+        "backend/desktop/service_transport.py"
+      ],
+      "ordinary_gui_baseline": "0.4.24",
+      "ordinary_gui_release_baseline": "0.4.24",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.25.zip",
+      "ordinary_gui_archive_sha256": "2e366b91d61c582188b6127c6c5b966034d4f84a86930259c2175f39423bf3d2",
+      "ordinary_gui_archive_size_bytes": 30833960,
+      "ordinary_gui_archive_version": "0.4.25",
+      "ordinary_gui_code_version": "0.4.25",
+      "ordinary_gui_code_reused_from": null,
+      "ordinary_gui_rebuilt_for_release": true,
+      "changed_source_paths": [
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "backend/core/story_event/banner.py",
+        "backend/core/story_event/cycle.py",
+        "backend/core/story_event/runner.py",
+        "backend/desktop/maauma_components.py",
+        "backend/desktop/maauma_direct_delivery.py",
+        "backend/desktop/maauma_file_patches.py",
+        "backend/desktop/maauma_service.py",
+        "backend/desktop/service_transport.py",
+        "gui/MFAAvalonia/Helper/MaaUmaUpdateAnnouncement.cs",
+        "gui/MFAAvalonia/Helper/MaaUmaUpdateProgressView.cs",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false,
+      "archive_identity_pending_actual_archive": false
     }
   ],
   "latest_ordinary_source_revision": "r1"

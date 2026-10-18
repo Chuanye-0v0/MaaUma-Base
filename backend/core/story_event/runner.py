@@ -9,7 +9,7 @@ from core.support_library.live import SupportDevice
 from core.observation_timing import observation_is_stale
 from core.action_recovery import action_boundary, await_candidate, failure_details, ReobserveRequired, ReobserveBudget, receipt_replan
 from core.story_event.observer import observe
-from core.story_event.banner import observe_banner, WHITELIST, STORY_EVENT_IDS
+from core.story_event.banner import observe_banner, WHITELIST, STORY_EVENT_IDS, EXCLUDED_BANNERS
 PAGES = {'next_banner': 'home', 'dismiss_tutorial': 'tutorial_help', 'event_banner': 'home', 'missions': 'event', 'stories': 'event', 'roulette': 'event', 'home': 'event', 'claim': 'missions', 'tab_0': 'missions', 'tab_1': 'missions', 'tab_2': 'missions', 'play_story': 'story_list', 'portrait': 'story_settings', 'silent': 'story_settings', 'confirm_story': 'story_settings', 'cancel_story': 'story_settings', 'play_next': 'story_next', 'cancel': 'story_next', 'menu': 'story_playing', 'skip': 'story_menu', 'skip_confirm': 'story_skip_confirm', 'options': 'roulette', 'continuous': 'roulette_settings', 'eight_lines': 'roulette_settings', 'save': 'roulette_settings', 'spin': 'roulette', 'skip_spin': 'roulette_animation', 'close_bingo': 'bingo', 'advance_bingo': 'bingo', 'cancel_settings': 'roulette_settings', 'leave_other': 'other_event', 'tachyon_continue': 'tachyon_rewards', 'tachyon_back': 'tachyon_event'}
 CLOSE_PAGES = {'claim', 'story_unlock', 'settings_saved', 'roulette_limit', 'roulette_replace', 'roulette_empty', 'story_list'}
 LABELS = {'event_banner': '检查活动入口', 'missions': '打开活动任务', 'stories': '打开活动剧情', 'next_banner': '滑动切换活动入口', 'dismiss_tutorial': '继续或关闭玩法说明', 'roulette': '打开轮盘', 'home': '返回主页', 'claim': '一键领取任务奖励', 'tab_0': '检查日常奖励', 'tab_1': '检查称号奖励', 'tab_2': '检查期间限定奖励', 'play_story': '播放未读剧情', 'portrait': '选择竖屏', 'silent': '关闭语音下载', 'confirm_story': '确认播放', 'play_next': '继续下一段未读剧情', 'cancel': '结束连续播放', 'cancel_story': '取消未绑定的播放确认，返回入口', 'menu': '打开剧情菜单', 'skip': '跳过剧情', 'skip_confirm': '确认跳过', 'options': '设置连续转盘', 'continuous': '开启连续转动', 'eight_lines': '选择8行宾果', 'save': '保存转盘设置', 'cancel_settings': '返回转盘', 'spin': '使用已有轮盘币连续转动', 'skip_spin': '跳过转盘动画', 'close_bingo': '关闭宾果结果', 'advance_bingo': '继续宾果领奖', 'back': '返回活动主页', 'close': '关闭提示', 'leave_other': '跳过非目标活动', 'tachyon_continue': '速子活动：关闭研究成果奖励', 'tachyon_back': '速子活动：领奖后返回主页'}
@@ -35,7 +35,7 @@ def authorize(action, current, expected, context):
         if a not in WHITELIST or a != b or (context.get('target_event_id') and a != context['target_event_id']):
             raise RuntimeError('event_banner_changed')
     elif action == 'next_banner':
-        if current.get('banner_excluded') != 'special_transfer' or expected.get('banner_excluded') != 'special_transfer':
+        if current.get('banner_excluded') not in EXCLUDED_BANNERS or current.get('banner_excluded') != expected.get('banner_excluded'):
             raise RuntimeError('event_banner_changed')
     elif action in {'tachyon_continue', 'tachyon_back'}:
         if current.get('activity_kind') != 'tachyon' or expected.get('activity_kind') != 'tachyon' or context.get('activity_kind') != 'tachyon' or (not context.get('event_verified')):
@@ -81,7 +81,7 @@ class EventDevice(SupportDevice):
         continuous = state['page'] == 'home' and fresh and previous and (previous['page'] == 'home') and previous['fresh'] and (0 <= started - previous['started'] < 1)
         target = state.get('banner_id') in WHITELIST
         scores = state.get('banner_scores', {})
-        clearly_other = state.get('banner_excluded') == 'special_transfer' or (bool(scores) and max(scores.values()) < 0.5)
+        clearly_other = state.get('banner_excluded') in EXCLUDED_BANNERS or (bool(scores) and max(scores.values()) < 0.5)
         anchor = None
         if continuous:
             anchor = previous if previous['other_banner'] or previous.get('banner_id') in WHITELIST else getattr(self, '_banner_transition_anchor', None)
@@ -537,7 +537,7 @@ class MultiEventRunner:
                         return result('event_activity_incomplete' if required else 'event_carousel_no_reward_activity')
                     if time.monotonic() - started > 25:
                         return result('event_carousel_scan_incomplete')
-                    if current.get('banner_excluded') == 'special_transfer' and event_id is not None:
+                    if current.get('banner_excluded') in EXCLUDED_BANNERS and event_id is not None:
                         receipt = self.device.step('next_banner', current, self.stop)
                         report['records'].append({k: v for k, v in receipt.items() if k != 'observation'})
                         report['device_actions'] += int(receipt.get('performed', False))

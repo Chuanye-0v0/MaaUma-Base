@@ -1,6 +1,6 @@
 {
   "schema_version": "maauma.external_resources.v1",
-  "version": "0.4.24",
+  "version": "0.4.25",
   "files": [
     "backend/core/account_inventory/assets/title_logo.png",
     "backend/core/autonomous_training/assets/100401_outfit_title.png",
@@ -155,10 +155,12 @@
     "backend/core/page_assets/notice-047.png",
     "backend/core/story_event/assets/banner-autumn-thoughts-native.png",
     "backend/core/story_event/assets/banner-autumn-thoughts.png",
+    "backend/core/story_event/assets/banner-champions_team-20261018.png",
     "backend/core/story_event/assets/banner-farewell-live.png",
     "backend/core/story_event/assets/banner-farewell.png",
     "backend/core/story_event/assets/banner-home-footer.png",
     "backend/core/story_event/assets/banner-home-menu.png",
+    "backend/core/story_event/assets/banner-limited_legend-20261018.png",
     "backend/core/story_event/assets/banner-tachyon-live.png",
     "backend/core/story_event/assets/banner-tachyon-video.png",
     "backend/core/story_event/assets/banner-transfer-autumn-native.png",

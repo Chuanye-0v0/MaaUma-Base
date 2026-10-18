@@ -3,7 +3,7 @@ from desktop.umaa_public_context import endpoint as _public_endpoint
 from copy import deepcopy
 import json
 from pathlib import Path
-from core.story_event.banner import WHITELIST
+from core.story_event.banner import WHITELIST, EXCLUDED_BANNERS
 
 def pending(context):
     return bool(context.get('pending_spin') or context.get('pending_setting') or context.get('action_outcome', {}).get('execution_status') == 'uncertain' or (context.get('execution_status') == 'uncertain'))
@@ -50,7 +50,7 @@ class CarouselScan:
     def observe(self, state):
         dots = state.get('carousel')
         event_id = state.get('banner_id')
-        kind = event_id if event_id in WHITELIST else 'excluded:special_transfer' if state.get('banner_excluded') == 'special_transfer' else 'unrecognized' if state.get('banner_scores') and max(state['banner_scores'].values()) < 0.5 else None
+        kind = event_id if event_id in WHITELIST else 'excluded:' + state['banner_excluded'] if state.get('banner_excluded') in EXCLUDED_BANNERS else 'unrecognized' if state.get('banner_scores') and max(state['banner_scores'].values()) < 0.5 else None
         if state.get('page') != 'home' or not dots or kind is None:
             self.previous = None
             return None

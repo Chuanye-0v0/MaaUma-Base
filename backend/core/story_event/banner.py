@@ -7,6 +7,11 @@ import numpy as np
 from core.page_identity import PageIdentity
 WHITELIST = {'farewell': ('banner-farewell', 'banner-farewell-live'), 'tachyon': ('banner-tachyon-live', 'banner-tachyon-video'), 'autumn_thoughts': ('banner-autumn-thoughts', 'banner-autumn-thoughts-native')}
 STORY_EVENT_IDS = frozenset({'farewell', 'autumn_thoughts'})
+EXCLUDED_BANNERS = {
+    'special_transfer': ('banner-transfer', 'banner-transfer-autumn-native'),
+    'champions_team': ('banner-champions_team-20261018',),
+    'limited_legend': ('banner-limited_legend-20261018',),
+}
 
 @lru_cache(maxsize=16)
 def _template(name):
@@ -49,8 +54,10 @@ def observe_banner(raw):
     if dots:
         result['carousel'] = dots
     region = (450, 155, 660, 285)
-    if max((score(name, region) for name in ('banner-transfer', 'banner-transfer-autumn-native'))) >= 0.9:
-        result['banner_excluded'] = 'special_transfer'
+    excluded_scores = {key: max(score(name, region) for name in names) for key, names in EXCLUDED_BANNERS.items()}
+    excluded = [key for key, value in excluded_scores.items() if value >= 0.90 and all(value-other >= 0.08 for name, other in excluded_scores.items() if name != key)]
+    if len(excluded) == 1:
+        result['banner_excluded'] = excluded[0]
         result['actions']['next_banner'] = dict(swipe=[635, 245, 455, 245, 350])
         return result
     scores = {key: max((score(name, region) for name in names)) for key, names in WHITELIST.items()}

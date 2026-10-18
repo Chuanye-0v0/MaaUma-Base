@@ -17,8 +17,13 @@ namespace MFAAvalonia.Helper;
 /// <summary>Local release notes. Reading or dismissing them never invokes a task or service.</summary>
 public static class MaaUmaUpdateAnnouncement
 {
-    public const string CurrentVersion = "0.4.24";
+    public const string CurrentVersion = "0.4.25";
     private const bool EnhancedBuild = false;
+    private static readonly string[] CurrentNotes = {
+        "改进国内网络连接与更新下载。",
+        "修复部分设置编辑时的异常并保留输入。",
+        "明确本地文件校验进度。"
+    };
     private const string SeenFile = "maauma-update-announcements.json";
     private static readonly Dictionary<string, Window> OpenWindows = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConditionalWeakTable<Window, object> AttachedOwners = new();
@@ -47,7 +52,7 @@ public static class MaaUmaUpdateAnnouncement
     {
         var metadata = ReadObject(Path.Combine(root, "maauma-edition.json"));
         if (metadata?["release_notes"] is not JObject notes || Scalar(notes, "version") != version ||
-            notes[edition] is not JArray entries) return Array.Empty<string>();
+            notes[edition] is not JArray entries) return version == CurrentVersion ? CurrentNotes : Array.Empty<string>();
         return entries.Where(value => value.Type == JTokenType.String).Select(value => value.Value<string>() ?? "")
             .Where(value => !string.IsNullOrWhiteSpace(value)).Take(12).ToArray();
     }

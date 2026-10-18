@@ -234,13 +234,14 @@ def _inspect(path, entry, *, trace_id, verify, progress):
                 'files': files, 'operations': operations, 'receipt': receipt, 'raw_archive': str(raw)}
 
 
-def patch_plan(root, stage, row, *, verify, materialize=False, progress=None):
+def patch_plan(root, stage, row, *, verify, materialize=False, progress=None,
+               personal_integrity_error='patch_integrity_failed'):
     """Keep archive objects alive in plan['archives'] until the caller is done."""
     from desktop import maauma_components as components
     entry = row['patch_entry'];path = updates.contained(stage, row['file'])
     if row['kind'] == 'pacer' and (path.stat().st_size != row['personal_size_bytes'] or
                                 _hash(path) != row['personal_sha256']):
-        raise PatchUnusable('patch_integrity_failed')
+        raise PatchUnusable(personal_integrity_error)
     data = inspect(path, entry, trace_id=row.get('trace_id'), verify=verify, progress=progress)
     archive = ZipFile(data['raw_archive'])
     sources = {name: {'sha256': value['sha256'], 'size_bytes': value['size_bytes'],

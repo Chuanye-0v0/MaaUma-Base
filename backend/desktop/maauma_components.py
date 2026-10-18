@@ -153,6 +153,7 @@ def _inspect_component(archive_path,entry,*,trace_id,verify,progress=None):
 
 def _entry_url(root,entry):
     base=service.config(root)['base_url'];url=str(entry.get('url',''))
+    if hasattr(service,'api_path'):return service.api_path(root,url)
     if url.startswith('/v1/'):return url
     if not url.startswith(base+'/v1/'):_error('service_origin_mismatch')
     return url[len(base):]
@@ -187,6 +188,9 @@ def download(root,entry,target,*,product,public=False,progress=None,item_id=None
     from desktop.update_progress import content_length,read_chunk
     if public and product!='umaa-public':_error('wrong_product')
     source=service.config(root)['download_source']
+    if not public and product=='uma-cut' and source!='origin' and entry.get('direct_delivery_url'):
+        from desktop import maauma_direct_delivery
+        return maauma_direct_delivery.download(root,entry,target,progress=progress,item_id=item_id)
     public_url=_public_download_url(entry,product) if source!='origin' else None
     if source=='cos' and product=='umaa-public' and public_url is None:
         raise service.ServiceError('source_unavailable')
@@ -405,12 +409,15 @@ def apply_prepared(root,ticket_path,*,parent_pid=None):
                     auth=service.credentials(root,'uma-cut')
                     if auth['distribution_receipt']['trace_id']!=ticket['trace_id']:_error('distribution_receipt_mismatch')
                     if entry['base_version']!=ticket['base_version']:_error('component_base_mismatch')
-                    if path.stat().st_size!=row['personal_size_bytes'] or _digest(path)!=row['personal_sha256']:_error('package_integrity_failed')
+                    # A file patch checks this same personal ZIP in patch_plan below.
+                    # Keep one complete hash at that guard; full components keep this guard.
+                    if row.get('delivery')!='file_patch' and (path.stat().st_size!=row['personal_size_bytes'] or _digest(path)!=row['personal_sha256']):_error('package_integrity_failed')
                 if row.get('delivery')=='file_patch':
                     if row['kind']=='base' and _digest(root/manifest_name)!=row['patch_entry']['from_manifest_sha256']:
                         patches.mark_full(root,'base',row['from_version'],entry)
                         _error('incremental_source_changed')
-                    plan=patches.patch_plan(root,stage,row,verify=lambda value:value==row.get('receipt'))
+                    plan=patches.patch_plan(root,stage,row,verify=lambda value:value==row.get('receipt'),
+                        personal_integrity_error='package_integrity_failed')
                 elif row.get('delivery') is None:
                     plan=patches.full_plan(path,entry,kind=row['kind'],trace_id=ticket['trace_id'],
                                            verify=lambda value:value==row.get('receipt'))
@@ -557,7 +564,8 @@ def launch_install(root,ticket_path,*,parent_pid=None):
         if source.is_file() and source.suffix not in {'.pyc','.pyo'}:
             shutil.copy2(source,isolated_runtime/source.name)
     for module in ('desktop/maauma_service.py','desktop/maauma_components.py','desktop/product_updates.py',
-                   'desktop/maauma_file_patches.py','desktop/zip_recipe.py','desktop/update_progress.py','desktop/update_connectivity.py',
+                   'desktop/maauma_file_patches.py','desktop/maauma_direct_delivery.py','desktop/service_transport.py',
+                   'desktop/zip_recipe.py','desktop/update_progress.py','desktop/update_connectivity.py',
                    'desktop/__init__.py','scripts/maauma_service.py'):
         source=Path(__file__).resolve().parents[1]/module;target=helper/'backend'/module
         target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target)
