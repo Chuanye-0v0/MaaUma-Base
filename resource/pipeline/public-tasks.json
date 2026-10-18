@@ -92,7 +92,8 @@
       "plan_slot": 1,
       "local_plan": "mile_middle_test",
       "save_slot": 0,
-      "overwrite_plan": false
+      "overwrite_plan": false,
+      "event_boost": false
     }
   },
   "UmaLimitedLegend": {

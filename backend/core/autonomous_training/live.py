@@ -11,10 +11,11 @@ from core.image_io import read_image
 from core.skill_scroll import SKILL_OVERLAP_SWIPE, skill_overlap_shell, skill_rewind_shell, skill_list_frames_match
 from core.support_library.live import SupportDevice
 from core.observation_timing import observation_is_stale
-from core.action_recovery import action_boundary, await_candidate
+from core.action_recovery import ReobserveRequired, action_boundary, await_candidate
+from core.autonomous_training.runner import EVENT_BOOST_FINAL_PAGES, event_boost_change_required
 from core.autonomous_training.finish import finish_control_visible
 from core.autonomous_training.harvest import HARVEST_ACTION_PAGES, REPEATABLE_RESULT_ACTIONS, authorize_harvest_action, mark_harvest_dispatch, NEXT_PAGES, RESULT_ACTIONS
-ACTION_PAGES = {'leave_empty_scenario': 'scenario', 'open_training': 'home', 'close_notice': 'new_scenario', 'forward_harvest': 'training_status', 'cancel_training_status': 'training_status', 'confirm_history': 'history', 'open_skills': 'finish_ready', 'finish_training': 'finish_ready', 'scroll_skill_list': 'skills', 'scroll_skill_reveal_bottom': 'skills', 'scroll_skill_up': 'skills', 'scroll_skill_overlap': 'skills', 'reset_skill_selection': 'skills', 'open_skill_confirmation': 'skills', 'cancel_skill_confirmation': 'skill_confirmation', 'scroll_skill_confirmation': 'skill_confirmation', 'rewind_skill_confirmation': 'skill_confirmation', 'return_harvest_skills': 'skills', 'continue_scenario': 'scenario', 'scenario_next': 'scenario', 'change_exam': 'exam_mode', 'confirm_mode': 'exam_mode', 'scroll_exams': 'exam_list', 'close_exam_detail': 'exam_detail', 'close_exams': 'exam_list', 'confirm_exam': 'exam_detail', 'continue_trainee': 'trainee', 'select_bakushin': 'trainee', 'select_scarlet': 'trainee', 'scroll_trainees': 'trainee', 'select_gold_ship': 'trainee', 'select_vodka': 'trainee', 'select_urara': 'trainee', 'scroll_trainees_up': 'trainee', 'auto_inheritance': 'inheritance', 'continue_inheritance': 'inheritance', 'toggle_borrow': 'inherit_confirm', 'confirm_inheritance': 'inherit_confirm', 'auto_support': 'support_deck', 'continue_support': 'support_deck', 'confirm_auto_support': 'auto_support_confirm', 'select_autonomous': 'final_confirm', 'continue_autonomous_tutorial': 'autonomous_tutorial', 'start_autonomous': 'final_autonomous', 'open_training_menu': 'autonomous_running', 'confirm_autonomous_start': 'autonomous_start_notice', 'cancel_autonomous_start': 'autonomous_start_notice', 'return_home': 'training_menu', 'return_title_after_disconnect': 'connection_interrupted'}
+ACTION_PAGES = {'leave_empty_scenario': 'scenario', 'open_training': 'home', 'close_notice': 'new_scenario', 'forward_harvest': 'training_status', 'cancel_training_status': 'training_status', 'confirm_history': 'history', 'open_skills': 'finish_ready', 'finish_training': 'finish_ready', 'scroll_skill_list': 'skills', 'scroll_skill_reveal_bottom': 'skills', 'scroll_skill_up': 'skills', 'scroll_skill_overlap': 'skills', 'reset_skill_selection': 'skills', 'open_skill_confirmation': 'skills', 'cancel_skill_confirmation': 'skill_confirmation', 'scroll_skill_confirmation': 'skill_confirmation', 'rewind_skill_confirmation': 'skill_confirmation', 'return_harvest_skills': 'skills', 'continue_scenario': 'scenario', 'scenario_next': 'scenario', 'change_exam': 'exam_mode', 'confirm_mode': 'exam_mode', 'scroll_exams': 'exam_list', 'close_exam_detail': 'exam_detail', 'close_exams': 'exam_list', 'confirm_exam': 'exam_detail', 'continue_trainee': 'trainee', 'select_bakushin': 'trainee', 'select_scarlet': 'trainee', 'scroll_trainees': 'trainee', 'select_gold_ship': 'trainee', 'select_vodka': 'trainee', 'select_urara': 'trainee', 'scroll_trainees_up': 'trainee', 'auto_inheritance': 'inheritance', 'continue_inheritance': 'inheritance', 'toggle_borrow': 'inherit_confirm', 'confirm_inheritance': 'inherit_confirm', 'auto_support': 'support_deck', 'continue_support': 'support_deck', 'confirm_auto_support': 'auto_support_confirm', 'select_autonomous': 'final_confirm', 'toggle_event_boost': EVENT_BOOST_FINAL_PAGES, 'continue_autonomous_tutorial': 'autonomous_tutorial', 'start_autonomous': 'final_autonomous', 'open_training_menu': 'autonomous_running', 'confirm_autonomous_start': 'autonomous_start_notice', 'cancel_autonomous_start': 'autonomous_start_notice', 'return_home': 'training_menu', 'return_title_after_disconnect': 'connection_interrupted'}
 HARVEST_ACTIONS = {'open_training', 'forward_harvest', 'confirm_history', 'open_skills', 'finish_training', 'scroll_skill_list', 'scroll_skill_reveal_bottom', 'scroll_skill_up', 'reset_skill_selection', 'open_skill_confirmation', 'cancel_skill_confirmation', 'return_title_after_disconnect'}
 HARVEST_ACTIONS.add('return_harvest_skills')
 HARVEST_ACTIONS.add('scroll_skill_overlap')
@@ -61,6 +62,8 @@ def transition_pending(action, before, after):
     if action == 'toggle_borrow' and after['page'] == 'inherit_confirm':
         value = before.get('borrow_checked')
         return type(value) is not bool or after.get('borrow_checked') is not (not value)
+    if action == 'toggle_event_boost' and after['page'] in EVENT_BOOST_FINAL_PAGES:
+        return after.get('event_boost_available') is True and type(after.get('event_boost_enabled')) is bool and (after['event_boost_enabled'] is before.get('event_boost_enabled'))
     if action in plant_support.ACTION_PAGES:
         if after['page'] in ('unknown', 'loading'):
             return True
@@ -161,13 +164,17 @@ def authorize_action(action, observed, context):
         authorize_harvest_action(action, observed, context)
         return
     expected = 'exam_list' if action.startswith('course_') else ACTION_PAGES.get(action)
-    if not expected or observed['page'] != expected:
+    if not expected or observed['page'] not in (expected if isinstance(expected, tuple) else (expected,)):
         raise RuntimeError('autonomous_action_forbidden')
     mode = context.get('mode')
     if mode not in ('start', 'harvest') or (mode == 'harvest' and action not in HARVEST_ACTIONS):
         raise RuntimeError('action_mode_forbidden')
     if mode == 'start' and action not in START_ACTIONS and (not action.startswith('course_')):
         raise RuntimeError('action_mode_forbidden')
+    if action == 'toggle_event_boost' and (not event_boost_change_required(observed, context)):
+        raise RuntimeError('event_boost_adjustment_not_required')
+    if action in ('select_autonomous', 'start_autonomous') and event_boost_change_required(observed, context):
+        raise RuntimeError('event_boost_adjustment_required')
     if action == 'forward_harvest' and (mode != 'harvest' or observed.get('remaining_seconds') != 0):
         raise RuntimeError('training_not_finished')
     if action == 'return_harvest_skills':
@@ -322,6 +329,8 @@ class AutonomousDevice(SupportDevice):
             raise RuntimeError('autonomous_return_not_bound')
         if action_id == 'start_autonomous' and self.context.get('start_submitted') and (not _resume_start_allowed(self.context)):
             raise RuntimeError('start_mode_or_tp_invalid_or_already_submitted')
+        if action_id == 'toggle_event_boost' and (self.context.get('start_submitted') or self.context.get('start_confirmed')):
+            raise RuntimeError('event_boost_start_already_submitted')
         from core.skill_ocr_performance import active_harvest_ocr
         scroll_only = active_harvest_ocr() is not None and action_id in ('scroll_skill_list', 'scroll_skill_reveal_bottom', 'scroll_skill_up', 'scroll_skill_overlap')
         capture = self.capture_start_notice if action_id in ('confirm_autonomous_start', 'cancel_autonomous_start') else self.capture_skill_scroll if scroll_only else self.capture
@@ -370,8 +379,12 @@ class AutonomousDevice(SupportDevice):
             return dict(action_id=action_id, performed=False, status='support_search_changed', endpoint=self.endpoint, source_frame_sha256=before['frame_sha256'], observation=before)
         if action_id == 'toggle_borrow' and before.get('page') == 'inherit_confirm' and (plant_inheritance.choose(before, self.context) == 'confirm_inheritance'):
             return dict(action_id=action_id, performed=False, status='inheritance_borrow_ready', endpoint=self.endpoint, source_frame_sha256=before['frame_sha256'], observation=before)
+        if action_id == 'toggle_event_boost' and before.get('page') in EVENT_BOOST_FINAL_PAGES and (not event_boost_change_required(before, self.context)):
+            raise ReobserveRequired(action_id, before)
+        if action_id in ('select_autonomous', 'start_autonomous') and event_boost_change_required(before, self.context):
+            raise ReobserveRequired(action_id, before)
         if action_id not in before['actions']:
-            before = await_candidate(capture, stop, action_id, before, 'exam_list' if action_id.startswith('course_') else ACTION_PAGES.get(action_id), reason='action_not_allowed:' + action_id)
+            before = await_candidate(capture, stop, action_id, before, 'exam_list' if action_id.startswith('course_') else before['page'] if action_id == 'toggle_event_boost' else ACTION_PAGES.get(action_id), reason='action_not_allowed:' + action_id)
         candidate = before['actions'].get(action_id)
         if candidate is None:
             raise RuntimeError('action_not_allowed:' + action_id)
@@ -410,6 +423,8 @@ class AutonomousDevice(SupportDevice):
         if action_id == 'confirm_autonomous_start':
             self.context['start_confirmed'] = True
         receipt = dict(action_id=action_id, source_frame_sha256=before['frame_sha256'], endpoint=self.endpoint, performed=None, status='dispatch_intent')
+        if action_id == 'toggle_event_boost':
+            receipt['event_boost'] = dict(before=before['event_boost_enabled'], requested=self.context.get('event_boost') is True)
         if action_id == 'scroll_skill_overlap':
             if candidate.get('point') != SKILL_OVERLAP_SWIPE['start'] or candidate.get('end') != SKILL_OVERLAP_SWIPE['end']:
                 raise RuntimeError('skill_scroll_profile_mismatch')
@@ -498,6 +513,8 @@ class AutonomousDevice(SupportDevice):
                     break
             receipt['history_arrival_reobservations'] = reads
         receipt.update(performed=True, status='observed', observation=after)
+        if action_id == 'toggle_event_boost':
+            receipt['event_boost'].update(available=after.get('event_boost_available') is True, after=after.get('event_boost_enabled'))
         if action_id == 'forward_harvest' and transition_pending(action_id, before, after):
             receipt['reason'] = 'history_load_timeout'
         path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding='utf-8')

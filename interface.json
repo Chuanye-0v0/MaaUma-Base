@@ -1,7 +1,7 @@
 {
   "interface_version": 2,
   "name": "MaaUma 普通版",
-  "version": "0.4.25",
+  "version": "0.4.26",
   "rid": "umaa-public",
   "icon": "resource/umaa-hishi-miracle.png",
   "controller": [
@@ -35,7 +35,8 @@
       "option": [
         "育成马娘",
         "育成剧本",
-        "赛程来源"
+        "赛程来源",
+        "活动加速（消耗2倍训练值）"
       ],
       "description": "育成次数在开种设置中选择。1次只开种；2次及以上沿用收菜的技能、因子方案循环种收，达标提前停止。缺TP先用TP药，确认无药才用萝卜。"
     },
@@ -3312,6 +3313,33 @@
             "UmaPlant": {
               "custom_action_param": {
                 "trainee": "110701"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "活动加速（消耗2倍训练值）": {
+      "type": "select",
+      "default_case": "关闭",
+      "description": "开启时使用游戏活动加速；入口未开放时按普通育成继续。",
+      "cases": [
+        {
+          "name": "关闭",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "event_boost": false
+              }
+            }
+          }
+        },
+        {
+          "name": "开启",
+          "pipeline_override": {
+            "UmaPlant": {
+              "custom_action_param": {
+                "event_boost": true
               }
             }
           }

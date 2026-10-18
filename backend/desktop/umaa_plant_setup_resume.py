@@ -42,7 +42,7 @@ def resume(device, source, options, emit, stop):
         selection = value.get('inheritance_selection', 'keep')
         return (selection, value.get('inheritance_borrow_friend', True))
     key = options['trainee']
-    if context.get('plant_options') != plan(options) or context.get('support_options', {}) != support(options) or inheritance_key(context.get('inheritance_options', {})) != inheritance_key(options) or (context.get('required_trainee') != trainee_name(key)) or (context.get('required_variant') != INITIAL_VARIANTS.get(key, key)):
+    if type(context.get('event_boost', False)) is not bool or context.get('event_boost', False) != options.get('event_boost', False) or context.get('plant_options') != plan(options) or (context.get('support_options', {}) != support(options)) or (inheritance_key(context.get('inheritance_options', {})) != inheritance_key(options)) or (context.get('required_trainee') != trainee_name(key)) or (context.get('required_variant') != INITIAL_VARIANTS.get(key, key)):
         raise RuntimeError('seed_setup_options_changed')
     original = json.loads((source / 'adapter_result.json').read_text(encoding='utf8'))
     device.context.update(context)

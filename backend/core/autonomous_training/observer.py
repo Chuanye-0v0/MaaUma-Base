@@ -465,6 +465,12 @@ def observe(raw, tokens, required_variant=None):
             result['page'] = 'final_autonomous'
             if start and result['tp_before'] is not None and (result['tp_after'] is not None) and (result['tp_cost'] is not None) and (result['tp_after'] == result['tp_before'] - result['tp_cost']) and _control_enabled(image, start):
                 action('start_autonomous', start)
+        from core.autonomous_training.event_boost import read as read_event_boost
+        event_boost = read_event_boost(image, tokens)
+        toggle = event_boost.pop('toggle_event_boost', None)
+        result.update(event_boost)
+        if toggle is not None:
+            result['actions']['toggle_event_boost'] = toggle
     elif has('选择剧本'):
         result['page'] = 'loading' if has('连接中') else 'scenario'
         if result['page'] == 'scenario':

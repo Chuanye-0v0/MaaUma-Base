@@ -31,6 +31,7 @@
     "backend/core/adb.py",
     "backend/core/autonomous_training/__init__.py",
     "backend/core/autonomous_training/confirmation.py",
+    "backend/core/autonomous_training/event_boost.py",
     "backend/core/autonomous_training/final_authorization.py",
     "backend/core/autonomous_training/final_issuer.py",
     "backend/core/autonomous_training/finish.py",
@@ -1075,7 +1076,7 @@
   "build_recipe": "scripts/build.py",
   "resource_contract": "resources/required-inputs.json",
   "bit_identical_binary_rebuild_claimed": false,
-  "latest_ordinary_source_update": "0.4.25",
+  "latest_ordinary_source_update": "0.4.26",
   "ordinary_updates": [
     {
       "version": "0.4.10",
@@ -1595,6 +1596,50 @@
       ],
       "bit_identical_release_rebuild_claimed": false,
       "archive_identity_pending_actual_archive": false
+    },
+    {
+      "version": "0.4.26",
+      "revision": "r1",
+      "scope": "Ordinary daily cultivation event acceleration, disabled by default, matching application resources and current GUI announcement.",
+      "ordinary_backend_baseline": "0.4.25",
+      "ordinary_backend_changed": true,
+      "ordinary_backend_source_paths": [
+        "backend/core/autonomous_training/event_boost.py",
+        "backend/core/autonomous_training/live.py",
+        "backend/core/autonomous_training/observer.py",
+        "backend/core/autonomous_training/runner.py",
+        "backend/desktop/mfa_backend.py",
+        "backend/desktop/umaa_plant_setup_resume.py"
+      ],
+      "ordinary_gui_baseline": "0.4.25",
+      "ordinary_gui_release_baseline": "0.4.25",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.26.zip",
+      "ordinary_gui_archive_sha256": "0a731b41b8d48e5f88f98ecbac668a90107ae2dc857f4cfa5a9507e0a0f7e450",
+      "ordinary_gui_archive_size_bytes": 30834046,
+      "ordinary_gui_archive_version": "0.4.26",
+      "ordinary_gui_code_version": "0.4.26",
+      "ordinary_gui_code_reused_from": null,
+      "ordinary_gui_rebuilt_for_release": true,
+      "changed_source_paths": [
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "backend/core/autonomous_training/event_boost.py",
+        "backend/core/autonomous_training/live.py",
+        "backend/core/autonomous_training/observer.py",
+        "backend/core/autonomous_training/runner.py",
+        "backend/desktop/mfa_backend.py",
+        "backend/desktop/umaa_plant_setup_resume.py",
+        "gui/MFAAvalonia/Helper/MaaUmaUpdateAnnouncement.cs",
+        "interface.json",
+        "maauma-suite.json",
+        "resource/pipeline/public-tasks.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false,
+      "archive_identity_pending_actual_archive": false,
+      "event_boost_default": false,
+      "private_screenshot_implementation_included": false
     }
   ],
   "latest_ordinary_source_revision": "r1"

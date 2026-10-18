@@ -68,6 +68,11 @@ def load_submission(path, endpoint):
             context.update(start_cost=dict(before=source.get('tp_before'), after=source.get('tp_after'), cost=source.get('tp_cost')), start_cost_at=source.get('captured_at_unix_ms'))
             break
     return context
+EVENT_BOOST_FINAL_PAGES = ('final_confirm', 'final_autonomous')
+
+def event_boost_change_required(observed, context):
+    """Compare an observed optional checkbox, never infer its value from intent."""
+    return not context.get('start_submitted') and (not context.get('start_confirmed')) and (observed.get('page') in EVENT_BOOST_FINAL_PAGES) and (observed.get('event_boost_available') is True) and (type(observed.get('event_boost_enabled')) is bool) and (observed['event_boost_enabled'] is not (context.get('event_boost') is True))
 
 def choose_action(mode, observed, context):
     page, actions = (observed['page'], observed['actions'])
@@ -81,6 +86,10 @@ def choose_action(mode, observed, context):
             if preparation not in actions:
                 raise RuntimeError('no_safe_action:' + preparation)
             return preparation
+        if event_boost_change_required(observed, context):
+            if 'toggle_event_boost' not in actions:
+                raise RuntimeError('no_safe_action:toggle_event_boost')
+            return 'toggle_event_boost'
     if page == 'home':
         action = 'open_training'
     elif page == 'new_scenario':
@@ -104,7 +113,7 @@ def choose_action(mode, observed, context):
             from core.autonomous_training.harvest import choose_harvest_action
             return choose_harvest_action(observed, context)
         action = {'history': 'confirm_history', 'finish_ready': 'open_skills'}.get(page)
-    elif context.get('start_submitted'):
+    elif context.get('start_submitted') or context.get('start_confirmed'):
         if page == 'autonomous_start_notice' and context.get('start_confirmed'):
             raise RuntimeError('start_confirmation_already_submitted')
         action = {'autonomous_start_notice': 'confirm_autonomous_start', 'autonomous_running': 'open_training_menu', 'training_menu': 'return_home'}.get(page)
@@ -171,7 +180,7 @@ def choose_action(mode, observed, context):
     if not action or action not in actions:
         raise RuntimeError('no_safe_action:' + page)
     return action
-NEXT_PAGES = {'open_training': {'training_status', 'new_scenario', 'scenario'}, 'close_notice': {'new_scenario', 'scenario'}, 'forward_harvest': {'history', 'history_summary', 'history_races', 'finish_ready', 'training_rating', 'factor_result'}, 'confirm_history': {'finish_ready'}, 'history_next': {'history_races'}, 'history_scroll': {'history_races'}, 'continue_skill_tutorial': {'skill_tutorial', 'skills'}, 'open_skills': {'skills', 'skill_tutorial'}, 'continue_scenario': {'exam_mode', 'trainee'}, 'scenario_next': {'scenario'}, 'change_exam': {'exam_list'}, 'scroll_exams': {'exam_list'}, 'confirm_exam': {'exam_mode', 'exam_detail'}, 'close_exam_detail': {'exam_list', 'exam_mode'}, 'close_exams': {'exam_mode'}, 'confirm_mode': {'trainee'}, 'continue_trainee': {'inheritance'}, 'select_bakushin': {'trainee'}, 'select_scarlet': {'trainee'}, 'select_gold_ship': {'trainee'}, 'select_vodka': {'trainee'}, 'select_urara': {'trainee'}, 'scroll_trainees_up': {'trainee'}, 'scroll_trainees': {'trainee'}, 'auto_inheritance': {'inherit_confirm'}, 'toggle_borrow': {'inherit_confirm'}, 'confirm_inheritance': {'inheritance'}, 'continue_inheritance': {'support_deck'}, 'auto_support': {'auto_support_confirm'}, 'confirm_auto_support': {'support_deck'}, 'continue_support': {'final_confirm', 'final_autonomous', 'autonomous_tutorial'}, 'select_autonomous': {'final_autonomous', 'autonomous_tutorial'}, 'continue_autonomous_tutorial': {'autonomous_tutorial', 'final_confirm', 'final_autonomous'}, 'start_autonomous': {'autonomous_start_notice', 'autonomous_running', 'training_status'}, 'confirm_autonomous_start': {'autonomous_running', 'training_status'}, 'open_training_menu': {'training_menu', 'autonomous_running'}, 'return_home': {'home', 'training_menu'}, 'cancel_training_status': {'home'}}
+NEXT_PAGES = {'open_training': {'training_status', 'new_scenario', 'scenario'}, 'close_notice': {'new_scenario', 'scenario'}, 'forward_harvest': {'history', 'history_summary', 'history_races', 'finish_ready', 'training_rating', 'factor_result'}, 'confirm_history': {'finish_ready'}, 'history_next': {'history_races'}, 'history_scroll': {'history_races'}, 'continue_skill_tutorial': {'skill_tutorial', 'skills'}, 'open_skills': {'skills', 'skill_tutorial'}, 'continue_scenario': {'exam_mode', 'trainee'}, 'scenario_next': {'scenario'}, 'change_exam': {'exam_list'}, 'scroll_exams': {'exam_list'}, 'confirm_exam': {'exam_mode', 'exam_detail'}, 'close_exam_detail': {'exam_list', 'exam_mode'}, 'close_exams': {'exam_mode'}, 'confirm_mode': {'trainee'}, 'continue_trainee': {'inheritance'}, 'select_bakushin': {'trainee'}, 'select_scarlet': {'trainee'}, 'select_gold_ship': {'trainee'}, 'select_vodka': {'trainee'}, 'select_urara': {'trainee'}, 'scroll_trainees_up': {'trainee'}, 'scroll_trainees': {'trainee'}, 'auto_inheritance': {'inherit_confirm'}, 'toggle_borrow': {'inherit_confirm'}, 'confirm_inheritance': {'inheritance'}, 'continue_inheritance': {'support_deck'}, 'auto_support': {'auto_support_confirm'}, 'confirm_auto_support': {'support_deck'}, 'continue_support': {'final_confirm', 'final_autonomous', 'autonomous_tutorial'}, 'toggle_event_boost': set(EVENT_BOOST_FINAL_PAGES), 'select_autonomous': {'final_autonomous', 'autonomous_tutorial'}, 'continue_autonomous_tutorial': {'autonomous_tutorial', 'final_confirm', 'final_autonomous'}, 'start_autonomous': {'autonomous_start_notice', 'autonomous_running', 'training_status'}, 'confirm_autonomous_start': {'autonomous_running', 'training_status'}, 'open_training_menu': {'training_menu', 'autonomous_running'}, 'return_home': {'home', 'training_menu'}, 'cancel_training_status': {'home'}}
 NEXT_PAGES.update({'inspect_trainee_' + str(i): {'trainee'} for i in range(15)})
 from core.autonomous_training.plant_plan import NEXT_PAGES as PLAN_NEXT_PAGES
 NEXT_PAGES.update(PLAN_NEXT_PAGES)
