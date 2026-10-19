@@ -643,8 +643,48 @@
       "archive_identity_pending_actual_archive": false,
       "event_boost_default": false,
       "private_screenshot_implementation_included": false
+    },
+    {
+      "version": "0.4.27",
+      "revision": "r1",
+      "scope": "Daily screenshot retention and task capture coverage; current standard announcement.",
+      "ordinary_backend_baseline": "0.4.26",
+      "ordinary_backend_changed": true,
+      "ordinary_backend_source_paths": [
+        "backend/core/screenshot_retention.py",
+        "backend/desktop/screenshot_archive.py",
+        "backend/desktop/umaa_screenshot_retention.py",
+        "backend/desktop/umaa_seed_cycle.py",
+        "backend/scripts/umaa_public_worker.py"
+      ],
+      "ordinary_gui_baseline": "0.4.26",
+      "ordinary_gui_release_baseline": "0.4.26",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.4.27.zip",
+      "ordinary_gui_archive_sha256": "96a214e663871d041b7c1057082f5230eccfafa4cc47d5780848e114fea135a7",
+      "ordinary_gui_archive_size_bytes": 30833971,
+      "ordinary_gui_archive_version": "0.4.27",
+      "ordinary_gui_code_version": "0.4.27",
+      "ordinary_gui_code_reused_from": null,
+      "ordinary_gui_rebuilt_for_release": true,
+      "changed_source_paths": [
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "backend/core/screenshot_retention.py",
+        "backend/desktop/screenshot_archive.py",
+        "backend/desktop/umaa_screenshot_retention.py",
+        "backend/desktop/umaa_seed_cycle.py",
+        "backend/scripts/umaa_public_worker.py",
+        "gui/MFAAvalonia/Helper/MaaUmaUpdateAnnouncement.cs",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false,
+      "archive_identity_pending_actual_archive": false,
+      "public_screenshot_retention_implementation_included": true,
+      "private_screenshot_implementation_included": false
     }
   ],
-  "latest_ordinary_source_update": "0.4.26",
+  "latest_ordinary_source_update": "0.4.27",
   "latest_ordinary_source_revision": "r1"
 }

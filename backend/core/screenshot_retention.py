@@ -65,7 +65,8 @@ class CaptureStore:
             return
         path = path.resolve()
         if path in self.frames:
-            return
+            self.latest = path
+            return path
         self.frames[path] = (stat.st_size, stat.st_mtime_ns, observation.get('frame_sha256'))
         self.latest = path
         self.recent.append(path)
@@ -75,12 +76,15 @@ class CaptureStore:
             self.passive.add(path)
         if not self.full:
             self._trim_passive()
+        return path
 
-    def before_dispatch(self):
-        if self.latest is not None:
-            self.pinned.add(self.latest)
-            if self.action in EVIDENCE_ACTIONS:
-                self.evidence.add(self.latest)
+    def before_dispatch(self, *, source=None, action=None):
+        source = self.latest if source is None else source
+        action = self.action if action is None else action
+        if source in self.frames:
+            self.pinned.add(source)
+            if action in EVIDENCE_ACTIONS:
+                self.evidence.add(source)
 
     def pin_receipt(self, receipt):
         refs = set(references(receipt))
@@ -129,7 +133,7 @@ class CaptureStore:
         for path in set(self.frames) - keep:
             self._remove(path)
         try:
-            (self.root / 'screenshot-retention.json').write_text(json.dumps(dict(mode='compact', complete=complete, removed_frames=self.removed, retained_frames=len(self.frames), cleanup_errors=self.remove_errors, journals_preserved=True), indent=2), encoding='utf8')
+            (self.root / 'screenshot-retention.json').write_text(json.dumps(dict(mode='compact', complete=complete, removed_frames=self.removed, retained_frames=len(self.frames), cleanup_errors=self.remove_errors, journals_preserved=True, scope='exact_capture_directory', capture_directory=str(self.root)), indent=2), encoding='utf8')
         except OSError:
             pass
 
@@ -153,6 +157,8 @@ class ScreenshotSession:
     def finish(self, result, *, complete):
         for store in self.stores.values():
             store.finish(complete, result)
+        stores = [dict(capture_directory=str(store.root), removed_frames=store.removed, retained_frames=len(store.frames), cleanup_errors=store.remove_errors) for store in self.stores.values()]
+        return dict(scope='registered_stores_only', complete=complete, store_count=len(stores), stores=stores, removed_frames=sum((row['removed_frames'] for row in stores)), retained_frames=sum((row['retained_frames'] for row in stores)), cleanup_errors=sum((row['cleanup_errors'] for row in stores)))
 
 def install_capture_retention(device):
     session = _session.get()
@@ -160,28 +166,49 @@ def install_capture_retention(device):
         return
     directory = Path(device.output_dir).resolve()
     store = session.stores.setdefault(directory, CaptureStore(directory, session.full))
+    owned_stores = {directory: store}
+    latest_capture = None
+    action = None
     capture, command, step = (device.capture, device.command, device.step)
+
+    def current_store():
+        try:
+            current = Path(device.output_dir).resolve()
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return None
+        if not current.is_relative_to(directory):
+            return None
+        if current not in owned_stores:
+            owned_stores[current] = session.stores.setdefault(current, CaptureStore(current, session.full))
+        return owned_stores[current]
 
     @wraps(capture)
     def captured(*args, **kwargs):
+        nonlocal latest_capture
         observed = capture(*args, **kwargs)
-        store.record(observed)
+        selected = current_store()
+        path = selected.record(observed) if selected is not None else None
+        latest_capture = (selected, path) if path is not None else None
         return observed
 
     @wraps(command)
     def dispatched(*args, **kwargs):
         if 'shell' in args and ('input' in args or 'am' in args):
-            store.before_dispatch()
+            if latest_capture is not None:
+                selected, path = latest_capture
+                selected.before_dispatch(source=path, action=action)
         return command(*args, **kwargs)
 
     @wraps(step)
     def stepped(*args, **kwargs):
-        previous = store.action
-        store.action = args[0] if args else kwargs.get('action_id', kwargs.get('action'))
+        nonlocal action
+        previous = action
+        action = args[0] if args else kwargs.get('action_id', kwargs.get('action'))
         try:
             receipt = step(*args, **kwargs)
-            store.pin_receipt(receipt)
+            for selected in owned_stores.values():
+                selected.pin_receipt(receipt)
             return receipt
         finally:
-            store.action = previous
+            action = previous
     device.capture, device.command, device.step = (captured, dispatched, stepped)

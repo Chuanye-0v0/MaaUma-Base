@@ -481,24 +481,30 @@ class SeedCycle:
         source.mkdir(parents=True, exist_ok=True)
         cycle = state['config']['cycle']
         from core.passive_popup_runtime import PassivePopupSession
-        try:
-            with seed_policy(cycle['targets'], None if cycle['integrated'] else cycle['total_tp_budget'] - state['tp_spent']), PassivePopupSession(self.endpoint, stop) as popups:
-                result = self.executor(task, options, endpoint=self.endpoint, adb_path=self.adb_path, output=source, skill_database=self.skill_database, emit=emit, stop=stop, auto_restart_game=False, **kwargs)
-                popups.annotate(result)
-                if popups.failure:
-                    result.update(ok=False, reason=popups.failure)
-        except Exception as error:
-            result = dict(ok=False, reason=str(error), device_action_count_complete=False)
-        context_path = source / 'context.json'
-        if (task == 'harvest' or result.get('submitted_training_collected')) and 'factor_selection' not in result and context_path.exists():
-            context = json.loads(context_path.read_text(encoding='utf8'))
-            if context.get('factor_goal') == cycle['targets'] and context.get('factor_selection'):
-                result['factor_selection'] = deepcopy(context['factor_selection'])
-        result.update(current_account_only=True, output_dir=str(source))
-        if result.get('ok') is True and result.get('last_observation', {}).get('endpoint') != self.endpoint:
-            result.update(ok=False, reason='seed_child_endpoint_unverified')
-        _save(source / 'backend_result.json', result)
-        _save(source / 'adapter_result.json', result)
+        from core.screenshot_retention import ScreenshotSession
+        with ScreenshotSession() as screenshots:
+            try:
+                with seed_policy(cycle['targets'], None if cycle['integrated'] else cycle['total_tp_budget'] - state['tp_spent']), PassivePopupSession(self.endpoint, stop) as popups:
+                    result = self.executor(task, options, endpoint=self.endpoint, adb_path=self.adb_path, output=source, skill_database=self.skill_database, emit=emit, stop=stop, auto_restart_game=False, **kwargs)
+                    popups.annotate(result)
+                    if popups.failure:
+                        result.update(ok=False, reason=popups.failure)
+            except Exception as error:
+                result = dict(ok=False, reason=str(error), device_action_count_complete=False)
+            context_path = source / 'context.json'
+            if (task == 'harvest' or result.get('submitted_training_collected')) and 'factor_selection' not in result and context_path.exists():
+                context = json.loads(context_path.read_text(encoding='utf8'))
+                if context.get('factor_goal') == cycle['targets'] and context.get('factor_selection'):
+                    result['factor_selection'] = deepcopy(context['factor_selection'])
+            result.update(current_account_only=True, output_dir=str(source))
+            if result.get('ok') is True and result.get('last_observation', {}).get('endpoint') != self.endpoint:
+                result.update(ok=False, reason='seed_child_endpoint_unverified')
+            _save(source / 'backend_result.json', result)
+            _save(source / 'adapter_result.json', result)
+            try:
+                screenshots.finish(result, complete=not stop.is_set() and self._verified(task, result))
+            except Exception:
+                pass
         if task == 'plant' and cycle['integrated'] and (result.get('ok') is not True) and (not stop.is_set()):
             from desktop.umaa_plant_setup_resume import proven
             observed = result.get('last_observation', {})

@@ -30,6 +30,14 @@ def main():
             stream.write(json.dumps(event, ensure_ascii=False) + '\n')
     try:
         from desktop.mfa_backend import CurrentAccountBackend
+        try:
+            from desktop.umaa_screenshot_retention import worker_maintenance
+            worker_maintenance(ROOT, request.get('execute') is True, emit, stop)
+        except Exception:
+            try:
+                emit(dict(type='maintenance', message='历史截图清理未完成；任务照常继续。'))
+            except Exception:
+                pass
         if request['task'] == 'seed_cycle':
             from desktop.umaa_seed_cycle import SeedCycle
             backend = SeedCycle(ROOT / 'runs/seed-cycles', endpoint=endpoint(), adb_path=request['connection']['adb_path'], skill_database=ROOT / 'data/skill_database.json')
@@ -52,6 +60,14 @@ def main():
     finally:
         stop.close()
     (request_path.parent / 'result.json').write_text(json.dumps(result, ensure_ascii=False), encoding='utf8')
+    try:
+        from desktop.umaa_screenshot_retention import worker_maintenance
+        worker_maintenance(ROOT, request.get('execute') is True, emit, stop)
+    except Exception:
+        try:
+            emit(dict(type='maintenance', message='历史截图清理未完成；任务照常继续。'))
+        except Exception:
+            pass
     return 0
 if __name__ == '__main__':
     raise SystemExit(main())
