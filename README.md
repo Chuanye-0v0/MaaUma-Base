@@ -19,6 +19,13 @@ MaaUma 普通版客户端的开源代码，面向 Windows，包含桌面界面�
 
 各功能所需的识别图、数据库和模型等运行输入独立提供，详见[运行资源说明](docs/RESOURCES.md)。
 
+## 下载与使用
+
+- [GitHub 最新完整包](https://github.com/Chuanye-0v0/MaaUma-Base/releases/latest)
+- [国内下载：MaaUma 0.4.27 完整包](https://maauma-downloads-1508966578.cos.ap-guangzhou.myqcloud.com/public/0.4.27/maauma-base-0.4.27-windows-x64.zip)
+
+首次使用可下载 Windows x64 完整包，解压后运行 `MFAAvalonia.exe`。已有安装可在“系统设置 → 更新 / 反馈”中检查更新，沿用当前配置。历史更新器修复工具保留在 Releases 中，首次安装请选择当前完整包。
+
 ## 构建
 
 建议使用 Windows x64、Python 3.11 和 .NET 10 SDK。从仓库根目录运行：
@@ -38,7 +45,7 @@ python scripts/build.py build --dotnet <dotnet可执行文件> --work .build
 
 本仓库代码以 **GNU GPL 第 3 版**提供，保留 MFAAvalonia 等上游版权和第三方独立许可。完整条款见 [LICENSE](LICENSE)，署名与范围见 [NOTICE.md](NOTICE.md)。
 
-游戏识别图、头像、技能与因子数据库、OCR 模型及预编译运行环境不随本仓库分发，也不因代码的 GPL 声明而获得额外授权。组装运行目录时，需自行提供版本匹配且具有适用使用许可的输入，保留其来源和许可说明。
+游戏识别图、头像、技能与因子数据库、OCR 模型及预编译运行环境不包含在源码 Git 目录中，也不因代码的 GPL 声明而获得额外授权。使用发行整包时请保留包内的来源与许可说明；自行组装运行目录时，需提供版本匹配且具有适用使用许可的输入。
 
 构建与离线检查不等于真实设备或游戏验收，也不承诺与历史安装包逐字节一致。
 
