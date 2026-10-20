@@ -46,7 +46,7 @@ public sealed class UmaParentPlannerBrowser : NativeControlHost, IDisposable
         }
     }
 
-    /// <param name="allowedOrigin">http://umadna.com or https://614tools.top.</param>
+    /// <param name="allowedOrigin">https://umadna.com or https://614tools.top.</param>
     /// <param name="profile">An app-owned, dedicated WebView2 user-data directory.</param>
     public UmaParentPlannerBrowser(string allowedOrigin, string profile)
     {
@@ -78,7 +78,7 @@ public sealed class UmaParentPlannerBrowser : NativeControlHost, IDisposable
     internal async Task<JArray> EvaluateReadOnlyTargetsAsync(string trustedScript)
     {
         VerifyUsable();
-        if (allowedOrigin.Scheme != "http" || allowedOrigin.Host != "umadna.com")
+        if (allowedOrigin.Scheme != "https" || allowedOrigin.Host != "umadna.com")
             throw new InvalidOperationException("当前工具不支持读取规划目标。");
         if (string.IsNullOrWhiteSpace(trustedScript)) throw new ArgumentException("缺少目标读取脚本。", nameof(trustedScript));
         var current = controller;
@@ -108,7 +108,10 @@ public sealed class UmaParentPlannerBrowser : NativeControlHost, IDisposable
             throw new InvalidOperationException("网页目标内容为空或过大，请检查作者原站。");
         try
         {
-            if (JToken.Parse(json) is JArray rows && rows.Count <= 256) return rows;
+            var value=JToken.Parse(json);
+            if(value is JObject unsupported && (string?)unsupported["unsupported"]=="target_selector_missing")
+                throw new InvalidOperationException("网站已改版，当前网页不支持读取目标。请复制名称到本地规划添加。");
+            if (value is JArray rows && rows.Count <= 256) return rows;
         }
         catch (JsonException) { }
         throw new InvalidOperationException("暂时无法识别网页中的目标，请检查页面或手动填写。");
@@ -118,7 +121,7 @@ public sealed class UmaParentPlannerBrowser : NativeControlHost, IDisposable
     {
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || !uri.IsDefaultPort ||
             uri.UserInfo.Length != 0 || uri.AbsolutePath != "/" || uri.Query.Length != 0 || uri.Fragment.Length != 0 ||
-            !((uri.Scheme == "http" && string.Equals(uri.Host, "umadna.com", StringComparison.OrdinalIgnoreCase)) ||
+            !((uri.Scheme == "https" && string.Equals(uri.Host, "umadna.com", StringComparison.OrdinalIgnoreCase)) ||
               (uri.Scheme == "https" && string.Equals(uri.Host, "614tools.top", StringComparison.OrdinalIgnoreCase))))
             throw new ArgumentException("浏览器仅支持已登记的作者原站。", nameof(value));
         return uri;
@@ -206,14 +209,14 @@ public sealed class UmaParentPlannerBrowser : NativeControlHost, IDisposable
             ResizeBrowser();
             if (pendingUrl != null) created.CoreWebView2.Navigate(pendingUrl);
         }
-        catch (Exception)
+        catch (Exception error)
         {
             if (created != null) { try { created.Close(); } catch (COMException) { } }
             if (!disposed && version == lifetime)
             {
                 controller = null;
                 documentReady = false;
-                StatusChanged?.Invoke("内嵌网页加载失败，请重试或使用“作者原站”入口。");
+                StatusChanged?.Invoke($"内嵌浏览器启动失败（{error.GetType().Name}，0x{error.HResult:X8}）。可打开作者原站；本地规划仍可使用。");
             }
         }
         finally { if (version == lifetime) initializing = false; }
@@ -258,13 +261,13 @@ public sealed class UmaParentPlannerBrowser : NativeControlHost, IDisposable
         };
         web.NavigationCompleted += (_, e) =>
         {
-            documentReady = e.IsSuccess && controller != null && IsAllowedUrl(allowedOrigin, controller.CoreWebView2.Source);
+            documentReady = e.IsSuccess && e.HttpStatusCode < 400 && controller != null && IsAllowedUrl(allowedOrigin, controller.CoreWebView2.Source);
             if (documentReady)
             {
                 StatusChanged?.Invoke(lostPageState ? "网页已重新加载，请检查未保存的输入。" : "作者原站 · " + allowedOrigin.Host);
                 lostPageState = false;
             }
-            else StatusChanged?.Invoke("网页加载未完成，可稍后重试或打开作者原站。");
+            else StatusChanged?.Invoke(NavigationFailureMessage(e.WebErrorStatus.ToString(),e.HttpStatusCode));
         };
         web.ProcessFailed += (_, _) =>
         {
@@ -272,6 +275,12 @@ public sealed class UmaParentPlannerBrowser : NativeControlHost, IDisposable
             ++navigationVersion;
             StatusChanged?.Invoke("网页进程异常，请重新打开作者原站；未保存的输入可能丢失。");
         };
+    }
+
+    internal static string NavigationFailureMessage(string error,int httpStatus)
+    {
+        var http=httpStatus>0?$"HTTP {httpStatus}":"未收到站点响应";
+        return $"网页没有打开（{http}；浏览器错误：{error}）。可打开作者原站；本地规划仍可使用。";
     }
 
     private void ResizeBrowser()

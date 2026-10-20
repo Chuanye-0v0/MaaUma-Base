@@ -64,7 +64,7 @@
                                                                IconVariant=Regular}"
                                                IsVisible="False"
                                                PageContent="{extensions:ServiceProvider ServiceType={x:Type pages:ResourcesView}}" />
-
+                        
                     </suki:SukiSideMenu.Items>
 
                     <suki:SukiSideMenu.HeaderContent>

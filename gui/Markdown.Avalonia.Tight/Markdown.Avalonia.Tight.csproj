@@ -32,10 +32,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Remove="Assets\ImageNotFound.bmp" />
     <None Remove="EmojiTable.txt" />
   </ItemGroup>
 
   <ItemGroup>
+    <AvaloniaResource Include="Assets\ImageNotFound.bmp" />
   </ItemGroup>
 
   <ItemGroup>

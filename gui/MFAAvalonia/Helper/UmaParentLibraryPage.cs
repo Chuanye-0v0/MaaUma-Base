@@ -85,18 +85,6 @@ public sealed class UmaParentLibraryPage : UserControl
     }
     private static async Task<JArray> CallApi(JObject payload,string python,string backend)
     {
-        if(!((string?)payload["action"]??"").StartsWith("parent_library_",StringComparison.Ordinal))
-            throw new InvalidOperationException("不支持的种马库操作。");
-        var info=new ProcessStartInfo(python){WorkingDirectory=backend,UseShellExecute=false,CreateNoWindow=true,
-            RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true,
-            StandardInputEncoding=new UTF8Encoding(false),StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8};
-        foreach(var value in new[]{"-B","-X","utf8","-m","desktop.parent_library_api"})info.ArgumentList.Add(value);
-        using var process=Process.Start(info)??throw new IOException("种马库服务未启动。");
-        var output=process.StandardOutput.ReadToEndAsync();var diagnostic=process.StandardError.ReadToEndAsync();
-        await process.StandardInput.WriteAsync(payload.ToString(Newtonsoft.Json.Formatting.None));process.StandardInput.Close();
-        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));await diagnostic;
-        var response=JObject.Parse(await output);
-        if((bool?)response["ok"]!=true)throw new InvalidOperationException((string?)response["message"]??"种马库操作未完成。");
-        return response["results"] as JArray??throw new InvalidOperationException("种马库结果不完整。");
+        return await UmaPublicRuntime.Request(payload,"desktop.parent_library_api");
     }
 }

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <OutputType>Library</OutputType>
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
         <AssemblyName>MFAAvalonia.Core</AssemblyName>
         <Nullable>annotations</Nullable>
         <RuntimeIdentifiers Condition="'$(RuntimeIdentifier)' == ''">win-x64;linux-x64;osx-x64;win-arm64;linux-arm64;osx-arm64</RuntimeIdentifiers>
@@ -16,7 +17,7 @@
 
     <ItemGroup>
         <Folder Include="Assets\Sound\" />
-        <AvaloniaResource Include="Assets\logo.ico" Condition="Exists('Assets/logo.ico')" />
+        <AvaloniaResource Include="Assets\logo.ico" />
         <AvaloniaResource Include="Assets\Sound\**" />
         <Folder Include="resource\base\pipeline\" />
         <AvaloniaResource Remove="%(_MaaFrameworkRuntime.DestinationFolder)AnyCPU\**" />
@@ -47,6 +48,7 @@
         <PackageReference Include="Avalonia.Controls.ColorPicker" Version="11.3.12" />
         <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.3.12" />
         <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.12" />
+        <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.12" />
         <PackageReference Include="Avalonia.Themes.Simple" Version="11.3.12" />
         <PackageReference Include="AvaloniaEdit.TextMate" Version="11.4.1" />
         <PackageReference Include="AvaloniaExtensions.Axaml" Version="11.3.12.1" />

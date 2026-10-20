@@ -1,4 +1,4 @@
-<suki:SukiWindow Title="MaaUma 普通版"
+<suki:SukiWindow Title="MaaUma 普通版 v0.4.28"
     BackgroundAnimationEnabled="{Binding BackgroundAnimations, Source={x:Static helper:Instances.GuiSettingsUserControlModel}}"
     BackgroundStyle="{Binding BackgroundStyle, Source={x:Static helper:Instances.GuiSettingsUserControlModel}}"
     BackgroundTransitionsEnabled="{Binding BackgroundTransitions, Source={x:Static helper:Instances.GuiSettingsUserControlModel}}"
@@ -154,53 +154,11 @@
             <!--         </MultiBinding> -->
             <!--     </TextBlock.Text> -->
             <!-- </TextBlock> -->
-            <TextBlock VerticalAlignment="Center" IsVisible="{Binding IsCustomTitleVisible}" IsHitTestVisible="False"
-                       FontSize="13" Text="{Binding CustomTitle}"
-                       FontWeight="Bold">
-
-                <!-- <TextBlock.Text> -->
-                <!--     <MultiBinding Converter="{converters:TitleConverter}" Mode="OneWay"> -->
-                <!--         <Binding Path="CustomTitle" /> -->
-                <!--         <Binding Path="IsCustomTitleVisible" /> -->
-                <!--         <markup:I18nBinding> -->
-                <!--             <x:Arguments> -->
-                <!--                 <x:Static Member="helper:LangKeys.AppTitle" /> -->
-                <!--             </x:Arguments> -->
-                <!--         </markup:I18nBinding> -->
-                <!--         <Binding Path="Version" /> -->
-                <!--         <Binding Path="ResourceName" /> -->
-                <!--         <Binding Path="ResourceVersion" /> -->
-                <!--         <Binding Path="IsResourceNameVisible" /> -->
-                <!--     </MultiBinding> -->
-                <!-- </TextBlock.Text> -->
-            </TextBlock>
-            <TextBlock VerticalAlignment="Center" IsVisible="{calcBinding:Binding '!IsCustomTitleVisible' }"
-                       FontSize="13" Text="{markup:I18n {x:Static helper:LangKeys.AppTitle}}" IsHitTestVisible="False"
-                       FontWeight="Bold" />
-
-            <TextBlock VerticalAlignment="Center" Margin="5 0 0 0" IsVisible="{Binding IsResourceNameVisible}"
-                       Foreground="{DynamicResource SukiLowText}" IsHitTestVisible="False"
-                       FontSize="13" Text="{Binding ResourceName}" />
-            <TextBlock VerticalAlignment="Center" Margin="1 0 0 0" IsVisible="{Binding IsResourceNameVisible}"
-                       Foreground="{DynamicResource SukiLowText}" IsHitTestVisible="False"
-                       FontSize="13" Text="{Binding ResourceVersion}" />
+            <TextBlock Name="MaaUmaProductTitle" VerticalAlignment="Center" IsHitTestVisible="False"
+                       FontSize="13" Text="MaaUma 普通版 v0.4.28" FontWeight="Bold" />
         </StackPanel>
     </suki:SukiWindow.NonClientAreaContent>
-    <suki:SukiWindow.Title>
-        <MultiBinding Converter="{converters:TitleConverter}" Mode="OneWay">
-            <Binding Path="CustomTitle" />
-            <Binding Path="IsCustomTitleVisible" />
-            <markup:I18nBinding>
-                <x:Arguments>
-                    <x:Static Member="helper:LangKeys.AppTitle" />
-                </x:Arguments>
-            </markup:I18nBinding>
-            <Binding Path="Version" />
-            <Binding Path="ResourceName" />
-            <Binding Path="ResourceVersion" />
-            <Binding Path="IsResourceNameVisible" />
-        </MultiBinding>
-    </suki:SukiWindow.Title>
+    
     <suki:SukiWindow.RightWindowTitleBarControls>
         <ToggleButton
             Classes="SP Basic Round"

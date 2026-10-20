@@ -44,6 +44,7 @@ public static class UmaPublicRuntime
     }
     public static async Task Prepare(List<MaaProcessor.NodeAndParam> nodes, string adbPath, string address, string instanceId = "default")
     {
+        RequireLiveTaskSelection(nodes);
         var endpoint=NormalizeAddress(address);
         if (!File.Exists(adbPath))
             throw new InvalidOperationException("请在设备连接设置中选择本机模拟器的 ADB 设备。");
@@ -78,7 +79,7 @@ public static class UmaPublicRuntime
     public static async Task<JArray> Request(JObject request, string module)
     {
         if (module != "desktop.umaa_public_presets" && module != "desktop.umaa_public_plant"
-            && module != "desktop.umaa_seed_cycle" && module != "desktop.parent_library_api" && module != "desktop.parent_planner_api") throw new InvalidOperationException("公开编辑接口不可用。");
+            && module != "desktop.umaa_seed_cycle" && module != "desktop.parent_library_api" && module != "desktop.parent_planning_api" && module != "desktop.parent_compatibility_api" && module != "desktop.parent_planner_api") throw new InvalidOperationException("公开编辑接口不可用。");
         var python = Path.Combine(AppContext.BaseDirectory, "runtime", "python.exe");
         var info = new ProcessStartInfo(python) {
             WorkingDirectory=BackendRoot, UseShellExecute=false, CreateNoWindow=true,
@@ -114,6 +115,34 @@ public static class UmaPublicRuntime
         return result["results"] as JArray ?? throw new InvalidOperationException("本地设置进程缺少设置内容。");
     }
 
+    public static void RequireLiveTaskSelection(IEnumerable<MaaProcessor.NodeAndParam> nodes)
+    {
+        // Removed task-preview snapshots stay rejected; never promote their intent.
+        var oldActions = new HashSet<string>(new[] {
+            "UmaHarvestBackend", "UmaPlantBackend", "UmaJjcBackend", "UmaActivitiesBackend",
+            "UmaDailyLegendBackend", "UmaStoryEventBackend", "UmaDailyRewardsBackend",
+            "UmaLimitedLegendBackend", "UmaChampionsRegistrationBackend", "UmaChampionsRaceBackend",
+            "UmaSeedCycleBackend", "UmaCleanupBackend"
+        }, StringComparer.Ordinal);
+        void Check(JToken? token)
+        {
+            if (token is JObject obj) {
+                foreach (var property in obj.Properties()) {
+                    var value = property.Value;
+                    if (value == null) continue;
+                    if ((property.Name == "custom_action" && value.Type == JTokenType.String
+                            && oldActions.Contains((string?)value ?? ""))
+                        || (property.Name == "_execute" && value.Type == JTokenType.Boolean
+                            && (bool)value == false))
+                        throw new InvalidOperationException("旧预演任务已停用，请重新选择本次任务后再开始；未执行游戏操作。");
+                    Check(value);
+                }
+            }
+            else if (token is JArray array) foreach (var child in array) Check(child);
+        }
+        foreach (var node in nodes) Check(JToken.Parse(node.Param ?? "[]"));
+    }
+
     public static int SelfTest()
     {
         UmaSeedCycle.SelfTest();
@@ -125,7 +154,7 @@ public static class UmaPublicRuntime
             throw new Exception("接受了无效或非本机模拟器地址");
         }
         var ownAssembly=typeof(UmaPublicRuntime).Assembly;
-        var allowed=new[]{"UmaPublicRuntime","UmaHarvestPresets","UmaPublicUpdateView","UmaPublicPlant","UmaSeedCycle","UmaParentLibraryView","UmaParentLibraryPage","UmaParentPlannerView","UmaParentPlannerPage","UmaParentPlannerBrowser","UmaIconRendering"};
+        var allowed=new[]{"UmaPublicRuntime","UmaHarvestPresets","UmaPublicUpdateView","UmaPublicPlant","UmaSeedCycle","UmaParentLibraryView","UmaParentLibraryPage","UmaSupportChoice","UmaSupportPicker","UmaTraineeChoice","UmaTraineePicker","UmaSkillReferenceView","UmaParentCompatibilityView","UmaParentPlannerView","UmaParentPlannerPage","UmaParentPlannerBrowser","UmaIconRendering"};
         if(ownAssembly.GetTypes().Any(type=>type.Name.StartsWith("Uma",StringComparison.Ordinal) && !allowed.Contains(type.Name)))
             throw new Exception("公开 GUI 包含未登记的扩展类型。");
         var payload=JObject.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"interface.json")));

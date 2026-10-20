@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
+using Avalonia.Controls.Documents;
+using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Newtonsoft.Json.Linq;
@@ -19,8 +21,8 @@ namespace MFAAvalonia.Helper;
 public sealed class UmaParentPlannerView : UserControl
 {
     private static readonly (string Key,string Label,string Origin,string Url)[] Sites = [
-        ("umadna","umDNA 主页","http://umadna.com","http://umadna.com/"),
-        ("umadna","umDNA 技能页","http://umadna.com","http://umadna.com/skill_preview.html"),
+        ("umadna","umDNA 主页","https://umadna.com","https://umadna.com/"),
+        ("umadna","umDNA 技能页","https://umadna.com","https://umadna.com/skill_preview.html"),
         ("614","614 技能筛选","https://614tools.top","https://614tools.top/skillselect/")];
     private readonly Func<JObject,Task<JObject>> request;
     private readonly Func<string,Control>? fakeBrowserFactory;
@@ -28,11 +30,11 @@ public sealed class UmaParentPlannerView : UserControl
     private readonly Dictionary<string,Control> browsers = new(StringComparer.Ordinal);
     private readonly Dictionary<string,string> requestedUrls = new(StringComparer.Ordinal);
     private readonly Grid webStage = new();
-    private readonly Grid workspace = new() { ColumnDefinitions=new("3*,6,2*") };
-    private readonly Grid webPane = new() { RowDefinitions=new("Auto,*"),MinWidth=320 };
-    private readonly Grid localPane = new() { RowDefinitions=new("Auto,*,Auto"),MinWidth=300 };
-    private readonly GridSplitter divider = new() { Width=6,HorizontalAlignment=HorizontalAlignment.Stretch,ResizeDirection=GridResizeDirection.Columns };
-    private readonly StackPanel narrowTabs = new() { Orientation=Orientation.Horizontal,Spacing=6,IsVisible=false };
+    private readonly Grid webPane = new() { RowDefinitions=new("Auto,*"),Margin=new Thickness(0,10,0,0) };
+    private readonly Grid localPane = new() { RowDefinitions=new("Auto,*,Auto"),Margin=new Thickness(0,10,0,0) };
+    private readonly TabControl plannerTabs = new() { Name="ParentPlannerSections",SelectedIndex=0,
+        HorizontalContentAlignment=HorizontalAlignment.Stretch,VerticalContentAlignment=VerticalAlignment.Stretch,
+        ItemsPanel=new FuncTemplate<Panel?>(()=>new WrapPanel()) };
     private readonly TextBlock webStatus = Label("选择作者原站后联网打开；本地种马库不会自动传给网页。",12);
     private readonly TextBlock status = Label("读取本地目标目录…",12);
     private readonly TextBox input = new() { Name="ParentPlannerInput",Watermark="技能或因子名，支持逗号分隔；从候选确认" };
@@ -46,33 +48,63 @@ public sealed class UmaParentPlannerView : UserControl
     private readonly Button readTargets = new() { Name="ParentPlannerReadWebTargets",Content="读取网页目标",IsEnabled=false };
     private readonly StackPanel results = new() { Name="ParentPlannerResults",Spacing=8 };
     private string selectedSite="",selectedUrl="";
-    private bool busy,loaded,narrow,showLocal;
+    private bool busy,loaded;
 
     public UmaParentPlannerView(Func<JObject,Task<JObject>> request,Func<string,Control>? browserFactory=null,Func<Task<JArray>>? readWebTargets=null)
     {
         this.request=request;fakeBrowserFactory=browserFactory;fakeReadTargets=readWebTargets;
-        var root=new Grid { RowDefinitions=new("Auto,Auto,*"),Margin=new Thickness(16),RowSpacing=7 };
+        this.Bind(TextElement.ForegroundProperty,new DynamicResourceExtension("SukiText"));
+        var root=new Grid { RowDefinitions=new("Auto,*"),Margin=new Thickness(16),RowSpacing=7 };
         var heading=new StackPanel { Spacing=3 };heading.Children.Add(Label("种马规划",22));
-        heading.Children.Add(Label("作者原站与本地素材并排查看；这里只整理目标与缺项，不推算最优配种或继承成功率。",12));root.Children.Add(heading);
-        foreach(var tab in new[]{("网页",false),("本地素材",true)}) { var button=new Button { Content=tab.Item1 };button.Click+=(_,_)=>{showLocal=tab.Item2;Reflow();};narrowTabs.Children.Add(button); }
-        Grid.SetRow(narrowTabs,1);root.Children.Add(narrowTabs);
+        heading.Children.Add(Label("本地查看种马素材、基本相性与技能来源；组合参考仅比较库内成品，不代表继承概率。",12));root.Children.Add(heading);
         var toolbar=new StackPanel { Spacing=5 };var siteButtons=new WrapPanel { Orientation=Orientation.Horizontal };
         foreach(var site in Sites) { var button=new Button { Content=site.Label,Margin=new Thickness(0,0,6,3) };button.Click+=(_,_)=>OpenSite(site.Key,site.Url);siteButtons.Children.Add(button); }
         var external=new Button { Content="作者原站 ↗",Margin=new Thickness(0,0,6,3) };external.Click+=(_,_)=> { if(selectedUrl.Length>0)Process.Start(new ProcessStartInfo(selectedUrl){UseShellExecute=true}); };siteButtons.Children.Add(external);
-        ToolTip.SetTip(readTargets,"只读取umDNA主页已选技能；攻略页和614可复制名称后手动添加。");readTargets.Click+=async(_,_)=>await ReadWebTargets();siteButtons.Children.Add(readTargets);toolbar.Children.Add(siteButtons);toolbar.Children.Add(webStatus);webPane.Children.Add(toolbar);
-        webStage.Children.Add(Label("请选择 umDNA 或 614 作者原站。网页只按你的操作联网；你可手动复制目标名称到右侧。",14));Grid.SetRow(webStage,1);webPane.Children.Add(webStage);
-        var editor=new StackPanel { Spacing=5,Margin=new Thickness(10,0,0,0) };editor.Children.Add(Label("本地目标清单",18));editor.Children.Add(input);
+        ToolTip.SetTip(readTargets,"尝试读取umDNA主页已选技能；网页改版后未匹配的目标，可直接在本地规划搜索添加。攻略页和614可复制名称添加。");readTargets.Click+=async(_,_)=>await ReadWebTargets();siteButtons.Children.Add(readTargets);toolbar.Children.Add(siteButtons);toolbar.Children.Add(webStatus);webPane.Children.Add(toolbar);
+        webStage.Children.Add(Label("请选择 umDNA 或 614 作者原站。网页只按你的操作联网；你可复制目标名称到“本地规划”添加。",14));Grid.SetRow(webStage,1);webPane.Children.Add(webStage);
+        var editor=new StackPanel { Spacing=5 };editor.Children.Add(Label("本地目标清单",18));editor.Children.Add(input);
         var add=new Button { Content="确认名称",Name="ParentPlannerConfirm" };add.Click+=(_,_)=>ConfirmNames();
         var goalActions=new WrapPanel { Orientation=Orientation.Horizontal };goalActions.Children.Add(add);scope.Margin=new Thickness(6,0,0,0);goalActions.Children.Add(scope);editor.Children.Add(goalActions);
         suggestions.ItemTemplate=new FuncDataTemplate<JObject>((row,_)=>Label((bool?)row?["raw"]==true?(Text(row,"web_id").Length>0?"未映射网页ID "+Text(row,"web_id")+" · ":"")+"按原文匹配："+Text(row,"name"):Display(row)+" · "+(Text(row,"kind")=="skill"?"技能":"因子"),13));
         suggestions.SelectionChanged+=(_,_)=> { if(suggestions.SelectedItem is not JObject row)return;AddTarget(row);var pending=Tokens(input.Text);input.Text=string.Join("，",pending.Skip(1));UpdateSuggestions(); };
         editor.Children.Add(suggestions);editor.Children.Add(Label("每项依次为最低星数、优先级（1低～5高）。",11));editor.Children.Add(new ScrollViewer { Content=selectedList,MaxHeight=220,HorizontalScrollBarVisibility=Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled });
         editor.Children.Add(evaluate);editor.Children.Add(status);localPane.Children.Add(editor);
-        var resultScroll=new ScrollViewer { Name="ParentPlannerResultScroll",Content=results,Margin=new Thickness(10,8,0,0),HorizontalScrollBarVisibility=Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };Grid.SetRow(resultScroll,1);localPane.Children.Add(resultScroll);
-        var footer=Label("素材信息只在本机读取。星数未知会单独标记，不算作没有。",11);footer.Margin=new Thickness(10,5,0,0);Grid.SetRow(footer,2);localPane.Children.Add(footer);
-        workspace.Children.Add(webPane);Grid.SetColumn(divider,1);workspace.Children.Add(divider);Grid.SetColumn(localPane,2);workspace.Children.Add(localPane);Grid.SetRow(workspace,2);root.Children.Add(workspace);Content=root;
+        var resultScroll=new ScrollViewer { Name="ParentPlannerResultScroll",Content=results,Margin=new Thickness(0,8,0,0),HorizontalScrollBarVisibility=Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };Grid.SetRow(resultScroll,1);localPane.Children.Add(resultScroll);
+        var footer=Label("素材信息只在本机读取。星数未知会单独标记，不算作没有。",11);footer.Margin=new Thickness(0,5,0,0);Grid.SetRow(footer,2);localPane.Children.Add(footer);
+        plannerTabs.ItemsSource=new[] {
+            new TabItem {Header="种马素材",Content=localPane},
+            new TabItem {Header="配种与相性",Content=new UmaParentCompatibilityView(request,CurrentPlanningGoals,RestorePlanningGoals)},
+            new TabItem {Header="技能查询",Content=new UmaSkillReferenceView(request,AddMappedSkillTarget)},
+            new TabItem {Header="作者工具",Content=webPane} };
+        Grid.SetRow(plannerTabs,1);root.Children.Add(plannerTabs);Content=root;
         input.TextChanged+=(_,_)=>UpdateSuggestions();input.KeyDown+=(_,e)=> { if(e.Key==Avalonia.Input.Key.Enter){e.Handled=true;ConfirmNames();} };
-        evaluate.Click+=async(_,_)=>await Evaluate();Loaded+=async(_,_)=>{if(!loaded)await LoadCatalog();Reflow();};SizeChanged+=(_,_)=>Reflow();
+        evaluate.Click+=async(_,_)=>await Evaluate();Loaded+=async(_,_)=>{if(!loaded)await LoadCatalog();};
+    }
+    private JObject CurrentPlanningGoals()=>new() {
+        ["targets"]=new JArray(targets.Where(t=>Text(t,"target_id").Length>0).Select(t=>new JObject {
+            ["target_id"]=t["target_id"]?.DeepClone(),["min_stars"]=t["min_stars"]?.DeepClone(),["priority"]=t["priority"]?.DeepClone()})),
+        ["raw_targets"]=new JArray(targets.Where(t=>Text(t,"target_id").Length==0).Select(t=>new JObject {
+            ["name"]=t["name"]?.DeepClone(),["min_stars"]=t["min_stars"]?.DeepClone(),["priority"]=t["priority"]?.DeepClone()})) };
+    private void RestorePlanningGoals(JObject saved)
+    {
+        targets.Clear();input.Text="";results.Children.Clear();
+        foreach(var row in (saved["targets"] as JArray??new()).OfType<JObject>()) {
+            var id=Text(row,"target_id");if(id.Length==0)continue;
+            var source=catalog.FirstOrDefault(item=>Text(item,"target_id")==id);
+            var restored=source==null?new JObject{["target_id"]=id,["name"]="未收录目标 · "+id}:(JObject)source.DeepClone();
+            restored["min_stars"]=row["min_stars"]?.DeepClone()??1;restored["priority"]=row["priority"]?.DeepClone()??3;targets.Add(restored);
+        }
+        foreach(var row in (saved["raw_targets"] as JArray??new()).OfType<JObject>()) {
+            var restored=(JObject)row.DeepClone();restored["raw"]=true;restored["min_stars"]??=1;restored["priority"]??=3;targets.Add(restored);
+        }
+        RenderTargets();UpdateSuggestions();status.Text=$"已恢复方案的 {targets.Count} 个目标；素材结果需要重新计算。";
+    }
+    private bool AddMappedSkillTarget(string targetId)
+    {
+        var match=catalog.SingleOrDefault(row=>Text(row,"target_id")==targetId);
+        plannerTabs.SelectedIndex=0;
+        if(match==null){status.Text="该技能暂未对应本地规划目录，请先核对目录或手动选择目标。";return false;}
+        AddTarget(match);status.Text="已加入目标清单；可继续设置最低星数和优先级。";return true;
     }
     private static string Text(JObject? row,string key)=>row?[key]?.Type==JTokenType.String?(string?)row[key]??"":"";
     private static string Display(JObject? row)=>Text(row,"display_name").Length>0?Text(row,"display_name"):Text(row,"name");
@@ -80,12 +112,6 @@ public sealed class UmaParentPlannerView : UserControl
     private static string[] Tokens(string? text)=>(text??"").Split([',','，','\n','\r'],StringSplitOptions.RemoveEmptyEntries).Select(s=>s.Trim()).Where(s=>s.Length>0).ToArray();
     private static string Normal(string text)=>new(text.Normalize(NormalizationForm.FormKC).Where(c=>!char.IsWhiteSpace(c)&&!char.IsPunctuation(c)).Select(char.ToLowerInvariant).ToArray());
     private static IEnumerable<string> Names(JObject row)=>new[]{Text(row,"name")}.Concat((row["aliases"] as JArray??new()).Values<string>().OfType<string>());
-    private void Reflow()
-    {
-        narrow=Bounds.Width<1080;narrowTabs.IsVisible=narrow;divider.IsVisible=!narrow;
-        workspace.ColumnDefinitions=new(narrow?"*":"3*,6,2*");Grid.SetColumn(webPane,0);Grid.SetColumn(localPane,narrow?0:2);
-        webPane.IsVisible=!narrow||!showLocal;localPane.IsVisible=!narrow||showLocal;
-    }
     private void Lock(bool value){busy=value;input.IsEnabled=scope.IsEnabled=evaluate.IsEnabled=selectedList.IsEnabled=suggestions.IsEnabled=!value;}
     public async Task LoadCatalog()
     {
@@ -184,7 +210,7 @@ public sealed class UmaParentPlannerView : UserControl
         }
         foreach(var pair in browsers)pair.Value.IsVisible=pair.Key==key;selectedSite=key;selectedUrl=url;readTargets.IsEnabled=key=="umadna"&&CanReadTargets(url);
         webStatus.Text=key=="umadna"?"umDNA 作者原站 · umadna.com · 仅网页联网，不传本地库":"614 作者原站 · 614tools.top · 仅网页联网，不传本地库";
-        if(!requestedUrls.TryGetValue(key,out var requested)||requested!=url){if(control is UmaParentPlannerBrowser browser)browser.Navigate(url);requestedUrls[key]=url;}showLocal=false;Reflow();
+        if(!requestedUrls.TryGetValue(key,out var requested)||requested!=url){if(control is UmaParentPlannerBrowser browser)browser.Navigate(url);requestedUrls[key]=url;}plannerTabs.SelectedIndex=3;
     }
     public async Task ReadWebTargets()
     {
@@ -194,11 +220,12 @@ public sealed class UmaParentPlannerView : UserControl
                 rows=await browser.EvaluateReadOnlyTargetsAsync(UmadnaReadTargetsScript);
             }else return;
             webSelections.Clear();webSelections.AddRange(rows.OfType<JObject>().Where(x=>Text(x,"id").Length>0&&Text(x,"id").All(char.IsDigit)&&Text(x,"name").Length>0).Select(x=>(JObject)x.DeepClone()));
-            var names=webSelections.Select(x=>Text(x,"name")).Distinct().ToArray();if(names.Length==0){status.Text="网页还没有可读取的目标，请在技能页选好后重试，或手动粘贴名称。";return;}
-            input.Text=string.Join("，",names);UpdateSuggestions();var unmapped=webSelections.Count(x=>!catalog.Any(c=>Text(c,"target_id")=="skill:"+Text(x,"id")));status.Text=$"读取 {names.Length} 个网页目标"+(unmapped>0?$"，{unmapped} 个ID未映射":"")+"；请确认候选后查找本地素材。";if(narrow){showLocal=true;Reflow();}
-        }catch(InvalidOperationException e){status.Text=e.Message;}catch{status.Text="网页目标暂未读取成功，可手动复制名称到目标清单。";}
+            var names=webSelections.Select(x=>Text(x,"name")).Distinct().ToArray();if(names.Length==0){status.Text="未读到可导入的目标。可以直接在本地规划搜索技能或因子，也可复制网页名称添加。";plannerTabs.SelectedIndex=0;return;}
+            input.Text=string.Join("，",names);UpdateSuggestions();var unmapped=webSelections.Count(x=>!catalog.Any(c=>Text(c,"target_id")=="skill:"+Text(x,"id")));status.Text=$"读取 {names.Length} 个网页目标"+(unmapped>0?$"，{unmapped} 个ID未映射":"")+"；请确认候选后查找本地素材。";plannerTabs.SelectedIndex=0;
+        }catch(InvalidOperationException e){webStatus.Text=status.Text=e.Message;plannerTabs.SelectedIndex=0;}catch{webStatus.Text=status.Text="网页目标暂未读取成功，可手动复制名称到本地目标清单。";plannerTabs.SelectedIndex=0;}
     }
-    private static bool CanReadTargets(string? url)=>Uri.TryCreate(url,UriKind.Absolute,out var uri)&&uri.Scheme=="http"&&uri.Host=="umadna.com"&&uri.AbsolutePath=="/";
+    internal static bool CanReadTargets(string? url)=>Uri.TryCreate(url,UriKind.Absolute,out var uri)
+        &&UmaParentPlannerBrowser.IsAllowedUrl(new Uri("https://umadna.com/"),url)&&uri.AbsolutePath=="/";
     // Verified homepage selected-target container; read only, no storage/API or DOM writes.
-    internal const string UmadnaReadTargetsScript="(() => Array.from(document.querySelectorAll('#ppTargets > .pp-chip[data-t]')).map(el => ({id: el.getAttribute('data-t') || '', name: (el.querySelector('span')?.textContent || '').trim()})).filter(x => /^[0-9]+$/.test(x.id) && x.name.length > 0))()";
+    internal const string UmadnaReadTargetsScript="(() => { const root = document.querySelector('#ppTargets'); if (!root) return {unsupported: 'target_selector_missing'}; return Array.from(root.querySelectorAll(':scope > .pp-chip[data-t]')).map(el => ({id: el.getAttribute('data-t') || '', name: (el.querySelector('span')?.textContent || '').trim()})).filter(x => /^[0-9]+$/.test(x.id) && x.name.length > 0); })()";
 }

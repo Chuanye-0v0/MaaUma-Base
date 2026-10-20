@@ -13,11 +13,17 @@ namespace MFAAvalonia.Helper;
 public sealed class UmaParentPlannerPage : UserControl
 {
     public UmaParentPlannerPage(){Content=new UmaParentPlannerView(Send);}
+    internal static string ModuleFor(string? action)=>action switch
+    {
+        "parent_planner_catalog" or "parent_planner_evaluate" or "parent_planner_skill_search" or "parent_planner_skill_detail" => "desktop.parent_planner_api",
+        "parent_compatibility_catalog" or "parent_compatibility_evaluate" or "parent_compatibility_suggest" => "desktop.parent_compatibility_api",
+        "parent_planning_state" or "parent_planning_account_save" or "parent_planning_bind" or "parent_planning_save" or "parent_planning_delete" or "parent_planning_suggest" or "parent_planning_evaluate" => "desktop.parent_planning_api",
+        _ => throw new InvalidOperationException("不支持的本地规划操作。")
+    };
     private static async Task<JObject> Send(JObject payload)
     {
-        if((string?)payload["action"] is not ("parent_planner_catalog" or "parent_planner_evaluate"))
-            throw new InvalidOperationException("不支持的本地规划操作。");
-        var result=await UmaPublicRuntime.Request(payload,"desktop.parent_planner_api");
+        var module=ModuleFor((string?)payload["action"]);
+        var result=await UmaPublicRuntime.Request(payload,module);
         return result[0] as JObject??throw new InvalidOperationException("本地规划结果不完整。");
     }
 }
