@@ -16,7 +16,7 @@ using SukiUI.Controls;
 namespace MFAAvalonia.Helper;
 
 /// <summary>Basic compatibility over real local finished-horse records; no inheritance probability model.</summary>
-public sealed class UmaParentCompatibilityView : UserControl
+public sealed partial class UmaParentCompatibilityView : UserControl
 {
     private sealed record EntryChoice(string Id,string Label,JObject Row){public override string ToString()=>Label;}
     private sealed record AccountChoice(string? Id,string Label){public override string ToString()=>Label;}
@@ -99,7 +99,7 @@ public sealed class UmaParentCompatibilityView : UserControl
     private readonly StackPanel result=new(){Name="CompatEvaluation",Spacing=8};
     private readonly StackPanel suggestions=new(){Name="CompatSuggestions",Spacing=8};
     private EntryChoice[] entries=[],allEntries=[];private AccountChoice[] accounts=[];private JObject[] savedPlans=[];
-    private bool loaded,applying,manual,busy,planningAvailable,planningEverAvailable,candidateExplicit;private int revision,stateRevision;
+    private bool loaded,applying,manual,busy,planningAvailable,planningEverAvailable,candidateExplicit;private int revision,stateRevision;private int? libraryRevision;
     private string? activePlanId,libraryId,planLibraryId;private string?[] unresolvedParentIds=[];private JObject? lastMutation;
     private string? AccountId=>(account.SelectedItem as AccountChoice)?.Id;
     private JToken? evaluatedGoals,suggestedGoals;private int? suggestedTarget;
@@ -113,13 +113,8 @@ public sealed class UmaParentCompatibilityView : UserControl
         evaluate.VerticalAlignment=VerticalAlignment.Center;Grid.SetColumn(evaluate,1);summaryRow.Children.Add(evaluate);frame.Children.Add(Card(summaryRow));
         var root=new StackPanel{Spacing=10};
         root.Children.Add(BuildPlanningToolbar());
-        root.Children.Add(Label("1 选目标  →  2 选两匹种马  →  3 看相性与目标覆盖",16));
-        targetVisual.MaxWidth=620;targetVisual.HorizontalAlignment=HorizontalAlignment.Center;root.Children.Add(targetVisual);
-        targetEditor.Content=target;
-        // Suki's collapsing transition clips still-visible content; hide this editor immediately.
-        targetEditor.PropertyChanged+=(_,change)=>{if(change.Property==Expander.IsExpandedProperty)target.IsVisible=targetEditor.IsExpanded;};
-        root.Children.Add(targetEditor);
-        var branch=Label("↓  由两匹亲代与各自的祖辈组成家系",12);branch.HorizontalAlignment=HorizontalAlignment.Center;root.Children.Add(branch);
+        root.Children.Add(Label("点击系谱节点选择目标、种马或待培养角色",16));
+        var legacy=new StackPanel{Name="CompatLegacyAdapters",IsVisible=false};targetEditor.Content=null;
         foreach(var side in Enumerable.Range(0,2))
         {
             var card=parentCards[side];card.Children.Add(nodeVisuals[side*3]);card.Children.Add(side==0?parentA:parentB);
@@ -127,16 +122,15 @@ public sealed class UmaParentCompatibilityView : UserControl
             for(var j=0;j<2;j++){var visual=nodeVisuals[side*3+j+1];Grid.SetColumn(visual,j);ancestorGrids[side].Children.Add(visual);}card.Children.Add(ancestorGrids[side]);parentGrid.Children.Add(Card(card));
             var editor=new StackPanel{Spacing=8};foreach(var node in nodes.Skip(side*3).Take(3))editor.Children.Add(node);manualGrid.Children.Add(editor);
         }
-        root.Children.Add(parentGrid);root.Children.Add(modeStatus);
-        manualEditor.Content=manualGrid;root.Children.Add(manualEditor);root.Children.Add(ownershipPanel);
-        var actions=new WrapPanel{Orientation=Orientation.Horizontal};var reload=new Button{Name="CompatRestoreLibraryNodes",Content="重新从库带入祖辈",Margin=new Thickness(0,0,8,0)};reload.Click+=(_,_)=>FillFromLibrary();actions.Children.Add(reload);root.Children.Add(actions);root.Children.Add(status);root.Children.Add(result);
+        legacy.Children.Add(parentGrid);manualEditor.Content=manualGrid;legacy.Children.Add(manualEditor);legacy.Children.Add(targetVisual);root.Children.Add(legacy);root.Children.Add(BuildLocalRouteSection());root.Children.Add(ownershipPanel);
+        root.Children.Add(status);root.Children.Add(result);
         var candidateBody=new StackPanel{Spacing=8};candidateBody.Children.Add(Label("父母从同一份库内候选范围中组合，不区分两套候选池。",12));var all=new WrapPanel{Orientation=Orientation.Horizontal};
         foreach(var option in new[]{("全选",true),("清空",false)}){var button=new Button{Content=option.Item1,Margin=new Thickness(0,0,8,0)};button.Click+=(_,_)=>{applying=true;foreach(var row in candidateBoxes)row.Value.IsChecked=option.Item2;candidateExplicit=!option.Item2;candidateIds.Clear();if(option.Item2)foreach(var entry in entries)candidateIds.Add(entry.Id);applying=false;Invalidate();};all.Children.Add(button);}
         candidateBody.Children.Add(all);candidateBody.Children.Add(new ScrollViewer{Content=candidateList,MaxHeight=210});
         root.Children.Add(new Expander{Name="CompatCandidateScope",Header="候选范围（父母共用）",Content=candidateBody,IsExpanded=false});root.Children.Add(suggest);root.Children.Add(suggestions);
         var scroll=new ScrollViewer{Name="CompatFamilyScroll",Content=root,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};Grid.SetRow(scroll,1);frame.Children.Add(scroll);Content=frame;
-        parentA.SelectionChanged+=(_,_)=>{if(!applying){unresolvedParentIds=[];planLibraryId=libraryId;FillFromLibrary();}};parentB.SelectionChanged+=(_,_)=>{if(!applying){unresolvedParentIds=[];planLibraryId=libraryId;FillFromLibrary();}};target.Changed+=()=>{if(target.SelectedId!=null)targetEditor.IsExpanded=false;Invalidate();};
-        foreach(var node in nodes)node.Changed+=()=>{if(applying)return;manual=true;unresolvedParentIds=[];planLibraryId=libraryId;modeStatus.Text="已手动修改家系节点；本次不沿用库记录的已确认因子覆盖。";Invalidate();};
+        parentA.SelectionChanged+=(_,_)=>{if(!applying){unresolvedParentIds=[];planLibraryId=libraryId;FillFromLibrary();}};parentB.SelectionChanged+=(_,_)=>{if(!applying){unresolvedParentIds=[];planLibraryId=libraryId;FillFromLibrary();}};target.Changed+=()=>Invalidate();
+        foreach(var node in nodes)node.Changed+=()=>{if(applying)return;manual=true;unresolvedParentIds=[];planLibraryId=libraryId;modeStatus.Text="已手动修改家系节点；本次不沿用库记录的已确认因子覆盖。";localRouteEditor?.ImportSavedFamily([],nodes.Select(n=>n.SelectedId).ToArray(),true);Invalidate();};
         evaluate.Click+=async(_,_)=>await Evaluate();suggest.Click+=async(_,_)=>await Suggest();SizeChanged+=(_,_)=>Reflow();
         account.SelectionChanged+=(_,_)=>{if(applying)return;RebuildEntries();Invalidate();};
         includeUnassigned.IsCheckedChanged+=(_,_)=>{if(applying)return;RebuildEntries();Invalidate();};
@@ -151,13 +145,10 @@ public sealed class UmaParentCompatibilityView : UserControl
     private static string EntryLabel(JObject row)=>string.Join(" · ",new[]{Text(row["character_name"]),Text(row["variant_name"])}.Where(x=>x.Length>0));
     private Control BuildPlanningToolbar()
     {
-        var body=new StackPanel{Spacing=8};body.Children.Add(Label("账号与家系方案",16));
-        body.Children.Add(Label("先选账号；未关联成品可作为参考，其他账号的成品需明确允许借用。",12));
-        body.Children.Add(account);body.Children.Add(includeUnassigned);body.Children.Add(accountStatus);
-        var refresh=new Button{Name="CompatRefreshPlanning",Content="刷新账号、种马与方案"};refresh.Click+=async(_,_)=>{if(!busy)await LoadCatalog();};body.Children.Add(refresh);
+        var body=new StackPanel{Spacing=7};var accountRow=new Grid{ColumnDefinitions=new("*,Auto"),ColumnSpacing=8};accountRow.Children.Add(account);var refresh=new Button{Name="CompatRefreshPlanning",Content="刷新本地资料"};refresh.Click+=async(_,_)=>{if(!busy)await LoadCatalog();};Grid.SetColumn(refresh,1);accountRow.Children.Add(refresh);body.Children.Add(accountRow);body.Children.Add(accountStatus);
         var planBody=new StackPanel{Spacing=7};planBody.Children.Add(plans);planBody.Children.Add(planName);
         var planActions=new WrapPanel{Orientation=Orientation.Horizontal};foreach(var button in new[]{newPlan,savePlan,loadPlan,deletePlan}){button.Margin=new Thickness(0,0,8,5);planActions.Children.Add(button);}planBody.Children.Add(planActions);planBody.Children.Add(planStatus);
-        body.Children.Add(new Expander{Name="CompatPlanPanel",Header="保存 / 载入家系方案与草稿",Content=planBody,IsExpanded=false});
+        body.Children.Add(new Expander{Name="CompatPlanPanel",Header="保存 / 载入家系方案与草稿",Content=planBody,IsExpanded=false});body.Children.Add(includeUnassigned);
         var bindingBody=new StackPanel{Spacing=7};bindingBody.Children.Add(Label("勾选成品后指定所属账号；也能把它标记为当前规划账号可借。",12));
         bindingBody.Children.Add(new ScrollViewer{Content=bindingList,MaxHeight=190});bindingBody.Children.Add(Label("所选成品属于",12));bindingBody.Children.Add(entryOwner);
         borrowByCurrent.IsThreeState=true;borrowByCurrent.IsChecked=null;borrowByCurrent.Content="当前账号可借（横杠表示保留原设置）";bindingBody.Children.Add(borrowByCurrent);bindingBody.Children.Add(bindEntries);bindingBody.Children.Add(bindingStatus);
@@ -218,7 +209,7 @@ public sealed class UmaParentCompatibilityView : UserControl
                 var previousIds=new[]{(parentA.SelectedItem as EntryChoice)?.Id,(parentB.SelectedItem as EntryChoice)?.Id};
                 if(previousIds.Any(x=>x!=null)){unresolvedParentIds=previousIds;parentA.SelectedItem=parentB.SelectedItem=null;planStatus.Text="种马库已变化，原亲代保留为参考；请重新选择当前库内成品。";}
             }
-            stateRevision=Id(state["revision"])??0;libraryId=nextLibrary;if(activePlanId==null&&unresolvedParentIds.Length==0)planLibraryId=libraryId;
+            stateRevision=Id(state["revision"])??0;libraryRevision=Id(state["library_revision"]);libraryId=nextLibrary;if(activePlanId==null&&unresolvedParentIds.Length==0)planLibraryId=libraryId;
             accounts=(state["accounts"] as JArray??new()).OfType<JObject>().Where(x=>Text(x["id"]).Length>0).Select(x=>new AccountChoice(Text(x["id"]),Text(x["label"]))).ToArray();
             var accountOptions=new[]{new AccountChoice(null,"所有资料（仅参考）")}.Concat(accounts).ToList();if(oldAccount!=null&&accounts.All(x=>x.Id!=oldAccount))accountOptions.Add(new AccountChoice(oldAccount,"原账号已缺失 · "+oldAccount));
             account.ItemsSource=accountOptions;account.SelectedItem=accountOptions.First(x=>x.Id==oldAccount);
@@ -227,7 +218,7 @@ public sealed class UmaParentCompatibilityView : UserControl
             var planOptions=savedPlans.Select(x=>new PlanChoice(Text(x["id"]),Text(x["name"])+(IsDraft(x)?"（草稿）":""),x)).ToArray();plans.ItemsSource=planOptions;plans.SelectedItem=planOptions.FirstOrDefault(x=>x.Id==selectedPlan||x.Id==activePlanId);
             bindingBoxes.Clear();bindingList.Children.Clear();foreach(var entry in allEntries){var check=new CheckBox{Content=entry.Label+" · "+(Text(entry.Row["availability_label"]) is string label&&label.Length>0?label:"未关联"),IsChecked=checkedBindings.Contains(entry.Id)};bindingBoxes[entry.Id]=check;bindingList.Children.Add(check);}
             planningAvailable=planningEverAvailable=true;RebuildEntries(true);
-        }finally{applying=oldApplying;}UpdatePlanningButtons();
+        }finally{applying=oldApplying;}UpdatePlanningButtons();SyncLocalRouteContext();
     }
     private static bool IsDraft(JObject plan)=>Id(plan["target_character_id"])==null||((Text(plan["selection_mode"])=="entries")?((plan["parent_entry_ids"] as JArray)?.Count!=2||(plan["parent_entry_ids"] as JArray??new()).Any(x=>x.Type==JTokenType.Null)):(plan["lineage"] as JArray??new()).Any(x=>x.Type==JTokenType.Null));
     private async Task<bool> MutatePlanning(JObject command,string success)
@@ -263,7 +254,7 @@ public sealed class UmaParentCompatibilityView : UserControl
     private JObject CurrentPlan()
     {
         var goals=GoalFields();var ids=manual?Array.Empty<string?>():unresolvedParentIds.Length==2?unresolvedParentIds:new[]{(parentA.SelectedItem as EntryChoice)?.Id,(parentB.SelectedItem as EntryChoice)?.Id};
-        return new JObject{["id"]=activePlanId==null?JValue.CreateNull():new JValue(activePlanId),["name"]=(planName.Text??"").Trim(),["account_id"]=AccountId==null?JValue.CreateNull():new JValue(AccountId),["library_id"]=planLibraryId==null?JValue.CreateNull():new JValue(planLibraryId),["target_character_id"]=target.SelectedId is int targetId?new JValue(targetId):JValue.CreateNull(),["selection_mode"]=manual?"manual":"entries",["parent_entry_ids"]=new JArray(ids.Select(x=>x==null?JValue.CreateNull():new JValue(x))),["lineage"]=new JArray(nodes.Select(x=>x.SelectedId is int id?(JToken)new JValue(id):JValue.CreateNull())),["targets"]=goals["targets"]!.DeepClone(),["raw_targets"]=goals["raw_targets"]!.DeepClone(),["candidate_entry_ids"]=candidateExplicit?new JArray(candidateIds.OrderBy(x=>x,StringComparer.Ordinal)):JValue.CreateNull(),["include_unassigned"]=includeUnassigned.IsChecked==true};
+        return new JObject{["id"]=activePlanId==null?JValue.CreateNull():new JValue(activePlanId),["name"]=(planName.Text??"").Trim(),["account_id"]=AccountId==null?JValue.CreateNull():new JValue(AccountId),["library_id"]=planLibraryId==null?JValue.CreateNull():new JValue(planLibraryId),["target_character_id"]=target.SelectedId is int targetId?new JValue(targetId):JValue.CreateNull(),["selection_mode"]=manual?"manual":"entries",["parent_entry_ids"]=new JArray(ids.Select(x=>x==null?JValue.CreateNull():new JValue(x))),["lineage"]=new JArray(nodes.Select(x=>x.SelectedId is int id?(JToken)new JValue(id):JValue.CreateNull())),["targets"]=goals["targets"]!.DeepClone(),["raw_targets"]=goals["raw_targets"]!.DeepClone(),["candidate_entry_ids"]=candidateExplicit?new JArray(candidateIds.OrderBy(x=>x,StringComparer.Ordinal)):JValue.CreateNull(),["include_unassigned"]=includeUnassigned.IsChecked==true,["local_route"]=localRouteEditor?.ReadDraft()};
     }
     public async Task SavePlan()
     {
@@ -277,7 +268,7 @@ public sealed class UmaParentCompatibilityView : UserControl
     public void NewPlan()
     {
         if(busy)return;applying=true;try{activePlanId=null;planLibraryId=libraryId;unresolvedParentIds=[];planName.Text="";plans.SelectedItem=null;parentA.SelectedItem=parentB.SelectedItem=null;target.SetId(null);foreach(var node in nodes)node.SetId(null);manual=false;candidateExplicit=false;candidateIds.Clear();RebuildEntries();}finally{applying=false;}
-        Invalidate();planStatus.Text="已新建空白家系，保留当前账号与外侧目标清单；填写后保存即可。";UpdatePlanningButtons();
+        localRouteEditor?.LoadDraft(null);Invalidate();planStatus.Text="已新建空白家系，保留当前账号与外侧目标清单；填写后保存即可。";UpdatePlanningButtons();
     }
     public void LoadPlan()
     {
@@ -304,8 +295,9 @@ public sealed class UmaParentCompatibilityView : UserControl
             }
             if(candidateExplicit&&candidateIds.Any(id=>allEntries.All(x=>x.Id!=id)))warnings.Add("候选范围中部分成品已缺失，未自动补入其他成品。");
             foreach(var warning in (plan["warnings"] as JArray??new()).Select(Text).Where(x=>x.Length>0))if(!warnings.Contains(warning))warnings.Add(warning);
-            restoreGoals?.Invoke(requestedGoals);targetEditor.IsExpanded=target.SelectedId==null;manualEditor.IsExpanded=warnings.Count>0;
+            restoreGoals?.Invoke(requestedGoals);localRouteEditor?.LoadDraft(plan["local_route"] as JObject);targetEditor.IsExpanded=target.SelectedId==null;manualEditor.IsExpanded=warnings.Count>0;
         }finally{applying=false;}
+        if(plan["local_route"] is JObject){localRouteEditor?.RetainSavedLineageHints(nodes.Select(n=>n.SelectedId).ToArray());SyncLegacyFromRoute(true);}else localRouteEditor?.ImportSavedFamily(unresolvedParentIds.Length==2?unresolvedParentIds:new[]{(parentA.SelectedItem as EntryChoice)?.Id,(parentB.SelectedItem as EntryChoice)?.Id},nodes.Select(n=>n.SelectedId).ToArray(),manual);
         Invalidate();modeStatus.Text=manual?"载入手动家系；不声明账号持有，也不沿用成品因子覆盖。":"已载入保存的成品编号与家系快照；计算时重新核对当前种马库。";
         planStatus.Text="已载入“"+choice.Label+"”。"+(warnings.Count>0?string.Join(" ",warnings):"目标、账号和候选范围均已恢复。");UpdatePlanningButtons();
     }
@@ -327,7 +319,7 @@ public sealed class UmaParentCompatibilityView : UserControl
     {
         if(applying)return;revision++;result.Children.Clear();suggestions.Children.Clear();evaluatedGoals=null;suggestedGoals=null;suggestedTarget=null;
         scoreSummary.Text="选择已调整 · 尚未计算基本相性";coverageSummary.Text=manual?"手动家系仅计算基本相性；不沿用成品记录的已确认因子。":"计算后显示目标因子已满足、待补与未确认。";
-        status.Text="选择已调整，点击上方“计算基本相性”查看结果。";RefreshFamily();
+        status.Text="选择已调整，点击上方“计算基本相性”查看结果。";RefreshFamily();SyncLocalRouteContext();
     }
     private void RefreshFamily()
     {
@@ -339,9 +331,10 @@ public sealed class UmaParentCompatibilityView : UserControl
         {
             var index=i;var entry=(i<3?parentA.SelectedItem:parentB.SelectedItem) as EntryChoice;var source=manual?"手动家系 · 未绑定成品因子":entry==null?"尚未选择库内种马":i%3==0?"库内成品 · 记录 "+entry.Id[..Math.Min(8,entry.Id.Length)]:"来自亲代 "+(i<3?"A":"B")+" 的库内记录";
             if(!manual&&i%3==0&&unresolvedParentIds.ElementAtOrDefault(i<3?0:1) is string missing)source="原成品 "+missing+" 当前不可用 · 请重新选择";
-            if(nodes[i].SelectedId==null)source="角色未确认 · 点击补选";
+            source=FamilyAvailability(i,entry,manual)+" · "+source;
+            if(nodes[i].SelectedId==null)source="快照资料未齐 · 角色未确认，点击补选";
             var title=i%3==0?NodeLabels[i]:"祖辈 "+(i<3?"A":"B")+(i%3);
-            nodeVisuals[i].Child=NodeCard(title,nodes[i].Selected,source,()=>{manualEditor.IsExpanded=true;nodes[index].BringIntoView();},false,i%3==0&&!manual?Text(entry?.Row["variant_name"]):"");
+            nodeVisuals[i].Child=FamilyRecordActions(i,NodeCard(title,nodes[i].Selected,source,()=>{manualEditor.IsExpanded=true;nodes[index].BringIntoView();},false,i%3==0&&!manual?Text(entry?.Row["variant_name"]):""));
         }
     }
     private static Control NodeCard(string title,CharacterChoice? choice,string source,Action edit,bool isTarget=false,string variant="")
@@ -382,7 +375,7 @@ public sealed class UmaParentCompatibilityView : UserControl
                 planningAvailable=false;if(!planningEverAvailable){allEntries=catalogEntries;RebuildEntries();}
                 accountStatus.Text=planningEverAvailable?"账号服务暂不可读；当前资料保留供查看，请刷新后再计算或保存。":"账号与存档服务暂不可用；基本家系仍可使用。更新完整组件后可关联账号和保存方案。";UpdatePlanningButtons();
             }
-            loaded=true;status.Text=entries.Length>0?$"已读取 {entries.Length} 匹库内种马。请选择育成目标与亲代。":"种马库暂无成品记录；可先在种马库录入，也可手动补选节点查看基本分。";
+            await localRouteEditor!.LoadCatalog();loaded=true;status.Text=entries.Length>0?$"已读取 {entries.Length} 匹库内种马。请选择育成目标与亲代。":"种马库暂无成品记录；可先在种马库录入，也可手动补选节点查看基本分。";
         }
         catch(InvalidOperationException e){status.Text=e.Message;}catch{status.Text="本地相性资料暂不可读，请检查资料安装后重试。";}finally{applying=false;if(wasLoaded)Invalidate();else RefreshFamily();}
     }
@@ -396,7 +389,7 @@ public sealed class UmaParentCompatibilityView : UserControl
                 var parents=(row?["parents"] as JArray??new()).OfType<JObject>().ToArray();for(var j=0;j<2;j++){var ancestor=parents.ElementAtOrDefault(j);nodes[side*3+j+1].SetId(Id(ancestor?["character_id"]),Text(ancestor?["character_name"]));}
             }
             manual=false;modeStatus.Text="已从当前库记录带入亲代与祖辈；资料未知的节点可手动补选。";
-        }finally{applying=false;}Invalidate();
+        }finally{applying=false;}if(!syncingLocalRoute)localRouteEditor?.ImportSavedFamily(new[]{(parentA.SelectedItem as EntryChoice)?.Id,(parentB.SelectedItem as EntryChoice)?.Id},nodes.Select(n=>n.SelectedId).ToArray(),false);Invalidate();
     }
     private JObject GoalFields(){var goals=planningGoals();return new JObject{["targets"]=(goals["targets"] as JArray??new()).DeepClone(),["raw_targets"]=(goals["raw_targets"] as JArray??new()).DeepClone()};}
     private bool UsesEntries=>!manual&&unresolvedParentIds.Length==0&&parentA.SelectedItem is EntryChoice&&parentB.SelectedItem is EntryChoice;
@@ -408,7 +401,7 @@ public sealed class UmaParentCompatibilityView : UserControl
         else command["lineage"]=new JArray(nodes.Select(x=>x.SelectedId is int id?(JToken)new JValue(id):JValue.CreateNull()));
         if(planningAvailable){command["account_id"]=AccountId==null?JValue.CreateNull():new JValue(AccountId);command["include_unassigned"]=includeUnassigned.IsChecked==true;foreach(var field in goals.Properties())command[field.Name]=field.Value.DeepClone();}
         busy=true;evaluate.IsEnabled=suggest.IsEnabled=false;status.Text="正在计算本地基本相性…";
-        try{var response=await request(command);if(version!=revision||!JToken.DeepEquals(goals,GoalFields()))return;RenderEvaluation(response,automatic);evaluatedGoals=goals;status.Text="已按当前七节点读取基本相性；缺少资料的项目单独列出。";}
+        try{var response=await request(command);if(version!=revision||!JToken.DeepEquals(goals,GoalFields()))return;RenderEvaluation(response,automatic);evaluatedGoals=goals;if(localRouteEditor!=null)await localRouteEditor.Evaluate();status.Text="已按当前七节点读取基本相性；缺少资料的项目单独列出。";}
         catch(InvalidOperationException e){status.Text=e.Message;}catch{status.Text="基本相性暂未计算成功，请检查所选角色与资料。";}finally{busy=false;evaluate.IsEnabled=suggest.IsEnabled=true;}
     }
     private static string Score(JObject value)=>Id(value["total"]) is int total?$"基本相性 {total} · {Text(value["grade"])}":$"已知基本分 {Id(value["known_subtotal"])??0} · 资料未齐，总分未确认";
@@ -419,6 +412,7 @@ public sealed class UmaParentCompatibilityView : UserControl
         result.Children.Clear();scoreSummary.Text=Score(value);var coverage=fromEntries?value["factor_coverage"] as JObject:null;
         coverageSummary.Text=!fromEntries?"手动家系：本次未统计已确认因子覆盖。":coverage==null?"本次未附目标覆盖资料。":$"目标因子：已满足 {(coverage["matched"] as JArray)?.Count??0} 项  ·  待补 {(coverage["missing"] as JArray)?.Count??0} 项  ·  未确认 {(coverage["unknown"] as JArray)?.Count??0} 项";
         var body=new StackPanel{Spacing=7};body.Children.Add(Label(Score(value),18));
+        if(Text(value["resource_status"])=="requires_owned_material")body.Children.Add(Label("需先准备一匹自有亲代",14));foreach(var issue in (value["resource_issues"] as JArray??new()).Select(Text).Where(x=>x.Length>0))body.Children.Add(Label(issue,12));
         foreach(var issue in (value["selection_issues"] as JArray??new()).Select(Text).Where(x=>x.Length>0))body.Children.Add(Label("游戏选择提示："+issue,12));
         var breakdown=new StackPanel{Spacing=5};foreach(var row in (value["detail"] as JArray??new()).OfType<JObject>()){var score=Id(row["score"]);breakdown.Children.Add(Label(Text(row["label"])+"："+(score is int n?n.ToString():"资料不足")));}
         body.Children.Add(new Expander{Name="CompatScoreBreakdown",Header="查看基本分构成",Content=breakdown,IsExpanded=false});
@@ -445,8 +439,9 @@ public sealed class UmaParentCompatibilityView : UserControl
             var response=await request(command);if(version!=revision||!JToken.DeepEquals(goals,GoalFields()))return;suggestedGoals=goals;suggestedTarget=targetId;suggestions.Children.Clear();suggestions.Children.Add(Label(planningAvailable?"账号范围内的联合组合参考":"库内组合参考（账号归属未确认）",18));
             var ranking=Text(response["ranking_description"]);if(ranking.Length>0)suggestions.Children.Add(Label(ranking,12));
             var resourceMessage=Text(response["resource_filter_message"]);if(resourceMessage.Length>0)suggestions.Children.Add(Label(resourceMessage,12));
+            if(Text(response["resource_status"])=="requires_owned_material")suggestions.Children.Add(Label("需先准备一匹自有亲代",14));foreach(var issue in (response["resource_issues"] as JArray??new()).Select(Text).Where(x=>x.Length>0))suggestions.Children.Add(Label(issue,12));
             var rows=(response["suggestions"] as JArray??new()).OfType<JObject>().ToArray();if(rows.Length==0)suggestions.Children.Add(Label("当前范围没有可比较的父母组合，可补充种马库记录或调整候选。"));
-            foreach(var row in rows){var ids=(row["parent_entry_ids"] as JArray??new()).Values<string>().OfType<string>().ToArray();if(ids.Length!=2)continue;var body=new StackPanel{Spacing=6};body.Children.Add(Label(string.Join(" ＋ ",ids.Select(id=>entries.FirstOrDefault(x=>x.Id==id)?.Label??"库内记录")),15));body.Children.Add(Label(Score(row)));body.Children.Add(Coverage(row["factor_coverage"] as JObject,true));var use=new Button{Name="CompatUseSuggestion",Content="选用这组父母"};use.Click+=(_,_)=>UseSuggestion(row,ids);body.Children.Add(use);suggestions.Children.Add(Card(body));}
+            foreach(var row in rows){var ids=(row["parent_entry_ids"] as JArray??new()).Values<string>().OfType<string>().ToArray();if(ids.Length!=2)continue;var body=new StackPanel{Spacing=6};body.Children.Add(Label(string.Join(" ＋ ",ids.Select(id=>entries.FirstOrDefault(x=>x.Id==id)?.Label??"库内记录")),15));body.Children.Add(Label(Score(row)));if(Text(row["resource_status"])=="requires_owned_material")body.Children.Add(Label("需先准备一匹自有亲代",14));foreach(var issue in (row["resource_issues"] as JArray??new()).Select(Text).Where(x=>x.Length>0))body.Children.Add(Label(issue,12));body.Children.Add(Coverage(row["factor_coverage"] as JObject,true));var use=new Button{Name="CompatUseSuggestion",Content="选用这组父母"};use.Click+=(_,_)=>UseSuggestion(row,ids);body.Children.Add(use);suggestions.Children.Add(Card(body));}
             foreach(var note in (response["limitations"] as JArray??new()).Select(Text).Where(x=>x.Length>0))suggestions.Children.Add(Label(note,11));status.Text=$"已比较 {Text(response["pair_count"])} 组，仅限所选库内成品候选。";
         }
         catch(InvalidOperationException e){status.Text=e.Message;}catch{status.Text="库内组合暂未读取成功，请检查资料后重试。";}finally{busy=false;suggest.IsEnabled=evaluate.IsEnabled=true;}

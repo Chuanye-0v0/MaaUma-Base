@@ -1,6 +1,6 @@
 {
   "schema_version": "maauma.external_resources.v1",
-  "version": "0.4.29",
+  "version": "0.4.30",
   "files": [
     "backend/core/account_inventory/assets/title_logo.png",
     "backend/core/autonomous_training/assets/100401_outfit_title.png",
@@ -187,10 +187,13 @@
     "backend/core/support_library/assets/initial_yellow_hat_materials_selected.png",
     "backend/core/support_library/assets/initial_yellow_hat_upgrade_selected.png",
     "backend/data/harvest/catalog.json",
+    "backend/data/parent_library/aptitude_catalog.json",
     "backend/data/parent_library/compatibility_relations.json",
     "backend/data/parent_library/factor_catalog.json",
     "backend/data/parent_library/planner_catalog.json",
+    "backend/data/parent_library/race_catalog.json",
     "backend/data/parent_library/skill_sources.json",
+    "backend/data/parent_library/team_guide_sources.json",
     "backend/data/race_calendar/cn_standard_v1.json",
     "backend/data/skill_database.json",
     "backend/data/skills/cn-20260916/cn_skill_master.json",

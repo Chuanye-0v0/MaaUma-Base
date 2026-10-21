@@ -90,12 +90,15 @@ public static class UmaPublicRuntime
         foreach (var argument in new[] {"-B", "-X", "utf8", "-m", module}) info.ArgumentList.Add(argument);
         var temporary = Path.Combine(AppContext.BaseDirectory, "temp"); Directory.CreateDirectory(temporary);
         info.Environment["TEMP"]=temporary; info.Environment["TMP"]=temporary;
+        if (((string?)request["action"])?.StartsWith("parent_planning_ai_", StringComparison.Ordinal) == true)
+            info.Environment["MAAUMA_PARENT_AI_HOME"] = Path.Combine(AppContext.BaseDirectory, "pacer");
         using var process = Process.Start(info) ?? throw new IOException("未能启动本地方案编辑接口。");
         var output = process.StandardOutput.ReadToEndAsync();
         var errors = process.StandardError.ReadToEndAsync();
         await process.StandardInput.WriteAsync(request.ToString(Formatting.None));
         process.StandardInput.Close();
-        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
+        var requestTimeout = (string?)request["action"] is "parent_planning_ai_team_propose" or "parent_planning_ai_team_member_seed" ? 90 : 30;
+        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(requestTimeout));
         var response = await output;
         var diagnostic = await errors;
         if (process.ExitCode != 0) {

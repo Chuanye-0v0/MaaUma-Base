@@ -56,7 +56,7 @@ public sealed class UmaParentPlannerView : UserControl
         this.Bind(TextElement.ForegroundProperty,new DynamicResourceExtension("SukiText"));
         var root=new Grid { RowDefinitions=new("Auto,*"),Margin=new Thickness(16),RowSpacing=7 };
         var heading=new StackPanel { Spacing=3 };heading.Children.Add(Label("种马规划",22));
-        heading.Children.Add(Label("本地查看种马素材、基本相性与技能来源；组合参考仅比较库内成品，不代表继承概率。",12));root.Children.Add(heading);
+        heading.Children.Add(Label("从比赛需求组建团队，再为每名成员匹配种马；也可独立查询素材、相性与技能。",12));root.Children.Add(heading);
         var toolbar=new StackPanel { Spacing=5 };var siteButtons=new WrapPanel { Orientation=Orientation.Horizontal };
         foreach(var site in Sites) { var button=new Button { Content=site.Label,Margin=new Thickness(0,0,6,3) };button.Click+=(_,_)=>OpenSite(site.Key,site.Url);siteButtons.Children.Add(button); }
         var external=new Button { Content="作者原站 ↗",Margin=new Thickness(0,0,6,3) };external.Click+=(_,_)=> { if(selectedUrl.Length>0)Process.Start(new ProcessStartInfo(selectedUrl){UseShellExecute=true}); };siteButtons.Children.Add(external);
@@ -72,6 +72,7 @@ public sealed class UmaParentPlannerView : UserControl
         var resultScroll=new ScrollViewer { Name="ParentPlannerResultScroll",Content=results,Margin=new Thickness(0,8,0,0),HorizontalScrollBarVisibility=Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };Grid.SetRow(resultScroll,1);localPane.Children.Add(resultScroll);
         var footer=Label("素材信息只在本机读取。星数未知会单独标记，不算作没有。",11);footer.Margin=new Thickness(0,5,0,0);Grid.SetRow(footer,2);localPane.Children.Add(footer);
         plannerTabs.ItemsSource=new[] {
+            new TabItem {Header="比赛与团队",Content=new TeamPlanningView(request)},
             new TabItem {Header="种马素材",Content=localPane},
             new TabItem {Header="配种与相性",Content=new UmaParentCompatibilityView(request,CurrentPlanningGoals,RestorePlanningGoals)},
             new TabItem {Header="技能查询",Content=new UmaSkillReferenceView(request,AddMappedSkillTarget)},
@@ -102,7 +103,7 @@ public sealed class UmaParentPlannerView : UserControl
     private bool AddMappedSkillTarget(string targetId)
     {
         var match=catalog.SingleOrDefault(row=>Text(row,"target_id")==targetId);
-        plannerTabs.SelectedIndex=0;
+        plannerTabs.SelectedIndex=1;
         if(match==null){status.Text="该技能暂未对应本地规划目录，请先核对目录或手动选择目标。";return false;}
         AddTarget(match);status.Text="已加入目标清单；可继续设置最低星数和优先级。";return true;
     }

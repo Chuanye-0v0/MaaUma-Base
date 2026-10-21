@@ -8,47 +8,37 @@ import json
 import os
 import re
 import uuid
-
 from core.parent_library import store_path as library_store_path
-
-
+from core.parent_local_route import normalize_local_route
 SCHEMA = 'uma.parent_planning_state.v1'
 _STATE_FIELDS = {'schema_version', 'revision', 'accounts', 'bindings', 'plans'}
 _ACCOUNT_FIELDS = {'id', 'label', 'account_number'}
 _BINDING_FIELDS = {'library_id', 'entry_id', 'owner_account_id', 'borrowable_by'}
-_PLAN_FIELDS = {'id', 'name', 'account_id', 'library_id', 'target_character_id',
-    'selection_mode', 'parent_entry_ids', 'lineage', 'targets', 'raw_targets',
-    'candidate_entry_ids', 'include_unassigned'}
-
+_PLAN_FIELDS = {'id', 'name', 'account_id', 'library_id', 'target_character_id', 'selection_mode', 'parent_entry_ids', 'lineage', 'targets', 'raw_targets', 'candidate_entry_ids', 'include_unassigned', 'local_route'}
 
 class PlanningConflict(ValueError):
     """The caller must refresh rather than overwrite another panel's changes."""
-
 
 def _fields(value, allowed, label):
     if not isinstance(value, dict) or set(value) - allowed:
         raise ValueError(label + '字段不正确。')
 
-
 def _id(value, *, nullable=False):
     if value is None and nullable:
         return None
-    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,96}', value):
+    if not isinstance(value, str) or not re.fullmatch('[A-Za-z0-9_-]{1,96}', value):
         raise ValueError('规划资料编号无效。')
     return value
 
-
 def _text(value, *, blank=False):
-    if not isinstance(value, str) or len(value) > 240 or not blank and not value.strip():
+    if not isinstance(value, str) or len(value) > 240 or (not blank and (not value.strip())):
         raise ValueError('规划名称或文字字段无效。')
     return value.strip()
-
 
 def _ids(value):
     if not isinstance(value, list):
         raise ValueError('规划资料编号应为列表。')
-    return list(dict.fromkeys(_id(item) for item in value))
-
+    return list(dict.fromkeys((_id(item) for item in value)))
 
 def _character(value):
     if value is None:
@@ -56,7 +46,6 @@ def _character(value):
     if type(value) is not int or value < 1:
         raise ValueError('角色编号应为正整数，未知角色可留空。')
     return value
-
 
 def _account(value):
     _fields(value, _ACCOUNT_FIELDS, '规划账号')
@@ -68,23 +57,19 @@ def _account(value):
         result['account_number'] = number
     return result
 
-
 def _account_reference(value, accounts):
     identifier = _id(value, nullable=True)
     if identifier is not None and identifier not in accounts:
         raise ValueError('关联账号已不存在，请刷新账号清单后重试。')
     return identifier
 
-
 def _binding(value, accounts):
     _fields(value, _BINDING_FIELDS, '成品账号关联')
     owner = _account_reference(value.get('owner_account_id'), accounts)
     borrowed = _ids(value.get('borrowable_by', []))
-    if any(identifier not in accounts for identifier in borrowed):
+    if any((identifier not in accounts for identifier in borrowed)):
         raise ValueError('可借账号已不存在，请刷新账号清单后重试。')
-    return {'library_id': _id(value.get('library_id')), 'entry_id': _id(value.get('entry_id')),
-            'owner_account_id': owner, 'borrowable_by': borrowed}
-
+    return {'library_id': _id(value.get('library_id')), 'entry_id': _id(value.get('entry_id')), 'owner_account_id': owner, 'borrowable_by': borrowed}
 
 def _goals(value, *, raw=False):
     if not isinstance(value, list):
@@ -102,14 +87,13 @@ def _goals(value, *, raw=False):
         result.append(normalized)
     return result
 
-
 def _plan(value, accounts):
     _fields(value, _PLAN_FIELDS, '种马规划方案')
     parents = value.get('parent_entry_ids', [])
     if not isinstance(parents, list) or len(parents) not in (0, 2):
         raise ValueError('亲代草稿应为空列表或两个成品槽位，未选择的槽位可留空。')
     parents = [_id(identifier, nullable=True) for identifier in parents]
-    if len(parents) == 2 and parents[0] is not None and parents[0] == parents[1]:
+    if len(parents) == 2 and parents[0] is not None and (parents[0] == parents[1]):
         raise ValueError('两个亲代不能选择同一条成品记录。')
     lineage = value.get('lineage', [None] * 6)
     if not isinstance(lineage, list) or len(lineage) != 6:
@@ -125,28 +109,17 @@ def _plan(value, accounts):
     if len(targets) + len(raw_targets) > 200:
         raise ValueError('每份方案最多保存 200 个目标。')
     candidate_ids = value.get('candidate_entry_ids')
-    return {'id': _id(value.get('id')),
-        'name': _text(value.get('name', ''), blank=True) or '未命名方案',
-        'account_id': _account_reference(value.get('account_id'), accounts),
-        'library_id': _id(value.get('library_id'), nullable=True),
-        'target_character_id': _character(value.get('target_character_id')),
-        'selection_mode': selection_mode, 'parent_entry_ids': parents,
-        'lineage': [_character(item) for item in lineage],
-        'targets': targets, 'raw_targets': raw_targets,
-        'candidate_entry_ids': None if candidate_ids is None else _ids(candidate_ids),
-        'include_unassigned': include}
-
+    return {'id': _id(value.get('id')), 'name': _text(value.get('name', ''), blank=True) or '未命名方案', 'account_id': _account_reference(value.get('account_id'), accounts), 'library_id': _id(value.get('library_id'), nullable=True), 'target_character_id': _character(value.get('target_character_id')), 'selection_mode': selection_mode, 'parent_entry_ids': parents, 'lineage': [_character(item) for item in lineage], 'targets': targets, 'raw_targets': raw_targets, 'candidate_entry_ids': None if candidate_ids is None else _ids(candidate_ids), 'include_unassigned': include, **({'local_route': normalize_local_route(value['local_route'])} if 'local_route' in value else {})}
 
 def new_state():
     return {'schema_version': SCHEMA, 'revision': 0, 'accounts': [], 'bindings': [], 'plans': []}
-
 
 def normalize_state(value):
     _fields(value, _STATE_FIELDS, '种马规划资料')
     revision = value.get('revision', 0)
     if value.get('schema_version') != SCHEMA or type(revision) is not int or revision < 0:
         raise ValueError('种马规划资料版本无效。')
-    if any(not isinstance(value.get(field, []), list) for field in ('accounts', 'bindings', 'plans')):
+    if any((not isinstance(value.get(field, []), list) for field in ('accounts', 'bindings', 'plans'))):
         raise ValueError('种马规划资料列表无效。')
     accounts = [_account(row) for row in value.get('accounts', [])]
     account_ids = {row['id'] for row in accounts}
@@ -158,13 +131,10 @@ def normalize_state(value):
     plans = [_plan(row, account_ids) for row in value.get('plans', [])]
     if len({row['id'] for row in plans}) != len(plans):
         raise ValueError('规划方案编号重复。')
-    return {'schema_version': SCHEMA, 'revision': revision, 'accounts': accounts,
-            'bindings': bindings, 'plans': plans}
-
+    return {'schema_version': SCHEMA, 'revision': revision, 'accounts': accounts, 'bindings': bindings, 'plans': plans}
 
 def state_path(root=None):
     return library_store_path(root).with_name('planning.json')
-
 
 def load_state(root=None):
     path = state_path(root)
@@ -176,7 +146,6 @@ def load_state(root=None):
         raise ValueError('本地种马规划资料格式损坏，请保留原文件后检查。') from None
     return normalize_state(value)
 
-
 def save_state(value, root=None, *, expected_revision):
     result = normalize_state(value)
     if type(expected_revision) is not int or expected_revision < 0:
@@ -185,7 +154,7 @@ def save_state(value, root=None, *, expected_revision):
     path.parent.mkdir(parents=True, exist_ok=True)
     lock = path.with_suffix('.lock')
     try:
-        descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 384)
     except FileExistsError:
         raise PlanningConflict('种马规划正在另一面板保存，请稍后刷新。') from None
     temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
@@ -203,7 +172,6 @@ def save_state(value, root=None, *, expected_revision):
             temporary.unlink()
         lock.unlink()
 
-
 def upsert_account(state, account):
     result = normalize_state(state)
     _fields(account, _ACCOUNT_FIELDS, '规划账号')
@@ -219,7 +187,6 @@ def upsert_account(state, account):
         result['accounts'][index] = value
     return result
 
-
 def bind_entries(state, library_id, entry_ids, *, owner_account_id=None, borrowable_by=()):
     result = normalize_state(state)
     library_id = _id(library_id)
@@ -230,16 +197,13 @@ def bind_entries(state, library_id, entry_ids, *, owner_account_id=None, borrowa
         raise ValueError('可借账号应为列表。')
     account_ids = {row['id'] for row in result['accounts']}
     for identifier in identifiers:
-        value = _binding({'library_id': library_id, 'entry_id': identifier,
-            'owner_account_id': owner_account_id, 'borrowable_by': list(borrowable_by)}, account_ids)
-        index = next((i for i, row in enumerate(result['bindings'])
-            if row['library_id'] == library_id and row['entry_id'] == identifier), None)
+        value = _binding({'library_id': library_id, 'entry_id': identifier, 'owner_account_id': owner_account_id, 'borrowable_by': list(borrowable_by)}, account_ids)
+        index = next((i for i, row in enumerate(result['bindings']) if row['library_id'] == library_id and row['entry_id'] == identifier), None)
         if index is None:
             result['bindings'].append(value)
         else:
             result['bindings'][index] = value
     return result
-
 
 def upsert_plan(state, plan):
     result = normalize_state(state)
@@ -256,20 +220,17 @@ def upsert_plan(state, plan):
         result['plans'][index] = value
     return result
 
-
 def delete_plan(state, plan_id):
     result = normalize_state(state)
     identifier = _id(plan_id)
-    if not any(row['id'] == identifier for row in result['plans']):
+    if not any((row['id'] == identifier for row in result['plans'])):
         raise ValueError('该方案已不存在，请刷新方案清单。')
     result['plans'] = [row for row in result['plans'] if row['id'] != identifier]
     return result
 
-
 def project_entries(state, library_id, entries, *, account_id=None, include_unassigned=False):
     state = normalize_state(state)
     library_id = _id(library_id, nullable=True)
-    # Virtual daily-account rows need not be persisted just to view materials.
     account_id = _id(account_id, nullable=True)
     if type(include_unassigned) is not bool or not isinstance(entries, list):
         raise ValueError('账号资料范围或成品列表无效。')
@@ -284,27 +245,23 @@ def project_entries(state, library_id, entries, *, account_id=None, include_unas
         owner = binding.get('owner_account_id')
         borrowed = list(binding.get('borrowable_by', []))
         if account_id is None:
-            availability, eligible, available, reference = 'reference', True, False, True
+            availability, eligible, available, reference = ('reference', True, False, True)
             label = '未关联 · 仅作参考' if owner is None else accounts.get(owner, owner) + ' 的成品 · 全部资料参考'
         elif owner == account_id:
-            availability, eligible, available, reference = 'owned', True, True, False
+            availability, eligible, available, reference = ('owned', True, True, False)
             label = '本账号自有'
         elif account_id in borrowed:
-            availability, eligible, available, reference = 'borrowed', True, True, False
+            availability, eligible, available, reference = ('borrowed', True, True, False)
             label = '已明确可借'
         elif owner is None:
             availability = 'unassigned_reference' if include_unassigned else 'unassigned'
-            eligible, available, reference = include_unassigned, False, True
+            eligible, available, reference = (include_unassigned, False, True)
             label = '未关联 · 纳入参考（不代表已拥有）' if include_unassigned else '未关联 · 当前未纳入'
         else:
-            availability, eligible, available, reference = 'other_account', False, False, True
+            availability, eligible, available, reference = ('other_account', False, False, True)
             label = '其他账号所有 · 未开放借用'
-        result.append({**deepcopy(entry), 'owner_account_id': owner, 'borrowable_by': borrowed,
-            'availability': availability, 'availability_label': label, 'eligible': eligible,
-            'available': available, 'reference_only': reference})
+        result.append({**deepcopy(entry), 'owner_account_id': owner, 'borrowable_by': borrowed, 'availability': availability, 'availability_label': label, 'eligible': eligible, 'available': available, 'reference_only': reference})
     return result
 
-
 def eligible_entry_ids(state, library_id, entries, *, account_id=None, include_unassigned=False):
-    return [row['entry_id'] for row in project_entries(state, library_id, entries,
-        account_id=account_id, include_unassigned=include_unassigned) if row['eligible']]
+    return [row['entry_id'] for row in project_entries(state, library_id, entries, account_id=account_id, include_unassigned=include_unassigned) if row['eligible']]
