@@ -1,6 +1,6 @@
 {
   "edition": "standard",
-  "version": "0.4.28",
+  "version": "0.4.29",
   "base": "E:\\uma\\.worktrees\\account-cycle-card-desktop-e\\integrations\\maauma-0426-next\\gui\\standard",
   "project": "E:\\uma\\.worktrees\\account-cycle-card-desktop-e\\integrations\\maauma-stop-recovery-0427-next\\gui\\standard\\MFAAvalonia\\MFAAvalonia.csproj",
   "activation_shared": true,
@@ -14,6 +14,6 @@
   "download_source_selection": true,
   "event_boost_interface_option": true,
   "stop_screenshot_repair": false,
-  "formal_stage_source": "E:\\uma\\.worktrees\\account-cycle-card-desktop-e\\integrations\\maauma-stop-recovery-0427-next\\gui\\standard",
+  "formal_stage_source": "E:\\uma\\.worktrees\\account-cycle-card-desktop-e\\integrations\\maauma-0428-versioned-integration\\gui\\standard",
   "personal_binary_reused": false
 }
