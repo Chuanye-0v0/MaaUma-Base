@@ -17,12 +17,13 @@ namespace MFAAvalonia.Helper;
 /// <summary>Local release notes. Reading or dismissing them never invokes a task or service.</summary>
 public static class MaaUmaUpdateAnnouncement
 {
-    public const string CurrentVersion = "0.4.31";
+    public const string CurrentVersion = "0.4.32";
     private const bool EnhancedBuild = false;
     private static readonly string[] CurrentNotes = {
-        "种马规划需求改为选项：固定国服，可选赛场、距离、顺逆时针和大赛／LOH，默认每队3匹。",
-        "跑法人数可交给方案自动安排；资料未填齐或只有攻略链接时也能先检索。",
-        "攻略读取支持压缩网页，并补充TapTap来源入口。"
+        "修复技能列表稳定画面被误判为重复操作；只读检查不再占用购买动作标记。",
+        "日常比赛完成后不再要求未勾选领奖项目的红点读数。",
+        "修复国服角色译名匹配，并移除一项错误角色别名。",
+        "账号之间的无关库存修改不再使当前账号的AI规划结果失效。"
     };
     private const string SeenFile = "maauma-update-announcements.json";
     private static readonly Dictionary<string, Window> OpenWindows = new(StringComparer.OrdinalIgnoreCase);

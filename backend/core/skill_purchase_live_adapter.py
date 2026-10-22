@@ -69,7 +69,7 @@ class SkillPurchaseLiveCaptureSession:
         if not path.is_file():
             raise ValueError(f'image_path is not a file: {path}')
         frame_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
-        if frame_sha256 in self._seen_sha256:
+        if not navigation_only and frame_sha256 in self._seen_sha256:
             raise ValueError('frame SHA already seen')
         image = read_image(str(path))
         if image is None:
@@ -84,7 +84,7 @@ class SkillPurchaseLiveCaptureSession:
             groups = np.split(thumb_rows, np.where(np.diff(thumb_rows) > 1)[0] + 1) if len(thumb_rows) else []
             groups = [group for group in groups if len(group) >= 20]
             self._sequence += 1
-            self._seen_sha256.add(frame_sha256)
+            # A read-only navigation sample has not authorized an action.
             return dict(fresh=True, frame_sha256=frame_sha256, page_kind='skill_acquisition' if evidence.get('accepted') else 'unknown', screen_kind='skill_acquisition' if evidence.get('accepted') else 'unknown', currency_scope='skill_points_only', dangerous_resource_flags=[], current_skill_points=evidence.get('current_skill_points'), list_at_top=bool(groups[0][0] <= 10) if len(groups) == 1 else None, list_at_bottom=bool(groups[0][-1] >= len(scrollbar) - 18) if len(groups) == 1 else None, rows=[], selected_item_ids=[], parser_manifest={'content_signature_sha256': hashlib.sha256(image[468:1029, 30:704].tobytes()).hexdigest()})
         reviewed_rows = _required_mapping(self.review, 'reviewed_rows')
         scoped_reviewed_rows = _scope_reviewed_rows(reviewed_rows, active_item_ids=active_item_ids)

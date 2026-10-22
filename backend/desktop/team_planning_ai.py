@@ -80,12 +80,23 @@ def _inventory(root, account, loader):
 def _revisions(library, exists, state, inventory, account):
     return {'library_id': library['library_id'] if exists else None, 'library_revision': library['revision'], 'planning_revision': state['revision'], 'inventory_revision': inventory['revision'], 'account_id': account}
 
+def _same_context(expected, current):
+    # New plans bind the selected account's effective resources, including any
+    # explicit snapshot. Other accounts may advance the shared inventory CAS.
+    # Legacy plans lack this evidence and keep their strict revision fallback.
+    ignored = {'inventory_revision'} if 'inventory_token' in expected else {'inventory_token'}
+    return {k: v for k, v in expected.items() if k not in ignored} == {k: v for k, v in current.items() if k not in ignored}
+
 def _check_current(root, account, expected, token, loader):
     library, exists = _load_library(root)
     state = planning.load_state(root)
     inventory, _, current_token = _inventory(root, account, loader)
-    if _revisions(library, exists, state, inventory, account) != expected or token != current_token:
+    current = _revisions(library, exists, state, inventory, account)
+    current['inventory_token'] = current_token
+    expected = dict(expected, inventory_token=token)
+    if not _same_context(expected, current):
         raise AIPlanningError('team_planning_stale_context', '请求期间种马、账号关联或持有资料已变化，请刷新后重试。')
+    return current
 
 def _catalog(roster_path, relations_path, planner_catalog_path, skill_master_path, skill_sources_path, support_catalog_path, aptitude_catalog_path=None):
     compatibility = CompatibilityCatalog.load(relations_path or ROOT / 'data/parent_library/compatibility_relations.json')
@@ -174,12 +185,13 @@ def dispatch_team(request, *, root=None, account_book_path=None, relations_path=
         req, evidence = _research(root, research_id, team['requirements'] if team else request.get('requirements'), team['selected_source_ids'] if team else request.get('selected_source_ids', []), research_loader)
         library, exists = _load_library(root)
         revisions = _revisions(library, exists, state, inventory, account)
+        revisions['inventory_token'] = token
         if request.get('library_id') not in (None, revisions['library_id']):
             raise ValueError('所选种马库已变化，请刷新。')
         for field, key in (('expected_library_revision', 'library_revision'), ('expected_inventory_revision', 'inventory_revision'), ('expected_planning_revision', 'planning_revision')):
             if field in request and (type(request[field]) is not int or request[field] != revisions[key]):
                 raise AIPlanningError('team_planning_stale_context', '资料版本已变化，请刷新后再规划。')
-        if team and team['context_revisions'] != revisions:
+        if team and not _same_context(team['context_revisions'], revisions):
             raise AIPlanningError('team_planning_stale_context', '团队方案采用的种马或持有资料版本已变化，请重新核对团队。')
         profile, home = (pedigree._profile(profile_module), pedigree._home(profile_root))
         provider = pedigree._provider(profile, home, check_credentials=False)
@@ -191,7 +203,7 @@ def dispatch_team(request, *, root=None, account_book_path=None, relations_path=
         if team is None:
             transport = transport_factory(profile, home) if transport_factory else pedigree.OpenAIPlanningTransport(profile, home, system_prompt=TEAM_SYSTEM_PROMPT, max_tokens=6000, max_timeout_seconds=TIMEOUT_SECONDS)
             reply = transport.propose(bundle['payload'], timeout_seconds=TIMEOUT_SECONDS)
-            _check_current(root, account, revisions, token, inventory_loader)
+            revisions = _check_current(root, account, revisions, token, inventory_loader)
             team = validate_team_reply(reply, bundle, research_id=research_id, context_revisions=revisions)
             return _success({'team_plan': team, 'member_routes': {}, 'missing_data': list(dict.fromkeys((text for member in team['members'] for text in member['missing_data']))), 'warnings': ['这是单套团队参考方案，不表示已拥有角色或可执行完整卡组。'], 'provider': {'model': provider['model'], 'status': 'success', 'elapsed_ms': round((time.monotonic() - started) * 1000)}, 'data_scope': DATA_SCOPE})
         proposal = {'team_plan': {'title': team['title'], 'summary': team['summary'], 'members': []}}
@@ -217,7 +229,7 @@ def dispatch_team(request, *, root=None, account_book_path=None, relations_path=
         factory = seed_transport_factory or transport_factory
         transport = factory(profile, home) if factory else pedigree.OpenAIPlanningTransport(profile, home, system_prompt=pedigree.SYSTEM_PROMPT + '还要依据confirmed_team_member中的多适性与技能继承路线给出草稿，所有已知缺口由本地重新核验。', max_tokens=6000, max_timeout_seconds=TIMEOUT_SECONDS)
         reply = transport.propose(seed_bundle['payload'], timeout_seconds=TIMEOUT_SECONDS)
-        _check_current(root, account, revisions, token, inventory_loader)
+        revisions = _check_current(root, account, revisions, token, inventory_loader)
         evaluate = lambda candidate: evaluate_local_route(library, projected, member['character_id'], candidate, race_catalog=races, aptitude_catalog=aptitudes, characters=list(catalog.characters.values()))
         result = validate_suggestions(reply, seed_bundle, evaluate)
         for candidate in result['candidates']:

@@ -299,6 +299,10 @@ class _LiveBatchAdapter:
         self._geometry_alignment_item_ids.add(geometry_evidence[0])
         return self._align_geometry_and_capture(active_item_ids, geometry_evidence)
 
+    def recapture_page(self, active_item_ids: tuple[str, ...]) -> dict[str, Any]:
+        # Settling reads must not invoke geometry alignment or navigation.
+        return self._capture_page_once(active_item_ids)
+
     def _capture_page_once(self, active_item_ids: tuple[str, ...]) -> dict[str, Any]:
         self.capture_index += 1
         path = self.screenshot_dir / f'batch_{self.capture_index:03d}.png'

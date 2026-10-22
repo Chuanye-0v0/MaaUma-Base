@@ -48,8 +48,11 @@ def normalize_team_plan(value):
         _fail('团队方案说明格式无效。')
     selected = _sources(value['selected_source_ids'])
     revisions = value['context_revisions']
-    if not isinstance(revisions, dict) or set(revisions) != {'account_id', 'library_id', 'library_revision', 'planning_revision', 'inventory_revision'}:
+    revision_fields = {'account_id', 'library_id', 'library_revision', 'planning_revision', 'inventory_revision'}
+    if not isinstance(revisions, dict) or not revision_fields <= set(revisions) or set(revisions) - revision_fields - {'inventory_token'}:
         _fail('团队方案版本绑定无效。')
+    if 'inventory_token' in revisions and (not isinstance(revisions['inventory_token'], str) or not re.fullmatch('[a-f0-9]{64}', revisions['inventory_token'])):
+        _fail('团队方案持有资料绑定无效。')
     if any((type(revisions[k]) is not int or revisions[k] < 0 for k in ('library_revision', 'planning_revision', 'inventory_revision'))):
         _fail('团队方案版本绑定无效。')
     if any((revisions[k] is not None and (not isinstance(revisions[k], str) or not re.fullmatch('[A-Za-z0-9_-]{1,96}', revisions[k])) for k in ('account_id', 'library_id'))):

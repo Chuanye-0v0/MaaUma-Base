@@ -6,6 +6,7 @@ from typing import Any, Mapping
 import cv2
 import numpy as np
 from core.perception import Perception
+from core.name_match import name_similarity
 from core.skill_acquisition_parser import _normalize_ocr_text, _ocr_data, _prepare_text_variants, _rapidocr_ocr_data, resolve_tesseract_runtime
 from core.skill_purchase_executor import DialogVerification
 _FORBIDDEN_RESOURCE_TERMS = ('萝卜', '付费', '充值', '购买体力', '恢复体力', '闹钟', '复活')
@@ -365,7 +366,7 @@ class CurrentRunSkillDialogVerifier:
         if not isinstance(purchase, Mapping):
             return DialogVerification(False, 'skill_dialog_plan_invalid')
         expected_name = purchase.get('must_satisfy_ocr', {}).get('observed_name')
-        if dialog_state.get('confirmed_item_ids') != [purchase.get('item_id')] or dialog_state.get('observed_name') != expected_name:
+        if dialog_state.get('confirmed_item_ids') != [purchase.get('item_id')] or name_similarity(dialog_state.get('observed_name'), expected_name) < 0.60:
             return DialogVerification(False, 'skill_dialog_identity_mismatch')
         if dialog_state.get('dangerous_resource_flags') != []:
             return DialogVerification(False, 'skill_dialog_resource_signal')

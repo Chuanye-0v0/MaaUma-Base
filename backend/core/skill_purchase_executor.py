@@ -11,6 +11,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Protocol
+from core.name_match import name_similarity
 SKILL_PURCHASE_SAFETY_TOKEN = 'UG_PARENT_SKILL_PURCHASE_SANDBOX'
 SKILL_MULTI_CONFIRMATION_CAPTURE_TOKEN = 'UG_PARENT_SKILL_MULTI_CONFIRMATION_CAPTURE'
 _ALLOWED_REMAINING_SEMANTICS = {'post_selection', 'current_before_confirmation'}
@@ -871,7 +872,7 @@ class SkillPurchaseExecutor:
         if not isinstance(rows, list):
             return (None, 'fresh_rows_missing')
         expected_name = expected.get('observed_name')
-        same_name = [row for row in rows if isinstance(row, Mapping) and row.get('observed_name') == expected_name]
+        same_name = [row for row in rows if isinstance(row, Mapping) and row.get('item_id') == purchase.get('item_id') and name_similarity(row.get('observed_name'), expected_name) >= 0.60]
         if not same_name:
             return (None, f"planned_row_missing:{purchase.get('item_id')}")
         if len(same_name) != 1:
@@ -901,7 +902,7 @@ class SkillPurchaseExecutor:
             return (None, f'planned_row_ocr_invalid:{item_id}:discount_percent')
         exact_fields = ('row_complete', 'name_resolution_status', 'observed_name', 'observed_final_cost', 'plus_available', 'discount_percent', 'skill_type', 'rarity_or_icon_type')
         for field in exact_fields:
-            if row[field] != expected[field]:
+            if (name_similarity(row[field], expected[field]) < 0.60 if field == 'observed_name' else row[field] != expected[field]):
                 return (None, f"planned_row_ocr_mismatch:{purchase.get('item_id')}:{field}")
         if row['hint_level'] is not None and expected['hint_level'] is not None and (row['hint_level'] != expected['hint_level']):
             return (None, f"planned_row_ocr_mismatch:{purchase.get('item_id')}:hint_level")

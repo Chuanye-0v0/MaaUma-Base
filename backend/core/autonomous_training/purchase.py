@@ -389,6 +389,12 @@ def select_and_open_purchase_confirmation(*, device: Any, inventory_path: str | 
                 self._ledger_recorder.record_capture(state, screenshot_path)
                 return state
 
+            def recapture_page(self, active_item_ids: tuple[str, ...]) -> dict[str, Any]:
+                state = super().recapture_page(active_item_ids)
+                screenshot_path = self.screenshot_dir / f'batch_{self.capture_index:03d}.png'
+                self._ledger_recorder.record_capture(state, screenshot_path)
+                return state
+
             def tap_plus(self, control: Mapping[str, int], action_id: str) -> None:
                 self._ledger_recorder.record_pre_tap(action_id)
                 super().tap_plus(control, action_id)

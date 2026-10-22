@@ -7,6 +7,8 @@ from typing import Any, Protocol
 from core.skill_batch_purchase import skill_selection_groups, validate_skill_batch_plan, validate_skill_inventory_packet
 SKILL_BATCH_PURCHASE_SAFETY_TOKEN = 'UG_PARENT_SKILL_BATCH_PURCHASE'
 MAX_TOP_REWIND_SWIPES = 24
+MAX_FRESH_PAGE_READS = 4
+FRESH_PAGE_RETRY_DELAY_SECONDS = 0.4
 
 class SkillBatchAdapter(Protocol):
 
@@ -312,19 +314,33 @@ class SkillBatchPurchaseExecutor:
         return total
 
     def _fresh_page(self, active_ids: tuple[str, ...]) -> tuple[Mapping[str, Any] | None, str | None]:
-        try:
-            state = self.adapter.capture_page(active_ids)
-        except Exception:
-            return (None, 'fresh_page_capture_failed')
-        if not isinstance(state, Mapping) or state.get('fresh') is not True:
-            return (None, 'fresh_page_required')
-        frame_sha = state.get('frame_sha256')
-        if not isinstance(frame_sha, str) or len(frame_sha) != 64 or any((character not in '0123456789abcdef' for character in frame_sha)):
-            return (None, 'frame_sha_invalid')
-        if frame_sha in self._seen_frame_sha256:
-            return (None, 'frame_sha_replayed')
-        self._seen_frame_sha256.add(frame_sha)
-        return (state, None)
+        for attempt in range(MAX_FRESH_PAGE_READS):
+            duplicate = False
+            try:
+                capture = (getattr(self.adapter, 'recapture_page', self.adapter.capture_page)
+                           if attempt else self.adapter.capture_page)
+                state = capture(active_ids)
+            except ValueError as error:
+                if str(error) != 'frame SHA already seen':
+                    return (None, 'fresh_page_capture_failed')
+                state = None
+                duplicate = True
+            except Exception:
+                return (None, 'fresh_page_capture_failed')
+            if not duplicate:
+                if not isinstance(state, Mapping) or state.get('fresh') is not True:
+                    return (None, 'fresh_page_required')
+                frame_sha = state.get('frame_sha256')
+                if not isinstance(frame_sha, str) or len(frame_sha) != 64 or any((character not in '0123456789abcdef' for character in frame_sha)):
+                    return (None, 'frame_sha_invalid')
+                if frame_sha not in self._seen_frame_sha256:
+                    self._seen_frame_sha256.add(frame_sha)
+                    return (state, None)
+            # Rendering can lag an acknowledged input. Only observe again;
+            # never repeat a plus tap, swipe, or confirmation here.
+            if attempt + 1 < MAX_FRESH_PAGE_READS:
+                time.sleep(FRESH_PAGE_RETRY_DELAY_SECONDS)
+        return (None, 'frame_sha_replayed')
 
     def _validate_page_base(self, state: Mapping[str, Any], *, expected_current_skill_points: int) -> str | None:
         if state.get('page_kind') != 'skill_acquisition' or state.get('screen_kind') != 'skill_acquisition':

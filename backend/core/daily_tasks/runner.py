@@ -390,7 +390,7 @@ class DailyTasksRunner:
             if self.current['page'] in {'arena', 'races'}:
                 self._home()
             if self.current['page'] == 'home':
-                self._settle_home()
+                self._settle_home(require_reward_badges=False)
                 if 'open_shop' in self.current['actions']:
                     self._act('open_shop', {'shop_menu', 'limited_shop'})
             if self.current['page'] == 'shop_menu':
@@ -499,7 +499,7 @@ class DailyTasksRunner:
         if any(badges):
             raise RuntimeError('daily_rewards_remaining')
 
-    def _settle_home(self):
+    def _settle_home(self, *, require_reward_badges=True):
         previous = None
         for _ in range(8):
             if self.stop.wait(0.5):
@@ -510,7 +510,8 @@ class DailyTasksRunner:
                 continue
             if self.current.get('page') != 'home':
                 raise RuntimeError('daily_home_not_verified')
-            badges = (self.current.get('missions_badge'), self.current.get('gifts_badge'))
+            badges = ((self.current.get('missions_badge'), self.current.get('gifts_badge'))
+                      if require_reward_badges else (False, False))
             if all((type(value) is bool for value in badges)) and badges == previous:
                 return
             previous = badges
@@ -672,7 +673,7 @@ class DailyTasksRunner:
                 self._rewards()
             else:
                 self._home()
-                self._settle_home()
+                self._settle_home(require_reward_badges=False)
             complete = True
             reason = 'daily_races_and_rewards_home_verified' if races and rewards else 'daily_rewards_home_verified' if rewards else 'daily_races_home_verified'
         except FileExistsError:
