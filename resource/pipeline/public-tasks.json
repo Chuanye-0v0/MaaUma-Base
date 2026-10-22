@@ -156,5 +156,18 @@
       "Node.Action.Starting": "当前账号连续种马：达标即停，最多设定轮数"
     },
     "next": []
+  },
+  "UmaLoh": {
+    "recognition": "DirectHit",
+    "action": "Custom",
+    "custom_action": "UmaLohBackendLive",
+    "custom_action_param": {
+      "max_entries": null
+    },
+    "next": [],
+    "focus": {
+      "Node.Action.Starting": "LOH：沿用已编队伍，使用已有门票",
+      "Node.Action.Failed": "LOH未完成，保留原场进度"
+    }
   }
 }

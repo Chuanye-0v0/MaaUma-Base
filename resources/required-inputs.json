@@ -1,7 +1,9 @@
 {
   "schema_version": "maauma.external_resources.v1",
-  "version": "0.4.32",
+  "version": "0.4.33",
   "files": [
+    "agent/main.py",
+    "agent/mfa_action.py",
     "backend/core/account_inventory/assets/title_logo.png",
     "backend/core/autonomous_training/assets/100401_outfit_title.png",
     "backend/core/autonomous_training/assets/100801_outfit_title.png",
@@ -614,6 +616,8 @@
     "backend/runs/support-card-library/art/30317.png",
     "backend/runs/support-card-library/catalog.json",
     "docs/PARENT-PLANNING-DATA-SOURCES.md",
+    "interface.json",
+    "resource/pipeline/public-tasks.json",
     "resource/portraits/100101.png",
     "resource/portraits/100102.png",
     "resource/portraits/100103.png",

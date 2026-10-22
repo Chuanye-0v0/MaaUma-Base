@@ -1,4 +1,4 @@
-<suki:SukiWindow Title="MaaUma 普通版 v0.4.32"
+<suki:SukiWindow Title="MaaUma 普通版 v0.4.33"
     BackgroundAnimationEnabled="{Binding BackgroundAnimations, Source={x:Static helper:Instances.GuiSettingsUserControlModel}}"
     BackgroundStyle="{Binding BackgroundStyle, Source={x:Static helper:Instances.GuiSettingsUserControlModel}}"
     BackgroundTransitionsEnabled="{Binding BackgroundTransitions, Source={x:Static helper:Instances.GuiSettingsUserControlModel}}"
@@ -155,7 +155,7 @@
             <!--     </TextBlock.Text> -->
             <!-- </TextBlock> -->
             <TextBlock Name="MaaUmaProductTitle" VerticalAlignment="Center" IsHitTestVisible="False"
-                       FontSize="13" Text="MaaUma 普通版 v0.4.32" FontWeight="Bold" />
+                       FontSize="13" Text="MaaUma 普通版 v0.4.33" FontWeight="Bold" />
         </StackPanel>
     </suki:SukiWindow.NonClientAreaContent>
     

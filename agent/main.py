@@ -92,7 +92,7 @@ def main():
     Library.open(NATIVE, agent_server=True)
     backend = ProcessBackend()
     names = {'plant':'UmaPlant','harvest':'UmaHarvest','jjc':'UmaJjc','activities':'UmaActivities',
-        'daily_legend':'UmaDailyLegend','limited_legend':'UmaLimitedLegend',
+        'daily_legend':'UmaDailyLegend','limited_legend':'UmaLimitedLegend','loh':'UmaLoh',
         'champions_registration':'UmaChampionsRegistration','champions_race':'UmaChampionsRace',
         'story_event':'UmaStoryEvent','daily_rewards':'UmaDailyRewards','cleanup':'UmaCleanup',
         'seed_cycle':'UmaSeedCycle'}

@@ -83,14 +83,16 @@ class BackendTaskAction(CustomAction):
             emit(dict(type='started', message=self.task))
             self.last_result = self.backend.run(self.task, options, emit, stop, execute=execute)
             emit(dict(type='finished', message=self.last_result))
+            advance = (self.task == 'loh' and self.last_result.get('queue_continue') is True
+                       and self.last_result.get('pending') is False)
             # Never block waiting for a stop Job inside its own action callback.
             if (stop.is_set() or self.last_result.get('stop_queue')
                     or (not self.last_result.get('ok')
-                        and not configuration_failure_can_continue(self.last_result))):
+                        and not configuration_failure_can_continue(self.last_result) and not advance)):
                 self.backend.queue_stopped = True
                 self.backend.stopped_generation = generation
                 context.tasker.post_stop()
-            return self.last_result.get('ok') is True and (
+            return (self.last_result.get('ok') is True or advance) and (
                 not stop.is_set() or self.last_result.get('stop_queue') is True)
         except (ValueError, RuntimeError, OSError) as error:
             if str(error) != 'receipt_delivery_failed' and not stop.is_set():

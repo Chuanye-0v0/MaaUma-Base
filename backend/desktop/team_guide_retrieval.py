@@ -385,11 +385,33 @@ class ArticleText(HTMLParser):
         text = re.sub('\\s+', ' ', ' '.join(self.parts)).strip()
         return (title, text or self.description, self.published)
 
+def _shared_guide_urls(guide_urls, request_text):
+    """GUI tokens can contain a share title, a URL, or both; count only URLs."""
+    candidates = []
+    for shared in guide_urls:
+        if not isinstance(shared, str):
+            raise RetrievalError('invalid_public_url', '攻略分享内容应为文字或公网 HTTPS 链接。')
+        # Keep explicit non-HTTPS links for public_url to reject, rather than
+        # silently turning an invalid pasted link into a search request.
+        shared = shared.strip()
+        if re.fullmatch(r'[a-z][a-z0-9+.-]*://\S+', shared, re.IGNORECASE):
+            candidates.append(shared)
+        else:
+            candidates.extend(re.findall(r'[a-z][a-z0-9+.-]*://[^\s<>"]+', shared, re.IGNORECASE))
+    candidates.extend(re.findall(r'https://[^\s<>"\']+', request_text, re.IGNORECASE))
+    if guide_urls and not candidates:
+        raise RetrievalError('invalid_public_url', '未从攻略分享内容中找到公网 HTTPS 链接，请检查粘贴内容。')
+    urls = list(dict.fromkeys(public_url(url.rstrip('，。；！？、）】》」』')) for url in candidates))
+    if len(urls) > MAX_PAGES:
+        raise ValueError('每次最多3条公开HTTPS攻略链接。')
+    return urls
+
+
 def retrieve_guides(requirements, guide_urls=(), allow_network=False, *, request_text='', fetcher=None, race_catalog=None, skill_reference=None, registry=None):
     req = normalize_requirements(requirements)
     assessed = assess_requirements(req)
-    if type(allow_network) is not bool or not isinstance(guide_urls, (list, tuple)) or len(guide_urls) > MAX_PAGES:
-        raise ValueError('公开检索开关或攻略链接数量无效；每次最多3条链接。')
+    if type(allow_network) is not bool or not isinstance(guide_urls, (list, tuple)) or any(not isinstance(value, str) for value in guide_urls):
+        raise ValueError('公开检索开关或攻略分享内容格式无效。')
     if skill_reference is None:
         from core.parent_skill_reference import SkillReference
         skill_reference = SkillReference.load()
@@ -397,14 +419,10 @@ def retrieve_guides(requirements, guide_urls=(), allow_network=False, *, request
     result['missing_data'].extend(assessed['conflicts'] + assessed['clarification_questions'] + assessed['notes'])
     if not isinstance(request_text, str) or len(request_text) > 4000:
         raise ValueError('需求描述最多4000字。')
-    pasted = [url.rstrip('，。；！？、）】》」』') for url in re.findall(r'https://[^\s<>"\']+', request_text)]
-    if len(guide_urls) + len(pasted) > MAX_PAGES:
-        if len(set(guide_urls) | set(pasted)) > MAX_PAGES:
-            raise ValueError('每次最多3条公开HTTPS攻略链接。')
-    urls = [public_url(url) for url in dict.fromkeys([*guide_urls, *pasted])]
     if not allow_network:
         result['missing_data'].append('当前仅使用本地事实，尚未取得公开攻略；本地赛历与技能目录不等于赛事攻略。')
         return result
+    urls = _shared_guide_urls(guide_urls, request_text)
     registry = registry if registry is not None else load_sources()
     fetcher = fetcher or PublicFetcher(registry=registry)
     deadline = time.monotonic() + TOTAL_SECONDS

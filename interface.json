@@ -1,7 +1,7 @@
 {
   "interface_version": 2,
   "name": "MaaUma 普通版",
-  "version": "0.4.26",
+  "version": "0.4.33",
   "rid": "umaa-public",
   "icon": "resource/umaa-hishi-miracle.png",
   "controller": [
@@ -107,6 +107,15 @@
         "大赛报名组别"
       ],
       "description": "选择最多5、10、15或20场，每轮5场；资源不足就正常结束，显示实际完成场数。只确认当前报名页面和可用按钮，不核算票数增减。无票时每轮报名允许30宝石（萝卜），其他购买或补资源禁止。未报名时按所选组别报名一次，已报名沿用，不自动换组。已有完整3匹编成沿用，空缺才自动编成。"
+    },
+    {
+      "name": "LOH英雄联赛",
+      "entry": "UmaLoh",
+      "default_check": false,
+      "option": [
+        "LOH入场上限"
+      ],
+      "description": "沿用已编队伍，使用已有门票；不买票、不花萝卜，未编队继续其他日活。"
     }
   ],
   "option": {
@@ -3340,6 +3349,52 @@
             "UmaPlant": {
               "custom_action_param": {
                 "event_boost": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "LOH入场上限": {
+      "type": "select",
+      "default_case": "已有门票用完",
+      "cases": [
+        {
+          "name": "已有门票用完",
+          "pipeline_override": {
+            "UmaLoh": {
+              "custom_action_param": {
+                "max_entries": null
+              }
+            }
+          }
+        },
+        {
+          "name": "最多1次",
+          "pipeline_override": {
+            "UmaLoh": {
+              "custom_action_param": {
+                "max_entries": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "最多5次",
+          "pipeline_override": {
+            "UmaLoh": {
+              "custom_action_param": {
+                "max_entries": 5
+              }
+            }
+          }
+        },
+        {
+          "name": "最多10次",
+          "pipeline_override": {
+            "UmaLoh": {
+              "custom_action_param": {
+                "max_entries": 10
               }
             }
           }

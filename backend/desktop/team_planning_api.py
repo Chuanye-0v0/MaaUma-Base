@@ -6,6 +6,7 @@ from core import parent_library as library_store
 from core import parent_planning_state as parent_store
 from core import team_planning_state as team_store
 from core.team_requirements import normalize_requirements, parse_requirements
+from desktop.team_guide_retrieval import RetrievalError
 ROOT = Path(__file__).resolve().parents[1]
 FIELDS = {'team_requirements_parse': {'request_text', 'overrides'}, 'team_guides_retrieve': {'requirements', 'guide_urls', 'allow_network', 'request_text', 'overrides'}, 'parent_planning_team_state': set(), 'parent_planning_team_save': {'team', 'expected_revision'}, 'parent_planning_team_delete': {'team_id', 'expected_revision'}}
 
@@ -91,6 +92,8 @@ def dispatch_team(request, *, root=None, account_book_path=None, guide_retriever
         if saved_id is not None:
             result['saved_team'] = next((row for row in result['teams'] if row['id'] == saved_id))
         return _success(result)
+    except RetrievalError as error:
+        return _error(error.code, '读取攻略失败：' + error.message)
     except team_store.TeamPlanningConflict:
         return _error('team_planning_revision_conflict', '团队方案已被另一窗口修改，本次未覆盖；请刷新后再保存。')
     except (ValueError, KeyError, TypeError, AttributeError, RecursionError) as error:

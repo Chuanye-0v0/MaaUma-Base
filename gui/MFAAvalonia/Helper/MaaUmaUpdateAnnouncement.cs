@@ -17,13 +17,11 @@ namespace MFAAvalonia.Helper;
 /// <summary>Local release notes. Reading or dismissing them never invokes a task or service.</summary>
 public static class MaaUmaUpdateAnnouncement
 {
-    public const string CurrentVersion = "0.4.32";
+    public const string CurrentVersion = "0.4.33";
     private const bool EnhancedBuild = false;
     private static readonly string[] CurrentNotes = {
-        "修复技能列表稳定画面被误判为重复操作；只读检查不再占用购买动作标记。",
-        "日常比赛完成后不再要求未勾选领奖项目的红点读数。",
-        "修复国服角色译名匹配，并移除一项错误角色别名。",
-        "账号之间的无关库存修改不再使当前账号的AI规划结果失效。"
+        "新增日活 LOH 任务（默认关闭），使用已有队伍与门票；未编队时提示设置并继续其他任务。",
+        "修复攻略分享文字与链接混合粘贴时无法读取的问题，并显示具体链接错误。"
     };
     private const string SeenFile = "maauma-update-announcements.json";
     private static readonly Dictionary<string, Window> OpenWindows = new(StringComparer.OrdinalIgnoreCase);
