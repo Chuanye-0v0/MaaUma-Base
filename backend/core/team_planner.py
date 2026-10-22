@@ -247,7 +247,8 @@ def validate_team_reply(reply, bundle, *, research_id, context_revisions):
             _fail('团队成员字段无效，不能由模型写持有、满破或达标事实。')
         source_ids = _sources(item.get('source_ids', []), sources)
         assessment = [deepcopy(sources[x]) for x in source_ids]
-        reference_only = not assessment or any((x.get('kind') != 'guide' or x.get('server') != req['server'] or (not x.get('version')) or ((x.get('applicability') or {}).get('status') != 'candidate') for x in assessment))
+        conditional_fields = [key for key in ('venue', 'surface', 'distance_m', 'direction', 'season', 'weather', 'track_condition') if req.get(key) is None]
+        reference_only = bool(conditional_fields) or not assessment or any((x.get('kind') != 'guide' or x.get('server') != req['server'] or (not x.get('version')) or ((x.get('applicability') or {}).get('status') != 'candidate') for x in assessment))
         text = lambda v, limit=500: re.sub('已验证|国服实测|确定适用|必得|必定|保证', '待核对', clean(v, limit)) if reference_only else clean(v, limit)
         cid = item.get('character_id')
         if type(cid) is str and cid.isascii() and cid.isdigit():
@@ -337,6 +338,9 @@ def validate_team_reply(reply, bundle, *, research_id, context_revisions):
             missing.append('支援卡候选不足6张，尚不是完整可执行卡组。')
         if reference_only:
             missing.append('本次来源仅作参考，未证实适用当前国服/本期期次。')
+        if conditional_fields:
+            labels = {'venue': '赛场', 'surface': '草地/泥地', 'distance_m': '距离', 'direction': '方向', 'season': '季节', 'weather': '天气', 'track_condition': '场地状态'}
+            missing.append('、'.join(labels[key] for key in conditional_fields) + '未限定；本成员为条件化参考，需按最终赛况确认。')
         members.append({'member_id': 'member-' + str(index), 'role': text(item.get('role', ''), 120), 'character_id': cid, 'variant_id': vid, 'name': catalog.characters[cid]['name'] if cid else text(item.get('raw_character_name', ''), 240) or '角色待核对', 'raw_character_name': '' if cid else text(item.get('raw_character_name', ''), 240), 'running_style': style, 'target_aptitudes': targets, 'core_skills': skills, 'support_cards': cards, 'source_ids': source_ids, 'source_assessment': assessment, 'evidence_status': 'reference_only' if reference_only else 'selected_guide_reference', 'character_availability': availability, 'missing_data': list(dict.fromkeys(missing)), 'notes': text(item.get('notes', ''), 1000)})
     if any((style_counts[style] != count for style, count in req['styles']['counts'].items())):
         _fail('整套团队的跑法数量与已确认需求不一致。')

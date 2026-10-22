@@ -3,6 +3,14 @@ from copy import deepcopy
 import re
 import unicodedata
 SCHEMA = 'uma.team_requirements.v1'
+FIELD_ALIASES = {
+    'event_mode': {'大赛': 'champions_meeting', '群英联赛': 'champions_meeting',
+                   '冠军集会': 'champions_meeting', '冠军赛': 'champions_meeting',
+                   'loh': 'loh', '英杰集结战': 'loh'},
+    'direction': {'顺时针': 'right', '右回': 'right', '右转': 'right', '右绕': 'right',
+                  '逆时针': 'left', '左回': 'left', '左转': 'left', '左绕': 'left',
+                  '直线': 'straight', '直线赛道': 'straight'},
+}
 STYLES = ('nige', 'senko', 'sashi', 'oikomi')
 VENUES = {'东京': 'tokyo', '中山': 'nakayama', '京都': 'kyoto', '阪神': 'hanshin', '中京': 'chukyo', '札幌': 'sapporo', '函馆': 'hakodate', '福岛': 'fukushima', '新潟': 'niigata', '小仓': 'kokura', '大井': 'oi', '川崎': 'kawasaki', '船桥': 'funabashi', '盛冈': 'morioka', '隆尚': 'longchamp'}
 ENUMS = {'server': {'cn', 'jp', 'tw'}, 'event_mode': {'champions_meeting', 'loh', 'team_arena', 'custom'}, 'venue': set(VENUES.values()), 'surface': {'turf', 'dirt'}, 'distance_category': {'sprint', 'mile', 'middle', 'long'}, 'direction': {'left', 'right', 'straight'}, 'season': {'spring', 'summer', 'autumn', 'winter'}, 'weather': {'sunny', 'cloudy', 'rainy', 'snowy'}, 'track_condition': {'good', 'yielding', 'soft', 'heavy'}}
@@ -24,6 +32,12 @@ def normalize_requirements(value):
         raise ValueError('团队需求格式版本不正确。')
     for key, choices in ENUMS.items():
         item = value.get(key)
+        if key == 'server':
+            item = 'cn' if item is None else item
+            if item != 'cn':
+                raise ValueError('当前种马规划仅支持国服；其他服攻略可作为待核对参考链接。')
+        if isinstance(item, str):
+            item = FIELD_ALIASES.get(key, {}).get(item.casefold(), item)
         if item is not None and (not isinstance(item, str) or item not in choices):
             raise ValueError('团队需求中的服务器、赛况或跑法类型无效。')
         result[key] = item
@@ -57,17 +71,20 @@ def normalize_requirements(value):
         else:
             raise ValueError('跑法请选择领跑、跟前、居中或后追。')
     counts = styles.get('counts', {})
-    if not isinstance(counts, dict) or set(counts) - set(STYLES) or any((type(n) is not int or not 1 <= n <= 9 for n in counts.values())):
-        raise ValueError('各跑法人数应为1～9。')
+    if isinstance(counts, dict):
+        counts = {key: n for key, n in counts.items() if n is not None and n != ''}
+    if not isinstance(counts, dict) or set(counts) - set(STYLES) or any((type(n) is not int or not 0 <= n <= 9 for n in counts.values())):
+        raise ValueError('各跑法人数应为0～9；留空由AI推荐，0表示不安排该跑法。')
     result['styles']['counts'] = deepcopy(counts)
+    if result['team_size'] is None and result['event_mode'] in {'champions_meeting', 'loh'}:
+        result['team_size'] = 3
+    elif result['team_size'] is None and 0 < sum(counts.values()) <= 9:
+        result['team_size'] = sum(counts.values())
     return result
 
 def assess_requirements(value):
     result = normalize_requirements(value)
     missing, questions, conflicts = ([], [], [])
-    if result['server'] is None:
-        missing.append('server')
-        questions.append('使用国服、日服还是台服资料？')
     if result['team_size'] is None:
         missing.append('team_size')
         questions.append('这次准备几匹战马（1～9匹）？')
@@ -79,21 +96,21 @@ def assess_requirements(value):
     if result['team_size'] is not None and total > result['team_size']:
         conflicts.append('总人数为' + str(result['team_size']) + '，但明确跑法分配合计' + str(total) + '，请确认人数或配比。')
     excluded = set(style['excluded'])
-    if any((key in excluded for key in counts)) or set(style['preferred']) & excluded:
+    if any((key in excluded for key, n in counts.items() if n > 0)) or set(style['preferred']) & excluded:
         conflicts.append('跑法偏好或明确配比与排除条件冲突。')
     if style['allowed'] is not None:
-        if not set(style['allowed']) - excluded or any((key not in style['allowed'] for key in counts)):
+        if not set(style['allowed']) - excluded or any((key not in style['allowed'] for key, n in counts.items() if n > 0)):
             conflicts.append('限定跑法与排除条件或明确配比冲突。')
-    explicit_course = all((result[key] is not None for key in ('venue', 'surface', 'distance_m')))
-    named_event = bool(result['event_name'])
-    named_cup = bool(re.search('(?:白羊|金牛|双子|巨蟹|狮子|处女|天秤|天蝎|射手|摩羯|水瓶|双鱼)(?:座)?杯', result['event_name'] or ''))
-    dated_event = result['edition']['year'] is not None and (result['edition']['month'] is not None or named_cup)
-    indexed_event = result['edition']['index'] is not None
-    if not explicit_course and (not (named_event and (dated_event or indexed_event))):
-        missing.append('event_or_course')
-        questions.append('请补充具体赛事期次，或直接填写赛场、草地/泥地和距离；不会自动套用本期或日服赛事。')
-    unknown = [key for key in ('direction', 'season', 'weather', 'track_condition') if result[key] is None]
-    return {'requirements': result, 'missing_fields': missing, 'clarification_questions': questions, 'conflicts': conflicts, 'unknown_optional_fields': unknown, 'ready_for_retrieval': not missing and (not conflicts), 'notes': ['未知季节、天气等保留为条件化方案，不当作晴天或良好场地。'] if unknown else []}
+    if set(counts) == set(STYLES) and result['team_size'] is not None and total != result['team_size']:
+        conflicts.append('四种跑法人数合计与团队总人数不一致；请调整配比，或清空配比交给AI推荐。')
+    unknown = [key for key in ('event_mode', 'venue', 'surface', 'distance_m', 'direction', 'season', 'weather', 'track_condition') if result[key] is None]
+    context = any(result[key] is not None for key in ('event_name', 'event_mode', 'venue', 'surface', 'distance_m',
+        'distance_category', 'direction', 'season', 'weather', 'track_condition', 'team_size')) or any(result['edition'].values()) or bool(counts or style['allowed'] or style['preferred'] or style['excluded'])
+    return {'requirements': result, 'missing_fields': missing, 'clarification_questions': questions,
+        'conflicts': conflicts, 'unknown_optional_fields': unknown,
+        'ready_for_retrieval': bool(context), 'ready_for_planning': not missing and not conflicts,
+        'notes': (['未填写的赛道、期次和赛况保留未知；可先检索，再给出标明条件的参考方案，不自动套用本期或日/台服赛期。'] if unknown else [])
+            + (['跑法人数未限定，由AI结合资料推荐。'] if not counts and style['allowed'] is None else [])}
 
 def parse_requirements(text, overrides=None, default_server='cn'):
     if not isinstance(text, str) or len(text) > 4000:
@@ -101,17 +118,13 @@ def parse_requirements(text, overrides=None, default_server='cn'):
     text = unicodedata.normalize('NFKC', text)
     result = empty_requirements()
     assumptions, parse_conflicts = ([], [])
-    matches = [code for word, code in (('国服', 'cn'), ('简中服', 'cn'), ('日服', 'jp'), ('台服', 'tw')) if word in text]
-    if len(set(matches)) == 1:
-        result['server'] = matches[0]
-    elif matches:
-        parse_conflicts.append('描述包含多个服务器，请选择本次适用服。')
-    elif default_server is not None:
-        if default_server not in ENUMS['server']:
-            raise ValueError('默认服务器无效。')
-        result['server'] = default_server
-        assumptions.append('沿用面板默认国服，可在需求卡修改。' if default_server == 'cn' else '沿用调用方指定的默认服务器，可修改。')
-    mode_patterns = [('champions_meeting', '冠军(?:集会|赛)|大赛|杯赛'), ('loh', '(?i)LOH|英雄竞赛|英雄联赛'), ('team_arena', '竞技场|团队竞赛')]
+    if default_server not in (None, 'cn'):
+        raise ValueError('当前种马规划仅支持国服。')
+    result['server'] = 'cn'
+    assumptions.append('当前按国服规划；不会自动使用日服或台服赛期。')
+    if re.search('日服|日本服|台服|繁中服', text) and not re.search('国服|简中服', text):
+        parse_conflicts.append('当前仅支持国服规划；描述提及其他服务器，请确认适用规则。')
+    mode_patterns = [('champions_meeting', '冠军(?:集会|赛)|大赛|杯赛|群英联赛'), ('loh', '(?i)LOH|英杰集结战'), ('team_arena', '竞技场|团队竞赛')]
     modes = [key for key, pattern in mode_patterns if re.search(pattern, text)]
     if len(modes) == 1:
         result['event_mode'] = modes[0]
@@ -154,6 +167,8 @@ def parse_requirements(text, overrides=None, default_server='cn'):
             result['track_condition'] = 'soft'
         elif re.search('(?<!不)良(?:马场|地|\\s|$)', text):
             result['track_condition'] = 'good'
+    if result['direction'] is None and re.search(r'直线(?:赛道|跑道|[，,。；;\s]|$)', text):
+        result['direction'] = 'straight'
     distances = {int(match.group(1)) for match in re.finditer('(?<!\\d)(\\d{3,4})\\s*(?:米|[mM](?![a-zA-Z]))', text)}
     distances.update((int(match.group(1)) for match in re.finditer('(?:草地|泥地|距离|跑道)\\s*(\\d{3,4})(?!\\d)', text)))
     distances.update((int(match.group(1)) for match in re.finditer('(?:' + '|'.join(VENUES) + ')\\s*(\\d{3,4})(?=$|[\\s，,;；。mM米])', text)))
@@ -188,17 +203,21 @@ def parse_requirements(text, overrides=None, default_server='cn'):
             for key, pattern in STYLE_PATTERNS.items():
                 for match in re.finditer('(' + _NUMBER + ')\\s*(?:(?:匹|只|个)\\s*)?(?:' + pattern + ')', clause):
                     n = _number(match.group(1))
-                    if 1 <= n <= 9:
+                    if 0 <= n <= 9:
                         result['styles']['counts'][key] = result['styles']['counts'].get(key, 0) + n
                     else:
-                        parse_conflicts.append('单项跑法人数应为1～9。')
-    if result['team_size'] is None and result['styles']['counts'] and (sum(result['styles']['counts'].values()) <= 9):
+                        parse_conflicts.append('单项跑法人数应为0～9；留空由AI推荐。')
+    if result['team_size'] is None and result['styles']['counts'] and (0 < sum(result['styles']['counts'].values()) <= 9):
         result['team_size'] = sum(result['styles']['counts'].values())
         assumptions.append('总人数按明确跑法分配求和。')
     if overrides is not None:
         if not isinstance(overrides, dict):
             raise ValueError('可编辑需求应为对象。')
-        result.update(deepcopy(overrides))
+        for key, value in deepcopy(overrides).items():
+            if key in {'edition', 'styles'} and isinstance(value, dict):
+                result[key] = {**result[key], **value}
+            else:
+                result[key] = value
         issue_words = {'server': '服务器', 'event_mode': '比赛模式', 'team_size': '人数', 'distance_m': '距离', 'styles': '跑法', 'venue': 'venue', 'surface': 'surface', 'distance_category': 'distance_category', 'direction': 'direction', 'season': 'season', 'weather': 'weather', 'track_condition': 'track_condition'}
         parse_conflicts = [message for message in parse_conflicts if not any((word in message for field, word in issue_words.items() if field in overrides))]
         if 'server' in overrides:
@@ -215,6 +234,8 @@ def parse_requirements(text, overrides=None, default_server='cn'):
         normalized['event_mode'] = 'custom'
     report = assess_requirements(normalized)
     report['conflicts'] = list(dict.fromkeys([*parse_conflicts, *report['conflicts']]))
-    report['ready_for_retrieval'] = report['ready_for_retrieval'] and (not report['conflicts'])
+    report['ready_for_retrieval'] = report['ready_for_retrieval'] or bool(text.strip())
+    report['ready_for_planning'] = report['ready_for_planning'] and not report['conflicts']
+    report['request_text'] = text.strip()
     report['assumptions'] = assumptions
     return report

@@ -7,6 +7,7 @@
     {"source_key":"bwiki","hosts":["wiki.biligame.com"],"path_prefixes":["/umamusume"],"locale":"zh-CN","server":"unknown","priority":90},
     {"source_key":"gamekee-uma","hosts":["umamusume.gamekee.com"],"path_prefixes":[],"locale":"zh-CN","server":"unknown","priority":80},
     {"source_key":"gamekee-uma","hosts":["www.gamekee.com","gamekee.com"],"path_prefixes":["/umamusume"],"locale":"zh-CN","server":"unknown","priority":80},
+    {"source_key":"taptap-cn-community","hosts":["www.taptap.cn","taptap.cn"],"path_prefixes":["/moment/"],"locale":"zh-CN","server":"unknown","priority":15},
     {"source_key":"bilibili-video-metadata","hosts":["www.bilibili.com","bilibili.com"],"path_prefixes":["/video/"],"locale":"zh-CN","server":"unknown","priority":60,"metadata_only":true},
     {"source_key":"bahamut-reference","hosts":["forum.gamer.com.tw"],"path_prefixes":["/C.php"],"query_equals":{"bsn":"34421"},"locale":"zh-TW","server":"tw","priority":30},
     {"source_key":"jp-official-reference","hosts":["umamusume.jp"],"path_prefixes":[],"locale":"ja-JP","server":"jp","priority":25},

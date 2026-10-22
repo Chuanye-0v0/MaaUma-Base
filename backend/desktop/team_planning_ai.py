@@ -56,8 +56,9 @@ def _research(root, identifier, requirements, selected, research_loader):
     if req != normalize_requirements(saved['requirements']):
         raise AIPlanningError('team_planning_stale_research', '比赛需求与检索快照不同，请重新确认并检索。')
     assessment = assess_requirements(req)
-    if assessment.get('conflicts') or not assessment.get('ready_for_retrieval'):
-        raise AIPlanningError('team_planning_requirements_incomplete', '比赛需求仍有关键缺失或冲突，请先确认需求。')
+    saved_conflicts = (saved.get('result', {}).get('requirements_assessment') or {}).get('conflicts', [])
+    if assessment.get('conflicts') or saved_conflicts or not assessment.get('ready_for_planning'):
+        raise AIPlanningError('team_planning_requirements_incomplete', '请先确认团队总人数或解决明确冲突；未知赛道和赛况可保留为条件化参考。')
     result = saved['result']
     rows = [*result.get('facts', []), *result.get('guides', [])]
     index = {row['source_id']: row for row in rows if isinstance(row, dict) and isinstance(row.get('source_id'), str)}

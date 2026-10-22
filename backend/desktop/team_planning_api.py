@@ -1,12 +1,13 @@
 """Shared team workflow entry: requirements, research and explicit local saves."""
 from copy import deepcopy
 from pathlib import Path
+import re
 from core import parent_library as library_store
 from core import parent_planning_state as parent_store
 from core import team_planning_state as team_store
 from core.team_requirements import normalize_requirements, parse_requirements
 ROOT = Path(__file__).resolve().parents[1]
-FIELDS = {'team_requirements_parse': {'request_text', 'overrides'}, 'team_guides_retrieve': {'requirements', 'guide_urls', 'allow_network'}, 'parent_planning_team_state': set(), 'parent_planning_team_save': {'team', 'expected_revision'}, 'parent_planning_team_delete': {'team_id', 'expected_revision'}}
+FIELDS = {'team_requirements_parse': {'request_text', 'overrides'}, 'team_guides_retrieve': {'requirements', 'guide_urls', 'allow_network', 'request_text', 'overrides'}, 'parent_planning_team_state': set(), 'parent_planning_team_save': {'team', 'expected_revision'}, 'parent_planning_team_delete': {'team_id', 'expected_revision'}}
 
 def _success(value):
     return {'ok': True, 'results': [value]}
@@ -35,12 +36,35 @@ def dispatch_team(request, *, root=None, account_book_path=None, guide_retriever
             return _success(parse_requirements(request.get('request_text', ''), request.get('overrides')))
         if action == 'team_guides_retrieve':
             from desktop.team_guide_retrieval import retrieve_guides
-            requirements = normalize_requirements(request.get('requirements'))
+            supplied = request.get('requirements')
+            card = {} if supplied is None else supplied
+            normalize_requirements(card)  # Validate supplied keys before merging.
+            explicit = {key: deepcopy(value) for key, value in card.items() if value is not None and key != 'schema_version'}
+            for key in ('edition', 'styles'):
+                if key in explicit:
+                    explicit[key] = {name: value for name, value in explicit[key].items() if value is not None and value != [] and value != {}}
+                    if not explicit[key]:
+                        explicit.pop(key)
+            overrides = request.get('overrides', {})
+            if not isinstance(overrides, dict):
+                raise ValueError('可编辑需求应为对象。')
+            for key, value in overrides.items():
+                explicit[key] = {**explicit.get(key, {}), **deepcopy(value)} if key in {'edition', 'styles'} and isinstance(value, dict) else deepcopy(value)
+            description = request.get('request_text', '')
+            if not isinstance(description, str):
+                raise ValueError('需求描述应为文字。')
+            parsed = parse_requirements(re.sub(r'https://[^\s<>"\']+', '', description), explicit)
+            requirements = parsed['requirements']
             allowed = request.get('allow_network', False)
             if type(allowed) is not bool:
                 raise ValueError('联网检索应为明确的开关。')
             retriever = guide_retriever or retrieve_guides
-            result = retriever(requirements, guide_urls=request.get('guide_urls', []), allow_network=allowed)
+            options = {'guide_urls': request.get('guide_urls', []), 'allow_network': allowed}
+            if request.get('request_text'):
+                options['request_text'] = request['request_text']
+            result = retriever(requirements, **options)
+            result = {**result, 'requirements_assessment': parsed}
+            result['missing_data'] = list(dict.fromkeys([*result.get('missing_data', []), *parsed['conflicts']]))
             saved = team_store.save_research(root, requirements, result)
             return _success({**deepcopy(result), 'research_id': saved['research_id'], 'requirements': requirements, 'retrieved_at': saved['created_at']})
         state = team_store.load_state(root)

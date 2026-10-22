@@ -10,6 +10,7 @@ import socket
 import ssl
 import threading
 import time
+import zlib
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 import xml.etree.ElementTree as ET
 from core.team_requirements import assess_requirements, normalize_requirements, VENUES
@@ -99,6 +100,48 @@ def _connection(host, address, timeout):
         return http.client.HTTPSConnection(host, port=443, timeout=timeout, context=ssl.create_default_context())
     return _PinnedHTTPSConnection(host, address, timeout)
 
+class _BoundedDecoder:
+    """Bound each inflate operation; gzip members share the same output budget."""
+    def __init__(self, encoding):
+        self.encoding = encoding
+        self.decoder = zlib.decompressobj(16 + zlib.MAX_WBITS) if encoding == 'gzip' else None
+        self.prefix = b''
+
+    def feed(self, block, limit, deadline, account):
+        output = bytearray()
+        if self.decoder is None:
+            self.prefix += block
+            if len(self.prefix) < 2:
+                return b''
+            first, second = self.prefix[:2]
+            wrapped = first & 15 == 8 and (first * 256 + second) % 31 == 0
+            self.decoder = zlib.decompressobj(zlib.MAX_WBITS if wrapped else -zlib.MAX_WBITS)
+            block, self.prefix = self.prefix, b''
+        try:
+            while block:
+                if time.monotonic() >= deadline:
+                    raise RetrievalError('research_timeout', '本次公开资料检索已到时间上限。')
+                if self.decoder.eof:
+                    if self.encoding != 'gzip':
+                        raise RetrievalError('invalid_compressed_content', '公开来源压缩数据包含无效尾随内容。')
+                    self.decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+                part = self.decoder.decompress(block, max(1, limit + 1 - len(output)))
+                account(len(part))
+                output.extend(part)
+                if len(output) > limit:
+                    return bytes(output)  # Caller accounts for this byte before rejecting oversize.
+                if self.decoder.eof:
+                    block = self.decoder.unused_data
+                else:
+                    block = self.decoder.unconsumed_tail
+        except zlib.error:
+            raise RetrievalError('invalid_compressed_content', '公开来源压缩数据损坏或格式不正确。') from None
+        return bytes(output)
+
+    def finish(self):
+        if self.prefix or self.decoder is None or not self.decoder.eof:
+            raise RetrievalError('invalid_compressed_content', '公开来源压缩数据不完整。')
+
 class PublicFetcher:
 
     def __init__(self, *, resolver=None, connection_factory=None, registry=None):
@@ -106,7 +149,11 @@ class PublicFetcher:
         self.connection_factory = connection_factory or _connection
         self.registry = registry if registry is not None else load_sources()
         self.request_count, self.received_bytes = (0, 0)
+        self.decoded_bytes = 0
         self.proxy_compatible_hosts = set()
+
+    def _account_decoded(self, size):
+        self.decoded_bytes += size
 
     def get(self, url, *, max_bytes, deadline):
         current = public_url(url)
@@ -141,9 +188,12 @@ class PublicFetcher:
                     continue
                 if not 200 <= response.status < 300:
                     raise RetrievalError('source_http_error', '公开来源拒绝访问或暂不可用。')
-                encoding = response.getheader('Content-Encoding', 'identity').casefold()
-                if encoding not in ('', 'identity'):
+                encoding = response.getheader('Content-Encoding', 'identity').strip().casefold()
+                if encoding == 'x-gzip':
+                    encoding = 'gzip'
+                if encoding not in ('', 'identity', 'gzip', 'deflate'):
                     raise RetrievalError('unsupported_encoding', '来源未返回可有界读取的普通文本。')
+                decoder = _BoundedDecoder(encoding) if encoding in ('gzip', 'deflate') else None
                 content_type = response.getheader('Content-Type', '').casefold()
                 if not any((value in content_type for value in ('text/', 'application/xhtml+xml', 'application/rss+xml', 'application/xml', 'application/json'))):
                     raise RetrievalError('unsupported_content', '仅提取公开网页文本，不下载图像、视频或其他二进制文件。')
@@ -151,6 +201,7 @@ class PublicFetcher:
                 if length is not None and (not length.isdigit() or int(length) > max_bytes):
                     raise RetrievalError('source_too_large', '公开来源内容过大，本次未读取正文。')
                 data = bytearray()
+                wire_bytes = 0
                 read = getattr(response, 'read1', response.read)
                 while True:
                     remaining = deadline - time.monotonic()
@@ -158,13 +209,21 @@ class PublicFetcher:
                         raise RetrievalError('research_timeout', '本次公开资料检索已到时间上限。')
                     if getattr(connection, 'sock', None) is not None:
                         connection.sock.settimeout(max(0.01, remaining))
-                    block = read(min(65536, max_bytes + 1 - len(data)))
+                    block = read(min(65536, max_bytes + 1 - wire_bytes, TOTAL_BYTES + 1 - self.received_bytes))
                     if not block:
                         break
-                    data.extend(block)
+                    wire_bytes += len(block)
                     self.received_bytes += len(block)
-                    if len(data) > max_bytes or self.received_bytes > TOTAL_BYTES:
+                    if wire_bytes > max_bytes or self.received_bytes > TOTAL_BYTES:
                         raise RetrievalError('source_too_large', '本次公开资料读取字节已达上限。')
+                    decoded = decoder.feed(block, min(max_bytes - len(data), TOTAL_BYTES - self.decoded_bytes), deadline, self._account_decoded) if decoder else block
+                    data.extend(decoded)
+                    if not decoder:
+                        self.decoded_bytes += len(decoded)
+                    if len(data) > max_bytes or self.decoded_bytes > TOTAL_BYTES:
+                        raise RetrievalError('source_too_large', '本次公开资料解压后文本字节已达上限。')
+                if decoder:
+                    decoder.finish()
                 return {'url': current, 'body': bytes(data), 'content_type': content_type, 'redirects': redirects}
             except RetrievalError:
                 raise
@@ -173,12 +232,23 @@ class PublicFetcher:
             finally:
                 connection.close()
 
-def build_search_query(requirements):
+def _public_description(value):
+    if not isinstance(value, str) or len(value) > 4000:
+        raise ValueError('需求描述最多4000字。')
+    text = re.sub(r'https://[^\s<>"\']+', '', value).strip()
+    if re.search(r'(?i)账号|账户|密码|凭据|token|api.?key|\bsk-|://|[\\/@]|\d{6,}', text):
+        raise RetrievalError('non_public_query', '补充描述含不适合公开检索的资料，请仅填写公开比赛、赛道或角色需求。')
+    return re.sub(r'\s+', ' ', text)[:360]
+
+def build_search_query(requirements, request_text=''):
     req = normalize_requirements(requirements)
     event = req['event_name'] or ''
     if re.search('(?i)账号|账户|密码|凭据|token|api.?key|\\bsk-|://|[\\\\/@]|\\d{6,}', event) or len(event) > 80:
         raise RetrievalError('non_public_query', '赛事名称含不适合公开检索的资料，请只填写公开比赛名称。')
-    words = [{'cn': '闪耀优俊少女 国服', 'jp': 'ウマ娘 日本', 'tw': '賽馬娘 台服'}.get(req['server'], '赛马娘')]
+    description = _public_description(request_text)
+    words = ['闪耀优俊少女 国服']
+    if req['event_mode']:
+        words.append({'champions_meeting': '大赛 群英联赛', 'loh': 'LOH 英杰集结战', 'team_arena': '竞技场', 'custom': '自定赛道'}.get(req['event_mode'], ''))
     if event:
         words.append(event)
     if req['edition']['year']:
@@ -192,6 +262,23 @@ def build_search_query(requirements):
             words.append(mapping[req[key]])
     if req['distance_m']:
         words.append(str(req['distance_m']) + '米')
+    if req['direction']:
+        words.append({'left': '逆时针', 'right': '顺时针', 'straight': '直线'}[req['direction']])
+    for key, mapping in (('season', {'spring': '春季', 'summer': '夏季', 'autumn': '秋季', 'winter': '冬季'}),
+                         ('weather', {'sunny': '晴天', 'cloudy': '阴天', 'rainy': '雨天', 'snowy': '雪天'}),
+                         ('track_condition', {'good': '良好', 'yielding': '稍重', 'soft': '重场', 'heavy': '不良'})):
+        if req[key]:
+            words.append(mapping[req[key]])
+    style_names = {'nige': '领跑', 'senko': '跟前', 'sashi': '居中', 'oikomi': '后追'}
+    for style in dict.fromkeys([*(req['styles']['allowed'] or []), *req['styles']['preferred'], *req['styles']['counts']]):
+        words.append(('不安排' if req['styles']['counts'].get(style) == 0 else '') + style_names[style])
+    words.extend('不安排' + style_names[style] for style in req['styles']['excluded'])
+    if description:
+        words.append(description)
+    if len(words) == 1 and req['team_size'] is not None:
+        words.append(str(req['team_size']) + '匹阵容')
+    if len(words) == 1:
+        raise RetrievalError('no_search_terms', '请先写一句比赛、赛道或角色需求，或粘贴公开HTTPS攻略链接。')
     words.append('攻略')
     return ' '.join(words)
 
@@ -221,9 +308,9 @@ def parse_rss(body):
         rows.append({'url': url, 'title': (item.findtext('title', '') or '')[:180], 'description': re.sub('<[^>]*>', ' ', item.findtext('description', '') or '')[:480]})
     return rows
 
-def build_wiki_query(requirements):
+def build_wiki_query(requirements, request_text=''):
     req = normalize_requirements(requirements)
-    build_search_query(req)
+    build_search_query(req, request_text)
     words = [req['event_name']] if req['event_name'] else []
     if req['venue']:
         words.append(next((name for name, value in VENUES.items() if value == req['venue'])))
@@ -233,7 +320,12 @@ def build_wiki_query(requirements):
         words.append(str(req['distance_m']))
     elif req['distance_category']:
         words.append({'sprint': '短距离', 'mile': '英里', 'middle': '中距离', 'long': '长距离'}[req['distance_category']])
-    return ' '.join(words)
+    description = _public_description(request_text)
+    if description:
+        words.append(description)
+    if not words and req['event_mode']:
+        words.append('群英联赛' if req['event_mode'] == 'champions_meeting' else '英杰集结战' if req['event_mode'] == 'loh' else '比赛阵容')
+    return ' '.join(words) or '比赛阵容'
 
 def parse_wiki_search(body):
     if len(body) > RSS_BYTES:
@@ -293,7 +385,7 @@ class ArticleText(HTMLParser):
         text = re.sub('\\s+', ' ', ' '.join(self.parts)).strip()
         return (title, text or self.description, self.published)
 
-def retrieve_guides(requirements, guide_urls=(), allow_network=False, *, fetcher=None, race_catalog=None, skill_reference=None, registry=None):
+def retrieve_guides(requirements, guide_urls=(), allow_network=False, *, request_text='', fetcher=None, race_catalog=None, skill_reference=None, registry=None):
     req = normalize_requirements(requirements)
     assessed = assess_requirements(req)
     if type(allow_network) is not bool or not isinstance(guide_urls, (list, tuple)) or len(guide_urls) > MAX_PAGES:
@@ -302,12 +394,16 @@ def retrieve_guides(requirements, guide_urls=(), allow_network=False, *, fetcher
         from core.parent_skill_reference import SkillReference
         skill_reference = SkillReference.load()
     result = {'status': 'offline', 'facts': local_facts(req, race_catalog=race_catalog, skill_reference=skill_reference), 'guides': [], 'queries': [], 'missing_data': [], 'errors': [], 'network_requested': allow_network, 'paid_api_used': False, 'retrieved_at': datetime.now(timezone.utc).isoformat(timespec='seconds')}
-    if assessed['conflicts'] or assessed['clarification_questions']:
-        result.update(status='needs_clarification', missing_data=assessed['conflicts'] + assessed['clarification_questions'])
-        return result
-    urls = [public_url(url) for url in guide_urls]
+    result['missing_data'].extend(assessed['conflicts'] + assessed['clarification_questions'] + assessed['notes'])
+    if not isinstance(request_text, str) or len(request_text) > 4000:
+        raise ValueError('需求描述最多4000字。')
+    pasted = [url.rstrip('，。；！？、）】》」』') for url in re.findall(r'https://[^\s<>"\']+', request_text)]
+    if len(guide_urls) + len(pasted) > MAX_PAGES:
+        if len(set(guide_urls) | set(pasted)) > MAX_PAGES:
+            raise ValueError('每次最多3条公开HTTPS攻略链接。')
+    urls = [public_url(url) for url in dict.fromkeys([*guide_urls, *pasted])]
     if not allow_network:
-        result['missing_data'] = ['当前仅使用本地事实，尚未取得公开攻略；本地赛历与技能目录不等于赛事攻略。']
+        result['missing_data'].append('当前仅使用本地事实，尚未取得公开攻略；本地赛历与技能目录不等于赛事攻略。')
         return result
     registry = registry if registry is not None else load_sources()
     fetcher = fetcher or PublicFetcher(registry=registry)
@@ -315,7 +411,14 @@ def retrieve_guides(requirements, guide_urls=(), allow_network=False, *, fetcher
     entries = [{'url': url, 'title': '', 'description': ''} for url in dict.fromkeys(urls)]
     if not entries:
         try:
-            query = build_search_query(req)
+            query = build_search_query(req, request_text)
+        except RetrievalError as error:
+            if error.code != 'no_search_terms':
+                raise
+            result.update(status='needs_clarification')
+            result['missing_data'].append(error.message)
+            return result
+        try:
             result['queries'].append(query)
             rss = fetcher.get('https://www.bing.com/search?' + urlencode({'format': 'rss', 'q': query}), max_bytes=RSS_BYTES, deadline=deadline)
             entries = parse_rss(rss['body'])
@@ -327,7 +430,7 @@ def retrieve_guides(requirements, guide_urls=(), allow_network=False, *, fetcher
         except RetrievalError as error:
             result['errors'].append({'code': error.code, 'message': error.message})
             try:
-                query = build_wiki_query(req)
+                query = build_wiki_query(req, request_text)
                 result['queries'].append('BWIKI: ' + query)
                 wiki = fetcher.get('https://wiki.biligame.com/umamusume/api.php?' + urlencode({'action': 'query', 'list': 'search', 'format': 'json', 'srsearch': query, 'srlimit': 5, 'srnamespace': 0}), max_bytes=RSS_BYTES, deadline=deadline)
                 entries = parse_wiki_search(wiki['body'])[:2]
