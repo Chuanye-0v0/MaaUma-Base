@@ -1,7 +1,7 @@
 {
   "interface_version": 2,
   "name": "MaaUma 普通版",
-  "version": "0.4.34",
+  "version": "0.4.35",
   "rid": "umaa-public",
   "icon": "resource/umaa-hishi-miracle.png",
   "controller": [
@@ -113,9 +113,10 @@
       "entry": "UmaLoh",
       "default_check": false,
       "option": [
-        "LOH入场上限"
+        "LOH入场上限",
+        "LOH一键编成"
       ],
-      "description": "沿用已编队伍，使用已有门票；优先缩短版比赛，游戏自动使用已有英雄对应道具；不买票、不补票、不购买或补充道具，未编队继续其他日活。"
+      "description": "沿用已编队伍，使用已有门票；一键编成默认关闭，可在队伍全空时自动编成。已有完整队伍始终保留，部分编成请先手动补齐。优先缩短版比赛，游戏自动使用已有英雄对应道具；不买票、不补票、不购买或补充道具，未编队继续其他日活。"
     }
   ],
   "option": {
@@ -3395,6 +3396,33 @@
             "UmaLoh": {
               "custom_action_param": {
                 "max_entries": 10
+              }
+            }
+          }
+        }
+      ]
+    },
+    "LOH一键编成": {
+      "type": "select",
+      "default_case": "关闭，沿用现有队伍",
+      "description": "关闭时直接使用已配好的队伍；开启仅在三名队员全空时一键编成，不覆盖完整手配队伍。",
+      "cases": [
+        {
+          "name": "关闭，沿用现有队伍",
+          "pipeline_override": {
+            "UmaLoh": {
+              "custom_action_param": {
+                "fill_empty_team": false
+              }
+            }
+          }
+        },
+        {
+          "name": "开启，空队时一键编成",
+          "pipeline_override": {
+            "UmaLoh": {
+              "custom_action_param": {
+                "fill_empty_team": true
               }
             }
           }

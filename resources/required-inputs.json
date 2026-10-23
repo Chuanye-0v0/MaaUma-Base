@@ -1,6 +1,6 @@
 {
   "schema_version": "maauma.external_resources.v1",
-  "version": "0.4.34",
+  "version": "0.4.35",
   "files": [
     "agent/main.py",
     "agent/mfa_action.py",

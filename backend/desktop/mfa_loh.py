@@ -3,12 +3,14 @@ import json
 from pathlib import Path
 
 def validate_options(options):
-    if not isinstance(options, dict) or set(options) - {'max_entries'}:
+    if (not isinstance(options, dict) or set(options) - {'max_entries', 'fill_empty_team'}
+            or type(options.get('fill_empty_team', False)) is not bool):
         raise ValueError('loh_options_invalid')
     cap = options.get('max_entries')
     if cap is not None and (type(cap) is not int or cap < 0):
         raise ValueError('loh_max_entries_invalid')
-    return {'max_entries': cap}
+    fill = options.get('fill_empty_team', False)
+    return {'max_entries': cap, 'fill_empty_team': fill}
 
 def execute(options, *, endpoint, adb_path, output, emit, stop, resume_from=None):
     from core.loh.live import run_loh, LohDevice
@@ -114,6 +116,12 @@ def active_source(root, options, endpoint):
         return None
     value = json.loads(marker.read_text(encoding='utf8'))
     source = Path(value.get('output', '')).resolve()
-    if value.get('task') != 'loh' or value.get('endpoint') != endpoint or value.get('options') != options or (source.parent.parent != root) or (source.name != 'loh') or (not source.is_dir()):
+    # Older markers did not serialize the optional team-fill switch. Their
+    # missing value means False; preserve the original journal and marker.
+    try:
+        same_options = validate_options(value.get('options')) == validate_options(options)
+    except ValueError:
+        same_options = False
+    if value.get('task') != 'loh' or value.get('endpoint') != endpoint or not same_options or (source.parent.parent != root) or (source.name != 'loh') or (not source.is_dir()):
         raise RuntimeError('loh_active_source_mismatch')
     return source

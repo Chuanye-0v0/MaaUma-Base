@@ -162,11 +162,12 @@
     "action": "Custom",
     "custom_action": "UmaLohBackendLive",
     "custom_action_param": {
-      "max_entries": null
+      "max_entries": null,
+      "fill_empty_team": false
     },
     "next": [],
     "focus": {
-      "Node.Action.Starting": "LOH：优先缩短版，游戏自动使用已有对应道具；不购买或补充门票、道具",
+      "Node.Action.Starting": "LOH：沿用已有队伍，按设置决定空队一键编成；优先缩短版，游戏自动使用已有对应道具；不购买或补充门票、道具",
       "Node.Action.Failed": "LOH未完成，保留原场进度"
     }
   }

@@ -101,7 +101,7 @@ def release_retryable_attempt(root, endpoint, *, request_task=None, request_opti
             return True
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return False
-TASK_OPTIONS = {'story_event': {}, 'daily_rewards': {}, 'cleanup': {}, 'plant': {'trainee': 'scarlet'}, 'harvest': {'learn_skills': True, 'update_team': True, 'return_home': False, 'refine_skills': False, 'skill_recheck_min_pt': 60}, 'jjc': {'prefer_rematch': True, 'prefer_gift': False}, 'activities': {'races': True}, 'daily_legend': {'opponent_number': 0}, 'limited_legend': {}, 'loh': {'max_entries': None}, 'champions_registration': {'division': None}, 'champions_race': {'rounds': 4, 'normal_only': False, 'allow_final_jewels': False, 'allow_jewels': False, 'division': None}}
+TASK_OPTIONS = {'story_event': {}, 'daily_rewards': {}, 'cleanup': {}, 'plant': {'trainee': 'scarlet'}, 'harvest': {'learn_skills': True, 'update_team': True, 'return_home': False, 'refine_skills': False, 'skill_recheck_min_pt': 60}, 'jjc': {'prefer_rematch': True, 'prefer_gift': False}, 'activities': {'races': True}, 'daily_legend': {'opponent_number': 0}, 'limited_legend': {}, 'loh': {'max_entries': None, 'fill_empty_team': False}, 'champions_registration': {'division': None}, 'champions_race': {'rounds': 4, 'normal_only': False, 'allow_final_jewels': False, 'allow_jewels': False, 'division': None}}
 
 def validate_options(task, options):
     if task == 'loh':
