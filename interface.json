@@ -1,7 +1,7 @@
 {
   "interface_version": 2,
   "name": "MaaUma 普通版",
-  "version": "0.4.33",
+  "version": "0.4.34",
   "rid": "umaa-public",
   "icon": "resource/umaa-hishi-miracle.png",
   "controller": [
@@ -115,7 +115,7 @@
       "option": [
         "LOH入场上限"
       ],
-      "description": "沿用已编队伍，使用已有门票；不买票、不花萝卜，未编队继续其他日活。"
+      "description": "沿用已编队伍，使用已有门票；优先缩短版比赛，游戏自动使用已有英雄对应道具；不买票、不补票、不购买或补充道具，未编队继续其他日活。"
     }
   ],
   "option": {

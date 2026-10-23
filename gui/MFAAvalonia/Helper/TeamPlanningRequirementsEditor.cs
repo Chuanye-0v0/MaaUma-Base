@@ -57,6 +57,12 @@ public sealed class TeamPlanningRequirementsEditor : StackPanel
         styles.Children.Add(TeamPlanningUi.Field("指定配比（可选）",counts));
         Children.Add(new Expander{Name="TeamRunningStyleAdvanced",Header="跑法偏好与配比（可选，默认 AI 推荐）",Content=styles,IsExpanded=false});
     }
+    public void ApplyDefaultTeamSize(int count)
+    {
+        // Apply only after parsing. A number in the user's description wins.
+        if((selections["team_size"].SelectedItem as Selection)?.Id!=null)return;
+        SetSelection("team_size",count.ToString());basis["team_size"]=count;
+    }
     private void AddText(Panel parent,string key,string title,int width,string watermark)
     {
         var box=new TextBox{Name="TeamRequirement_"+key.Replace('.','_'),Watermark=watermark,Width=width};fields[key]=box;displayedText[key]="";

@@ -18,6 +18,20 @@ public sealed class TeamPlanningInventoryEditor : StackPanel
     private readonly Dictionary<string,Group> groups=new();
     private readonly TextBlock status=TeamPlanningUi.Note("选定账号后可记录持有资料；不需要先扫描完整账号。" );
     private bool busy,loading;private int generation;private string? loadedAccount;private readonly Dictionary<string,int> searches=new();
+    private readonly Dictionary<string,JObject> unsavedByAccount=new(StringComparer.Ordinal);
+    private string displayedAccount="";
+    private void RememberInventoryEdits()
+    {
+        if(!HasUnsavedChanges){unsavedByAccount.Remove(displayedAccount);return;}
+        var draft=new JObject{["revision"]=Revision,["ready"]=loadedAccount==displayedAccount};
+        foreach(var group in groups)draft[group.Key]=group.Value.CaptureDraft();
+        unsavedByAccount[displayedAccount]=draft;
+    }
+    private void RestoreInventoryEdits(JObject draft,bool keepRevision=false)
+    {
+        if(!keepRevision)Revision=TeamPlanningUi.Int(draft["revision"])??0;
+        loading=true;try{foreach(var group in groups)if(draft[group.Key] is JObject value)group.Value.RestoreDraft(value);}finally{loading=false;}
+    }
     public bool IsReady=>account()==null||loadedAccount==account();
     public int Revision{get;private set;}
     public bool HasUnsavedChanges=>groups.Values.Any(x=>x.Dirty);
@@ -31,9 +45,20 @@ public sealed class TeamPlanningInventoryEditor : StackPanel
     private void Edited(){if(loading)return;generation++;Changed?.Invoke();status.Text="持有资料有未保存的修改；保存后，AI 才能使用这些资料。";}
     public async Task Load()
     {
-        var id=account();var at=++generation;Revision=0;loadedAccount=null;loading=true;try{foreach(var group in groups.Values)group.Load(new JObject());}finally{loading=false;}if(id==null){loading=true;try{foreach(var group in groups.Values)group.Load(new JObject());}finally{loading=false;}status.Text="当前为参考方案，持有状态未知。选择账号后可独立记录资料。";return;}
-        try{var response=await request(new JObject{["action"]="parent_planning_team_inventory_get",["account_id"]=id});if(at!=generation||id!=account())return;Apply(response);loadedAccount=id;status.Text="已读取此账号的手动持有资料；空白等级与突破保持未知。";}
-        catch(InvalidOperationException e){if(at==generation)status.Text=e.Message;}catch{if(at==generation)status.Text="账号持有资料暂未读取；当前已录入内容保留。";}
+        RememberInventoryEdits();var id=account();var key=id??"";var same=key==displayedAccount;
+        var oldLoaded=loadedAccount;var oldRevision=Revision;var at=++generation;
+        unsavedByAccount.TryGetValue(key,out var draft);
+        if(!same){loading=true;try{foreach(var group in groups.Values)group.Load(new JObject());}finally{loading=false;}}
+        displayedAccount=key;loadedAccount=null;
+        if(id==null){Revision=0;if(draft!=null)RestoreInventoryEdits(draft);status.Text="当前为参考方案，持有状态未知。选定账号后可保存持有资料；原账号的未保存编辑仍保留。";return;}
+        if(draft!=null&&(bool?)draft["ready"]==true){RestoreInventoryEdits(draft);loadedAccount=id;status.Text="已恢复此账号未保存的编辑；保存后用于生成方案。刷新不会清空这些内容。";return;}
+        try{
+            var response=await request(new JObject{["action"]="parent_planning_team_inventory_get",["account_id"]=id});
+            if(at!=generation||id!=account())return;Apply(response);loadedAccount=id;
+            if(draft!=null){RestoreInventoryEdits(draft,keepRevision:true);RememberInventoryEdits();}
+            status.Text=draft!=null?"已读到账号资料版本，并恢复未保存的编辑。":"已读取账号持有资料；未知等级、突破与未录入项目保持未知。";
+        }catch(InvalidOperationException e){if(at==generation){if(draft!=null)RestoreInventoryEdits(draft);if(same){loadedAccount=oldLoaded;if(draft==null)Revision=oldRevision;}status.Text="资料刷新未完成，编辑已保留："+e.Message;}}
+        catch{if(at==generation){if(draft!=null)RestoreInventoryEdits(draft);if(same){loadedAccount=oldLoaded;if(draft==null)Revision=oldRevision;}status.Text="账号持有资料暂未读取；未保存的内容保留，可以重试。";}}
     }
     private void Apply(JObject response)
     {
@@ -46,7 +71,7 @@ public sealed class TeamPlanningInventoryEditor : StackPanel
     public async Task Save(string kind)
     {
         if(busy)return;if(!IsReady){status.Text="请先等待当前账号资料读取完成，或刷新后重试。";return;}var id=account();if(id==null){status.Text="请先选定账号，再保存持有资料。";return;}if(!groups[kind].TryRead(out var value,out var message)){status.Text=message;return;}var at=generation;busy=true;groups[kind].SaveButton.IsEnabled=false;
-        try{var response=await request(new JObject{["action"]="parent_planning_team_inventory_save",["account_id"]=id,["expected_revision"]=Revision,[kind]=value});if(account()!=id||at!=generation){status.Text="点击时的持有资料已保存；当前编辑有变化，请刷新或继续核对。";return;}Revision=TeamPlanningUi.Int(response["inventory_revision"])??Revision;loading=true;try{groups[kind].Load(response[kind] as JObject??value);}finally{loading=false;}generation++;Changed?.Invoke();status.Text="此类持有资料已保存，其他类别的未保存编辑保留。";}
+        try{var response=await request(new JObject{["action"]="parent_planning_team_inventory_save",["account_id"]=id,["expected_revision"]=Revision,[kind]=value});if(account()!=id||at!=generation){status.Text="点击时的持有资料已保存；当前编辑有变化，请刷新或继续核对。";return;}Revision=TeamPlanningUi.Int(response["inventory_revision"])??Revision;loading=true;try{groups[kind].Load(response[kind] as JObject??value);}finally{loading=false;}generation++;RememberInventoryEdits();Changed?.Invoke();status.Text="此类持有资料已保存，其他类别的未保存编辑保留。";}
         catch(InvalidOperationException e){status.Text=e.Message;}catch{status.Text="库存保存未完成，编辑保留；若其他窗口已保存，请刷新后重试。";}finally{busy=false;groups[kind].SaveButton.IsEnabled=true;}
     }
     private sealed class Group : StackPanel
@@ -87,13 +112,28 @@ public sealed class TeamPlanningInventoryEditor : StackPanel
                 if(kind=="characters"){
                     var variant=new TextBox{Name="TeamInventoryVariant",Watermark="衣装 ID 可留空（未知）",Text=TeamPlanningUi.Str(row["variant_id"])};variant.TextChanged+=(_,_)=>{var text=(variant.Text??"").Trim();if(text==TeamPlanningUi.Str(row["variant_id"]))return;row["variant_id"]=text.Length>0?new JValue(text):JValue.CreateNull();Edit();};body.Children.Add(variant);
                 }else{
-                    var level=new TextBox{Name="TeamInventoryLevel",Watermark="等级未知可留空",Text=TeamPlanningUi.Str(row["level"]),Width=150};var breaks=new TextBox{Name="TeamInventoryLimitBreak",Watermark="突破 0～4 / 未知",Text=TeamPlanningUi.Str(row["limit_break"]),Width=150};level.TextChanged+=(_,_)=>{if((level.Text??"")!=TeamPlanningUi.Str(row["level"]))Edit();};breaks.TextChanged+=(_,_)=>{if((breaks.Text??"")!=TeamPlanningUi.Str(row["limit_break"]))Edit();};numeric.Add((row,level,breaks));var line=new WrapPanel();line.Children.Add(TeamPlanningUi.Field("等级",level));line.Children.Add(TeamPlanningUi.Field("突破",breaks));body.Children.Add(line);
+                    var level=new TextBox{Name="TeamInventoryLevel",Watermark="等级未知可留空",Text=TeamPlanningUi.Str(row["level"]),Width=150};var breaks=new TextBox{Name="TeamInventoryLimitBreak",Watermark="突破 0～4 / 未知",Text=TeamPlanningUi.Str(row["limit_break"]),Width=150};level.Tag=level.Text??"";breaks.Tag=breaks.Text??"";level.TextChanged+=(_,_)=>{var text=level.Text??"";if(text==(level.Tag as string??""))return;level.Tag=text;Edit();};breaks.TextChanged+=(_,_)=>{var text=breaks.Text??"";if(text==(breaks.Tag as string??""))return;breaks.Tag=text;Edit();};numeric.Add((row,level,breaks));var line=new WrapPanel();line.Children.Add(TeamPlanningUi.Field("等级",level));line.Children.Add(TeamPlanningUi.Field("突破",breaks));body.Children.Add(line);
                 }
                 var remove=new Button{Content="移除此条记录"};remove.Click+=(_,_)=>{CaptureNumbers();data.Remove(row);Render();Edit();};body.Children.Add(remove);rows.Children.Add(TeamPlanningUi.Card(body));
             }
             if(data.Count==0)rows.Children.Add(TeamPlanningUi.Note("尚未记录；这表示未知。"));
         }
         private void CaptureNumbers(){foreach(var item in numeric){item.Row["level"]=int.TryParse(item.Level.Text,out var level)?new JValue(level):JValue.CreateNull();item.Row["limit_break"]=int.TryParse(item.Break.Text,out var breaks)?new JValue(breaks):JValue.CreateNull();}}
+        public JObject CaptureDraft()
+        {
+            return new JObject{["coverage"]=CoverageValue,["items"]=new JArray(data.Select(x=>x.DeepClone())),["dirty"]=Dirty,
+                ["search"]=search.Text??"",["numeric_text"]=new JArray(numeric.Select(x=>new JObject{
+                    ["index"]=data.FindIndex(row=>ReferenceEquals(row,x.Row)),["level"]=x.Level.Text??"",["limit_break"]=x.Break.Text??""}))};
+        }
+        public void RestoreDraft(JObject draft)
+        {
+            Load(draft);search.Text=TeamPlanningUi.Str(draft["search"]);
+            foreach(var text in (draft["numeric_text"] as JArray??new()).OfType<JObject>()){
+                var index=TeamPlanningUi.Int(text["index"]);if(index is not int i||i<0||i>=data.Count)continue;
+                var item=numeric.FirstOrDefault(x=>ReferenceEquals(x.Row,data[i]));if(item.Level!=null){item.Level.Tag=TeamPlanningUi.Str(text["level"]);item.Break.Tag=TeamPlanningUi.Str(text["limit_break"]);item.Level.Text=(string)item.Level.Tag;item.Break.Text=(string)item.Break.Tag;}
+            }
+            Dirty=(bool?)draft["dirty"]==true;
+        }
         public bool TryRead(out JObject value,out string message)
         {
             value=new();message="";foreach(var item in numeric){if(!Valid(item.Level,1,50)||!Valid(item.Break,0,4)){message="支援卡等级请填 1～50、突破填 0～4；未知时留空。";return false;}}CaptureNumbers();value=new JObject{["coverage"]=coverage.SelectedIndex switch{1=>"partial",2=>"complete",_=>"unknown"},["items"]=new JArray(data.Select(x=>x.DeepClone()))};return true;

@@ -94,7 +94,14 @@ class OpenAIPlanningTransport:
                     raise AIPlanningError('parent_ai_provider_error', 'AI 接口返回跳转或错误，本次未采用。')
                 raw = self.profile._read_response(response, deadline)
         except HTTPError as error:
+            status = error.code
             error.close()
+            if status in (401, 403):
+                raise AIPlanningError('parent_ai_authentication_failed', 'AI 接口未通过认证或权限检查，请在 AI 接口设置中检查凭据和模型权限后重试。当前草稿保留。') from None
+            if status == 429:
+                raise AIPlanningError('parent_ai_rate_limited', 'AI 接口达到请求或额度限制，请稍后重试，并检查接口额度。当前草稿保留。') from None
+            if status in (400, 404, 422):
+                raise AIPlanningError('parent_ai_request_rejected', 'AI 接口不接受本次请求，请检查接口地址、模型名称及 JSON 模式兼容性后重试。当前草稿保留。') from None
             raise AIPlanningError('parent_ai_provider_error', 'AI 接口拒绝或暂不可用，请检查接口设置。') from None
         except (TimeoutError, socket.timeout):
             raise AIPlanningError('parent_ai_timeout', 'AI 请求超时，原草稿未修改。') from None
@@ -105,16 +112,38 @@ class OpenAIPlanningTransport:
             raise AIPlanningError('parent_ai_provider_error', 'AI 接口暂不可用，原草稿未修改。') from None
         try:
             envelope = self.profile._json(raw.decode('utf8'))
-            choices = envelope['choices']
-            if not isinstance(choices, list) or len(choices) != 1 or choices[0].get('finish_reason') != 'stop':
-                raise ValueError()
-            message = choices[0]['message']
-            if message.get('tool_calls') or message.get('function_call') or (not isinstance(message.get('content'), str)):
-                raise ValueError()
-            content = message['content'].replace(self._key, '[凭据已隐去]')
-            return self.profile._json(content)
-        except (KeyError, ValueError, TypeError, UnicodeError, AttributeError, RecursionError):
-            raise AIPlanningError('parent_ai_invalid_output', 'AI 未返回完整的结构化方案，本次未采用。') from None
+        except (ValueError, TypeError, UnicodeError, RecursionError):
+            raise AIPlanningError('parent_ai_invalid_envelope', 'AI 接口返回的响应不是有效 JSON，请检查接口是否兼容聊天补全协议后重试。当前草稿保留。') from None
+        choices = envelope.get('choices') if isinstance(envelope, dict) else None
+        if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
+            raise AIPlanningError('parent_ai_missing_choice', 'AI 接口未返回一条可用的方案回复，请检查模型与聊天补全接口后重试。当前草稿保留。')
+        reason = choices[0].get('finish_reason')
+        if reason == 'length':
+            raise AIPlanningError('parent_ai_response_truncated', 'AI 回复达到本次输出长度上限，方案尚未完整。请重试；若反复出现，可减少补充说明或改用支持更长输出的模型。当前草稿保留。')
+        if reason == 'content_filter':
+            raise AIPlanningError('parent_ai_response_filtered', 'AI 接口筛选了本次回复，请调整补充说明后重试。当前草稿保留。')
+        message = choices[0].get('message')
+        if isinstance(message, dict) and message.get('refusal'):
+            raise AIPlanningError('parent_ai_response_refused', 'AI 模型拒绝了本次回复，请调整补充说明或检查模型设置后重试。当前草稿保留。')
+        if reason != 'stop':
+            raise AIPlanningError('parent_ai_incomplete_response', 'AI 回复提前结束，未取得完整方案，请重试或检查模型的聊天补全兼容性。当前草稿保留。')
+        if not isinstance(message, dict) or not isinstance(message.get('content'), str) or not message['content'].strip():
+            raise AIPlanningError('parent_ai_empty_content', 'AI 回复没有方案正文，请重试或检查所选模型是否返回正文内容。当前草稿保留。')
+        if message.get('tool_calls') or message.get('function_call'):
+            raise AIPlanningError('parent_ai_unexpected_tool_output', 'AI 返回了工具调用而非方案正文，请检查模型的 JSON 模式兼容性后重试。当前草稿保留。')
+        content = message['content'].replace(self._key, '[凭据已隐去]').strip()
+        # Some compatible endpoints still wrap their complete JSON response in
+        # one code fence. Unwrap only that whole document, never surrounding prose.
+        fenced = re.fullmatch(r'```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```', content, re.IGNORECASE)
+        if fenced:
+            content = fenced.group(1)
+        try:
+            result = self.profile._json(content)
+        except (ValueError, TypeError, RecursionError):
+            raise AIPlanningError('parent_ai_invalid_json', 'AI 回复正文不是有效 JSON，请重试或选用支持 JSON 模式的模型。当前草稿保留。') from None
+        if not isinstance(result, dict):
+            raise AIPlanningError('parent_ai_invalid_json_shape', 'AI 回复正文的根节点不是方案对象，请重试或检查模型的 JSON 模式兼容性。当前草稿保留。')
+        return result
 
 def dispatch_ai(request, *, root=None, account_book_path=None, relations_path=None, roster_path=None, race_catalog_path=None, aptitude_catalog_path=None, planner_catalog_path=None, profile_root=None, profile_module=None, transport_factory=None):
     if not isinstance(request, dict) or request.get('action') not in FIELDS or set(request) - FIELDS[request['action']] - {'action', 'request_id', 'mode', 'endpoint'}:

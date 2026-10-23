@@ -166,7 +166,7 @@
     },
     "next": [],
     "focus": {
-      "Node.Action.Starting": "LOH：沿用已编队伍，使用已有门票",
+      "Node.Action.Starting": "LOH：优先缩短版，游戏自动使用已有对应道具；不购买或补充门票、道具",
       "Node.Action.Failed": "LOH未完成，保留原场进度"
     }
   }

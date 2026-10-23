@@ -20,6 +20,8 @@ from desktop import parent_planning_ai_api as pedigree
 ROOT = Path(__file__).resolve().parents[1]
 FIELDS = {'parent_planning_team_inventory_catalog': {'kind', 'query', 'limit'}, 'parent_planning_team_inventory_get': {'account_id'}, 'parent_planning_team_inventory_save': {'account_id', 'characters', 'support_cards', 'expected_revision'}, 'parent_planning_ai_team_propose': {'confirmed', 'requirements', 'research_id', 'selected_source_ids', 'account_id', 'library_id', 'expected_library_revision', 'expected_inventory_revision', 'expected_planning_revision', 'request_text'}, 'parent_planning_ai_team_member_seed': {'confirmed', 'team_plan', 'member_id', 'research_id', 'account_id', 'library_id', 'local_route'}}
 TIMEOUT_SECONDS = 60
+TEAM_OUTPUT_TOKENS = 8000
+TEAM_COMPACT_OUTPUT = '输出紧凑JSON，不使用Markdown或重复目录/需求内容。每匹优先给出4～6个确实关键的技能，资料不足可少于4个，不为凑数编造；purpose不超过24字，role不超过16字，notes不超过80字，团队summary不超过160字。无需展开内部推理；保留完整成员、必要字段和本次来源ID。'
 DATA_SCOPE = '仅在点击生成后发送已确认比赛需求、本次选中资料、角色/技能/支援卡目录和当前账号资源摘要；不发送账号ID/备注、成品编号、凭据、截图或本地路径。返回参考方案，本地核验，不自动保存或操作游戏。'
 
 def _success(value):
@@ -201,7 +203,7 @@ def dispatch_team(request, *, root=None, account_book_path=None, relations_path=
         private.extend((text for row in accounts for text in (row['id'], row['label'])))
         bundle = build_team_context(req, evidence, catalog, resource, private_values=private, request_text=team.get('request_text', '') if team else request.get('request_text', ''))
         if team is None:
-            transport = transport_factory(profile, home) if transport_factory else pedigree.OpenAIPlanningTransport(profile, home, system_prompt=TEAM_SYSTEM_PROMPT, max_tokens=6000, max_timeout_seconds=TIMEOUT_SECONDS)
+            transport = transport_factory(profile, home) if transport_factory else pedigree.OpenAIPlanningTransport(profile, home, system_prompt=TEAM_SYSTEM_PROMPT + TEAM_COMPACT_OUTPUT, max_tokens=TEAM_OUTPUT_TOKENS, max_timeout_seconds=TIMEOUT_SECONDS)
             reply = transport.propose(bundle['payload'], timeout_seconds=TIMEOUT_SECONDS)
             revisions = _check_current(root, account, revisions, token, inventory_loader)
             team = validate_team_reply(reply, bundle, research_id=research_id, context_revisions=revisions)

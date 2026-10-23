@@ -49,16 +49,53 @@ public sealed partial class TeamPlanningView : UserControl
         inventory=new TeamPlanningInventoryEditor(request,()=>AccountId);inventory.Changed+=()=>Invalidate("账号持有资料已变化，已有建议需要重新生成。",true);
         route=new ParentLocalRouteView(request,MemberContext,()=>[],RecordsSaved,memberMode:true);
         route.DraftChanged+=()=>{if(suppressRoute||selectedMember==null)return;StoreMemberRoute();Invalidate("成员系谱草稿已修改。",false);};
-        var root=new Grid{RowDefinitions=new("Auto,*,Auto"),RowSpacing=8,Margin=new Thickness(0,8,0,0)};
-        var toolbar=new StackPanel{Spacing=5};var top=new WrapPanel{Name="TeamFixedToolbar"};account.Width=240;teamName.Width=240;account.Margin=teamName.Margin=save.Margin=new Thickness(0,0,8,5);save.Content="保存团队";top.Children.Add(account);top.Children.Add(teamName);top.Children.Add(save);var openDraft=new Button{Name="TeamOpenSavedDrafts",Content="载入 / 刷新",Margin=new Thickness(0,0,0,5)};openDraft.Click+=(_,_)=>{draftPanel.IsVisible=!draftPanel.IsVisible;draftPanel.IsExpanded=true;};top.Children.Add(openDraft);toolbar.Children.Add(top);
-        var persisted=new WrapPanel();savedTeams.Width=280;savedTeams.Margin=load.Margin=refresh.Margin=new Thickness(0,0,8,5);load.Content="载入";refresh.Content="刷新本地资料";persisted.Children.Add(savedTeams);persisted.Children.Add(load);persisted.Children.Add(refresh);draftPanel.Content=persisted;draftPanel.IsVisible=false;toolbar.Children.Add(draftPanel);root.Children.Add(toolbar);
-        var requirementsBody=new StackPanel{Spacing=12,Margin=new Thickness(0,8,0,16)};requirementsBody.Children.Add(TeamPlanningUi.Title("比赛条件与团队目标",18));requirementsBody.Children.Add(description);requirementsBody.Children.Add(parse);requirementsBody.Children.Add(TeamPlanningUi.Card(requirementsEditor));requirementsBody.Children.Add(clarifications);
-        var researchBody=new StackPanel{Spacing=8};researchBody.Children.Add(TeamPlanningUi.Title("攻略与本地参考",17));researchBody.Children.Add(guideUrls);var researchActions=new WrapPanel();foreach(var button in new[]{localResearch,networkResearch}){button.Margin=new Thickness(0,0,8,4);researchActions.Children.Add(button);}researchBody.Children.Add(researchActions);researchBody.Children.Add(TeamPlanningUi.Note("可以先贴链接读取，不必先填完需求卡。找到资料后再选择来源，日期与国服适用性一起核对。"));researchBody.Children.Add(sources);requirementsBody.Children.Add(TeamPlanningUi.Card(researchBody));
-        requirementsBody.Children.Add(new Expander{Name="TeamInventoryPanel",Header="账号角色与支援卡资料（可先做参考方案）",Content=inventory,IsExpanded=false});requirementsBody.Children.Add(propose);
-        var teamBody=new StackPanel{Spacing=8,Margin=new Thickness(0,8,0,16)};teamSummary.MaxLines=1;teamSummary.TextTrimming=TextTrimming.CharacterEllipsis;memberHeading.MaxLines=1;memberHeading.TextTrimming=TextTrimming.CharacterEllipsis;teamBody.Children.Add(teamSummary);teamBody.Children.Add(members);
-        var memberBody=new StackPanel{Spacing=8};var memberBar=new Grid{ColumnDefinitions=new("*,Auto"),ColumnSpacing=10};memberBar.Children.Add(memberHeading);match.Content="匹配此成员种马";Grid.SetColumn(match,1);memberBar.Children.Add(match);memberBody.Children.Add(memberBar);ToolTip.SetTip(memberHeading,"点击系谱节点查看或编辑；各成员的材料和草稿分别保留。");memberBody.Children.Add(route);candidatePanel.Content=seedCandidates;memberBody.Children.Add(candidatePanel);memberBody.Children.Add(memberDetails);memberWorkspace.Child=memberBody;teamBody.Children.Add(memberWorkspace);teamScroll.Content=teamBody;
-        workspaces.ItemsSource=new[]{new TabItem{Header="比赛需求与资料",Content=new ScrollViewer{Name="TeamRequirementsScroll",Content=requirementsBody,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled}},new TabItem{Header="团队系谱",Content=teamScroll}};Grid.SetRow(workspaces,1);root.Children.Add(workspaces);
-        var footer=new StackPanel{Spacing=3};contextStatus.FontSize=11;contextStatus.TextWrapping=TextWrapping.NoWrap;contextStatus.TextTrimming=TextTrimming.CharacterEllipsis;footer.Children.Add(contextStatus);footer.Children.Add(new ScrollViewer{Name="TeamStatusScroll",MaxHeight=52,Content=status,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled});Grid.SetRow(footer,2);root.Children.Add(footer);Content=root;
+        var root=new Grid{RowDefinitions=new("Auto,Auto,*,Auto"),RowSpacing=8,Margin=new Thickness(0,8,0,0)};
+        var toolbar=new StackPanel{Spacing=5};
+        var top=new WrapPanel{Name="TeamFixedToolbar"};account.Width=240;teamName.Width=240;
+        foreach(var control in new Control[]{account,teamName,save})control.Margin=new Thickness(0,0,8,5);
+        save.Content="保存草稿 / 方案";top.Children.Add(account);top.Children.Add(teamName);top.Children.Add(save);
+        var openDraft=new Button{Name="TeamOpenSavedDrafts",Content="打开已保存的草稿",Margin=new Thickness(0,0,8,5)};
+        openDraft.Click+=(_,_)=>{draftPanel.IsVisible=!draftPanel.IsVisible;draftPanel.IsExpanded=true;};top.Children.Add(openDraft);
+        restoreDraft.Click+=async(_,_)=>await RestorePlanningDraft();top.Children.Add(restoreDraft);toolbar.Children.Add(top);
+        var persisted=new WrapPanel();savedTeams.Width=280;
+        foreach(var control in new Control[]{savedTeams,load,refresh})control.Margin=new Thickness(0,0,8,5);
+        load.Content="打开所选草稿";refresh.Content="刷新本地资料";
+        persisted.Children.Add(savedTeams);persisted.Children.Add(load);persisted.Children.Add(refresh);
+        draftPanel.Content=persisted;draftPanel.IsVisible=false;toolbar.Children.Add(draftPanel);root.Children.Add(toolbar);
+        var workflow=BuildPlanningWorkflow();Grid.SetRow(workflow,1);root.Children.Add(workflow);
+        var requirementsBody=new StackPanel{Spacing=12,Margin=new Thickness(0,8,0,16)};
+        var goal=new StackPanel{Spacing=8};goal.Children.Add(TeamPlanningUi.Title("1  说说你想准备什么比赛",18));
+        goal.Children.Add(TeamPlanningUi.Note("写你知道的就够了。场地、跑法和持有资料可以先留空；生成前会自动整理。"));
+        var examples=new WrapPanel{Name="TeamGoalExamples"};
+        void Example(string label,string text){var button=new Button{Content=label,Margin=new Thickness(0,0,8,4)};button.Click+=(_,_)=>{description.Text=text;description.Focus();};examples.Children.Add(button);}
+        Example("试试：有马 2500","国服，中山草地2500米，大赛3匹。跑法由AI推荐，优先已有角色和可借种马；未知条件先作参考。");
+        Example("试试：LOH 三匹","国服LOH，准备3匹。赛场尚未确定，请先给参考阵容与需要补充的条件。");
+        goal.Children.Add(examples);description.MinHeight=82;goal.Children.Add(description);
+        parse.Content="手动整理描述";goal.Children.Add(new Expander{Name="TeamGoalDetails",Header="手动调整比赛条件（可选）",IsExpanded=false,
+            Content=new StackPanel{Spacing=8,Children={parse,requirementsEditor,clarifications}}});requirementsBody.Children.Add(TeamPlanningUi.Card(goal));
+        var researchBody=new StackPanel{Spacing=8,Name="TeamResearchStep"};researchBody.Children.Add(TeamPlanningUi.Title("2  补充攻略或本地参考（可选）",17));
+        guideUrls.MinHeight=50;researchBody.Children.Add(guideUrls);
+        var researchActions=new WrapPanel();foreach(var button in new[]{networkResearch,localResearch}){button.Margin=new Thickness(0,0,8,4);researchActions.Children.Add(button);}
+        researchBody.Children.Add(researchActions);researchBody.Children.Add(TeamPlanningUi.Note("不查攻略也可生成参考方案。读取链接需要点击按钮；视频网页通常只有标题和简介，不等于已读视频内容。"));
+        researchBody.Children.Add(sources);requirementsBody.Children.Add(TeamPlanningUi.Card(researchBody));
+        requirementsBody.Children.Add(new Expander{Name="TeamInventoryPanel",Header="补充账号角色与支援卡（可选，未录入保持未知）",Content=inventory,IsExpanded=false});
+        var generate=new StackPanel{Name="TeamGenerateStep",Spacing=8};generate.Children.Add(TeamPlanningUi.Title("3  生成团队，再为成员匹配种马",17));
+        generate.Children.Add(TeamPlanningUi.Note("将使用已配置的AI接口；点击后才发送本次请求。未指定人数时先按3匹参考，可在比赛条件中修改。"));
+        propose.MinHeight=44;generate.Children.Add(propose);var inlineStatus=TeamPlanningUi.Note("");inlineStatus.Name="TeamGenerationInlineStatus";
+        inlineStatus.Bind(TextBlock.TextProperty,status.GetObservable(TextBlock.TextProperty));generate.Children.Add(inlineStatus);requirementsBody.Children.Add(TeamPlanningUi.Card(generate));
+        var teamBody=new StackPanel{Spacing=8,Margin=new Thickness(0,8,0,16)};teamBody.Children.Add(BuildEmptyTeam());
+        teamSummary.MaxLines=2;teamSummary.TextTrimming=TextTrimming.CharacterEllipsis;memberHeading.MaxLines=2;
+        teamBody.Children.Add(teamSummary);teamBody.Children.Add(members);
+        var memberBody=new StackPanel{Spacing=8};var memberBar=new WrapPanel();memberHeading.MaxWidth=500;memberHeading.Margin=new Thickness(0,0,12,5);
+        memberBar.Children.Add(memberHeading);match.Content="为这个成员匹配种马";memberBar.Children.Add(match);memberBody.Children.Add(memberBar);
+        memberBody.Children.Add(TeamPlanningUi.Note("选成员 → 匹配种马 → 查看已有／可借／待培养节点。点击节点可编辑，每位成员单独保留系谱。"));
+        memberBody.Children.Add(route);candidatePanel.Content=seedCandidates;memberBody.Children.Add(candidatePanel);memberBody.Children.Add(memberDetails);memberWorkspace.Child=memberBody;teamBody.Children.Add(memberWorkspace);teamScroll.Content=teamBody;
+        workspaces.ItemsSource=new[]{new TabItem{Header="目标与资料",Content=new ScrollViewer{Name="TeamRequirementsScroll",Content=requirementsBody,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled}},new TabItem{Header="团队与系谱",Content=teamScroll}};
+        Grid.SetRow(workspaces,2);root.Children.Add(workspaces);
+        contextStatus.FontSize=11;contextStatus.MaxLines=2;Grid.SetRow(contextStatus,3);root.Children.Add(contextStatus);Content=root;
+        members.Children.CollectionChanged+=(_,_)=>RefreshPlanningSteps();
+        status.PropertyChanged+=(_,args)=>{if(args.Property==TextBlock.TextProperty)RefreshPlanningSteps();};
+        RefreshPlanningSteps();
         description.TextChanged+=(_,_)=>{var value=description.Text??"";if(loading||value==displayedDescription)return;displayedDescription=value;Invalidate("描述已修改；可直接检索，会一起整理需求卡。",true);};requirementsEditor.Changed+=()=>{requirements=requirementsEditor.Read();Invalidate("需求卡已修改；可继续检索，待定项稍后补充。",true);};guideUrls.TextChanged+=(_,_)=>{var value=guideUrls.Text??"";if(loading||value==displayedGuideUrls)return;displayedGuideUrls=value;Invalidate("链接已修改，可直接读取链接；不必先填完需求卡。",true);};
         account.SelectionChanged+=async(_,_)=>{if(loading)return;StoreMemberRoute();selectedMember=null;memberWorkspace.IsVisible=false;workspaces.SelectedIndex=0;RefreshRouteEntries();Invalidate("规划账号已变化，请重新生成此账号的建议。",true);await inventory.Load();};
         parse.Click+=async(_,_)=>await ParseRequirements();localResearch.Click+=async(_,_)=>await RetrieveGuides(false);networkResearch.Click+=async(_,_)=>await RetrieveGuides(true);propose.Click+=async(_,_)=>await ProposeTeam();match.Click+=async(_,_)=>await MatchMember();refresh.Click+=async(_,_)=>await LoadContext();save.Click+=async(_,_)=>await SaveTeam();load.Click+=async(_,_)=>await LoadTeam();
@@ -71,9 +108,9 @@ public sealed partial class TeamPlanningView : UserControl
     private JObject Snapshot(){var value=BaseContext();value["requirements"]=requirementsEditor.Read();value["request_text"]=description.Text??"";value["guide_urls"]=new JArray(TeamPlanningUi.Tokens(guideUrls.Text));value["research_id"]=research?["research_id"]?.DeepClone();value["selected_source_ids"]=SelectedSourceIds();value["team"]=team.DeepClone();value["team_name"]=teamName.Text??"";value["selected_member_id"]=selectedMember==null?null:MemberId(selectedMember);value["current_member_route"]=selectedMember==null?null:route.ReadDraft();return value;}
     private void Invalidate(string message,bool dropResearch)
     {
-        if(loading)return;generation++;seedCandidates.Children.Clear();candidatePanel.IsVisible=false;if(dropResearch)researchContext="";status.Text=message;
+        if(loading)return;generation++;seedCandidates.Children.Clear();candidatePanel.IsVisible=false;if(dropResearch)researchContext="";status.Text=message;planningError=false;RefreshPlanningSteps();
     }
-    private void Lock(bool value){busy=value;foreach(var button in new[]{parse,localResearch,networkResearch,propose,match,refresh,save,load})button.IsEnabled=!value;}
+    private void Lock(bool value){busy=value;if(value)planningError=false;foreach(var button in new[]{parse,localResearch,networkResearch,propose,match,refresh,save,load,restoreDraft})button.IsEnabled=!value;planningProgress.IsVisible=value;RefreshPlanningSteps();}
     private bool Current(JObject snapshot,int at)=>at==generation&&JToken.DeepEquals(snapshot,Snapshot());
     private static JObject Clone(JObject row)=>(JObject)row.DeepClone();
     public async Task LoadContext()
@@ -92,7 +129,7 @@ public sealed partial class TeamPlanningView : UserControl
     public async Task ParseRequirements()
     {
         if(busy)return;var snapshot=Snapshot();var at=generation;Lock(true);status.Text="正在整理比赛需求…";try{
-            var command=new JObject{["action"]="team_requirements_parse",["request_text"]=(description.Text??"").Trim()};var overrides=requirementsEditor.ReadOverrides();if(overrides.Properties().Any())command["overrides"]=overrides;var response=await request(command);if(!Current(snapshot,at)){status.Text="输入或账号已变化，旧需求未套用；请重新整理。";return;}
+            var command=new JObject{["action"]="team_requirements_parse",["request_text"]=(description.Text??"").Trim()};var overrides=ReadPlanningOverrides();if(overrides.Properties().Any())command["overrides"]=overrides;var response=await request(command);if(!Current(snapshot,at)){status.Text="输入或账号已变化，旧需求未套用；请重新整理。";return;}
             requirements=response["requirements"] as JObject??new();loading=true;try{requirementsEditor.LoadPreservingEdits(requirements);}finally{loading=false;}generation++;researchContext="";RenderClarifications(response);status.Text=(response["conflicts"] as JArray)?.Count>0?"需求里有几处条件需要核对；也可以先读取攻略帮助确认。":"需求卡已整理，待定项可由攻略补充；可以继续检索。";
         }catch(InvalidOperationException e){status.Text=e.Message;}catch{status.Text="需求整理未完成，输入已保留。";}finally{Lock(false);}
     }
@@ -102,11 +139,12 @@ public sealed partial class TeamPlanningView : UserControl
     }
     public async Task RetrieveGuides(bool allowNetwork)
     {
-        if(busy)return;var snapshot=Snapshot();var at=generation;var overrides=requirementsEditor.ReadOverrides();Lock(true);status.Text=allowNetwork?"正在整理描述并读取链接或检索攻略…":"正在整理描述并读取本地参考…";try{
+        if(busy)return;var snapshot=Snapshot();var at=generation;var overrides=ReadPlanningOverrides();Lock(true);status.Text=allowNetwork?"正在整理描述并读取链接或检索攻略…":"正在整理描述并读取本地参考…";try{
             var parsed=await request(new JObject{["action"]="team_requirements_parse",["request_text"]=description.Text??"",["overrides"]=overrides.DeepClone()});
             if(!Current(snapshot,at)){status.Text="描述或需求已变化，未采用旧的整理结果；可以重新检索。";return;}
-            requirements=Clone(parsed["requirements"] as JObject??new());loading=true;try{requirementsEditor.LoadPreservingEdits(requirements);}finally{loading=false;}
+            requirements=Clone(parsed["requirements"] as JObject??new());loading=true;try{requirementsEditor.LoadPreservingEdits(requirements);requirementsEditor.ApplyDefaultTeamSize(TeamPlanningUi.Int(requirements["team_size"])??3);requirements=requirementsEditor.Read();}finally{loading=false;}
             RenderClarifications(parsed);researchContext="";generation++;snapshot=Snapshot();at=generation;
+            overrides=ReadPlanningOverrides();
             var command=new JObject{["action"]="team_guides_retrieve",["requirements"]=requirementsEditor.Read(),["request_text"]=description.Text??"",["guide_urls"]=new JArray(TeamPlanningUi.Tokens(guideUrls.Text)),["allow_network"]=allowNetwork};if(overrides.Properties().Any())command["overrides"]=overrides.DeepClone();
             var response=await request(command);if(!Current(snapshot,at)){status.Text="检索期间需求或账号变化，旧结果未采用。";return;}
             if(response["requirements"] is JObject canonical){requirements=Clone(canonical);loading=true;try{requirementsEditor.LoadPreservingEdits(requirements);}finally{loading=false;}}
@@ -122,14 +160,23 @@ public sealed partial class TeamPlanningView : UserControl
     }
     private void RenderResearch(JObject response)
     {
-        sources.Children.Clear();sourceChoices.Clear();var facts=(response["facts"] as JArray??new()).OfType<JObject>().ToArray();if(facts.Length>0){var factBody=new StackPanel{Spacing=5};foreach(var fact in facts){factBody.Children.Add(TeamPlanningUi.Title(TeamPlanningUi.Str(fact["title"]),13));factBody.Children.Add(TeamPlanningUi.Note(TeamPlanningUi.Str(fact["snippet"])));factBody.Children.Add(TeamPlanningUi.Note("日期："+(TeamPlanningUi.Str(fact["date"]) is string date&&date.Length>0?date:"未标注")+" · 适用性："+TeamPlanningUi.Str(fact["applicability"]?["status"])));}sources.Children.Add(new Expander{Header="本地事实（非攻略）",Content=factBody,IsExpanded=false});}
+        var selected=sourceChoices.Where(x=>x.Value.IsChecked==true).Select(x=>x.Key).ToHashSet(StringComparer.Ordinal);
+        sources.Children.Clear();sourceChoices.Clear();
+        var facts=(response["facts"] as JArray??new()).OfType<JObject>().ToArray();
+        if(facts.Length>0){var factsBody=new StackPanel{Spacing=6};foreach(var fact in facts){factsBody.Children.Add(TeamPlanningUi.Title(TeamPlanningUi.Str(fact["title"]),13));factsBody.Children.Add(TeamPlanningUi.Note(TeamPlanningUi.Str(fact["snippet"])));}sources.Children.Add(new Expander{Header=$"本地参考 · {facts.Length} 项（展开查看）",Content=factsBody,IsExpanded=false});}
         foreach(var row in (response["guides"] as JArray??new()).OfType<JObject>()){
-            var id=TeamPlanningUi.Str(row["source_id"]);var applicability=row["applicability"] as JObject;var state=TeamPlanningUi.Str(applicability?["status"]);var body=new StackPanel{Spacing=4};var check=new CheckBox{Name="TeamSourceSelect",Content=TeamPlanningUi.Str(row["title"]),IsChecked=false,IsEnabled=id.Length>0};if(id.Length>0){sourceChoices[id]=check;check.IsCheckedChanged+=(_,_)=>Invalidate("采用的证据已变化，可重新生成团队方案。",false);}body.Children.Add(check);
-            var scope=TeamPlanningUi.Str(row["content_scope"]) switch{"public_page_text"=>"已取得公开页面文字","video_page_metadata_only"=>"仅视频页面资料，未读取视频内容","search_metadata_only"=>"仅搜索摘要，未读取正文",_=>"正文取得情况待核对"};body.Children.Add(TeamPlanningUi.Note(scope));
-            body.Children.Add(TeamPlanningUi.Note("日期："+(TeamPlanningUi.Str(row["date"]) is string date&&date.Length>0?date:"未标注")+" · 服务器："+TeamPlanningUi.Str(row["server"])+" · 适用性："+(state.Length>0?state:"待核对")));body.Children.Add(TeamPlanningUi.Note(TeamPlanningUi.Str(row["snippet"])));body.Children.Add(TeamPlanningUi.Note(TeamPlanningUi.Str(row["url"])));
-            var reasons=TeamPlanningUi.Lines(applicability?["reasons"]);if(reasons.Length>0)body.Children.Add(TeamPlanningUi.Note(reasons));sources.Children.Add(TeamPlanningUi.Card(body));
+            var id=TeamPlanningUi.Str(row["source_id"]);var applicability=row["applicability"] as JObject;
+            var title=TeamPlanningUi.Note(TeamPlanningUi.Str(row["title"]));title.FontWeight=FontWeight.SemiBold;title.MaxLines=2;title.TextTrimming=TextTrimming.CharacterEllipsis;
+            var check=new CheckBox{Name="TeamSourceSelect",Content=title,IsChecked=selected.Contains(id),IsEnabled=id.Length>0,HorizontalContentAlignment=HorizontalAlignment.Stretch};
+            if(id.Length>0){sourceChoices[id]=check;check.IsCheckedChanged+=(_,_)=>Invalidate("采用的资料已变化；可直接重新生成。",false);}
+            var scope=TeamPlanningUi.Str(row["content_scope"]) switch{"public_page_text"=>"网页正文","video_page_metadata_only"=>"仅视频标题 / 简介","search_metadata_only"=>"仅搜索摘要",_=>"内容范围待核对"};
+            var date=TeamPlanningUi.Str(row["date"]);var body=new StackPanel{Spacing=5};body.Children.Add(check);body.Children.Add(TeamPlanningUi.Note(scope+" · "+(date.Length>0?date:"日期未标注")));
+            var detail=new StackPanel{Spacing=5};detail.Children.Add(TeamPlanningUi.Note("页面摘要："+TeamPlanningUi.Str(row["snippet"])));detail.Children.Add(TeamPlanningUi.Note("链接："+TeamPlanningUi.Str(row["url"])));
+            var server=TeamPlanningUi.Str(row["server"]) switch{"cn"=>"国服","jp"=>"日服","tw"=>"台服",_=>"未标注"};detail.Children.Add(TeamPlanningUi.Note("来源服务器："+server+"；具体适用条件请结合资料日期核对。"));
+            var reasons=TeamPlanningUi.Lines(applicability?["reasons"]);if(reasons.Length>0)detail.Children.Add(TeamPlanningUi.Note(reasons));
+            body.Children.Add(new Expander{Name="TeamSourceDetails",Header="查看摘要、链接与适用范围",Content=detail,IsExpanded=false});sources.Children.Add(TeamPlanningUi.Card(body));
         }
-        foreach(var error in (response["errors"] as JArray??new()))sources.Children.Add(TeamPlanningUi.Note("检索提示："+(error is JObject row?TeamPlanningUi.Str(row["message"]):TeamPlanningUi.Str(error))));foreach(var missing in (response["missing_data"] as JArray??new()))sources.Children.Add(TeamPlanningUi.Note("资料待补："+TeamPlanningUi.Str(missing)));
-        if(sourceChoices.Count==0)sources.Children.Add(TeamPlanningUi.Note("当前没有可采用的攻略证据。可用本地事实做参考方案，或补充链接后重试。"));
+        foreach(var error in (response["errors"] as JArray??new()))sources.Children.Add(TeamPlanningUi.Note("读取提示："+(error is JObject row?TeamPlanningUi.Str(row["message"]):TeamPlanningUi.Str(error))));
+        if(sourceChoices.Count==0)sources.Children.Add(TeamPlanningUi.Note("未选攻略也可以继续；将用本地资料生成带未知条件的参考方案。"));
     }
 }

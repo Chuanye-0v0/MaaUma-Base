@@ -35,6 +35,10 @@ def execute(options, *, endpoint, adb_path, output, emit, stop, resume_from=None
                 return receipt
             device.step = menu_step
             result = run_loh(endpoint=endpoint, adb_path=adb_path, output=output, emit=emit, stop=stop, options=options, resume_from=resume_from, device=device)
+            if result.get('status') in {'failed', 'cancelled'} and result.get('pending') is False and ((result.get('last_observation') or {}).get('page') not in {'home', 'races', 'events'}):
+                book = json.loads(journal.read_text(encoding='utf8'))
+                if book.get('loh_context_verified') is True:
+                    result.update(pending=True, pending_kind='loh_navigation', ticket_entry_pending=False)
             result['screenshot_retention'] = screenshots.finish(result, complete=bool(result.get('game_task_complete')))
             return result
     except Exception as error:
@@ -74,6 +78,14 @@ def observe(frame, ocr_items=None):
     from core.loh.observer import observe as observe_loh
     menu = menu_entries(frame, ocr_items or [])
     if menu is None:
+        import cv2
+        from core.limited_legend.observer import observe as observe_navigation
+        raw = cv2.imencode('.png', frame)[1].tobytes()
+        navigation = observe_navigation(raw, frame, ocr_items or [])
+        page = navigation.get('page')
+        action = {'home': 'open_races', 'races': 'open_events'}.get(page)
+        if action and action in navigation.get('actions', {}):
+            return dict(page=page, actions={action: navigation['actions'][action]}, reason='shared_verified_' + page + '_navigation')
         return observe_loh(frame, ocr_items=ocr_items)
     if menu.get('loh_available') is False:
         return dict(menu, page='loh_closed', actions={}, reason='named_loh_card_closed')

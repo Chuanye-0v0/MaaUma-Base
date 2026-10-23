@@ -27,11 +27,11 @@ def pager_identity(image):
     index = next((i + 1 for i, dot in enumerate(dots) if dot[2]))
     return dict(page_index=index, page_count=len(dots))
 
-def detect(image, tokens=()):
+def detect(image, tokens=(), *, footer_top=970):
     pager = pager_identity(image)
     if pager is None:
         return None
-    footer = ''.join((re.sub('\\s+', '', t['text']) for t in tokens if t.get('confidence', 0) >= 0.8 and t['bbox'][1] >= 970))
+    footer = ''.join((re.sub('\\s+', '', t['text']) for t in tokens if t.get('confidence', 0) >= 0.8 and t['bbox'][1] >= footer_top))
     if re.search('是否|确定要|确认|购买|消耗|支付|充值|付费|密码|验证码|协议|连接|重试', footer):
         return None
     matches = []

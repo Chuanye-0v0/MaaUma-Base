@@ -1,7 +1,7 @@
 """Identify available event cards by their current labels, never by a fixed slot."""
 import re
 import unicodedata
-NAMES = {'legend': {'传奇赛事', '限时传奇赛'}, 'champions': {'群英联赛'}, 'loh': {'限时英雄赛', '英雄联赛', '限时群英联赛', 'LEAGUEOFHEROES'}}
+NAMES = {'legend': {'传奇赛事', '限时传奇赛'}, 'champions': {'群英联赛'}, 'loh': {'限时英雄赛', '英雄联赛', '限时群英联赛', '英杰集结战', 'LEAGUEOFHEROES'}}
 
 def menu_entries(image, tokens):
     if image.shape[:2] != (1280, 720):
@@ -16,6 +16,8 @@ def menu_entries(image, tokens):
         labels = [t for t in good if t['text'] in names and 40 <= t['bbox'][0] < t['bbox'][2] <= 680 and (top < t['bbox'][1] < t['bbox'][3] <= 1170)]
         captions = []
         for label in labels:
+            if kind == 'loh' and label.get('enabled') is False:
+                continue
             x, y, r, b = label['bbox']
             band = image[max(0, y - 3):min(1280, b + 8), max(0, x - 20):min(720, r + 20)]
             if band.size and float((band.min(axis=2) > 205).mean()) > 0.45:
