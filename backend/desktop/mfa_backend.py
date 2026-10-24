@@ -86,7 +86,7 @@ def release_retryable_attempt(root, endpoint, *, request_task=None, request_opti
             if len(relative.parts) != 2 or relative.parts[-1] != attempt.get('task') or attempt.get('endpoint') != endpoint:
                 return False
             result = json.loads((output / 'adapter_result.json').read_text(encoding='utf8'))
-            if attempt.get('task') == 'loh':
+            if attempt.get('task') in {'loh', 'guild_daily'}:
                 return False
             if attempt.get('task') == 'batch' and attempt.get('options', {}).get('settle_current_checkpoint_then_yield') is True and (not verified_checkpoint_yield(attempt.get('options', {}), result, endpoint)) and (not (request_task == 'batch' and request_options == attempt.get('options') and failed_checkpoint_retry(request_options, result, endpoint))):
                 return False
@@ -101,9 +101,12 @@ def release_retryable_attempt(root, endpoint, *, request_task=None, request_opti
             return True
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return False
-TASK_OPTIONS = {'story_event': {}, 'daily_rewards': {}, 'cleanup': {}, 'plant': {'trainee': 'scarlet'}, 'harvest': {'learn_skills': True, 'update_team': True, 'return_home': False, 'refine_skills': False, 'skill_recheck_min_pt': 60}, 'jjc': {'prefer_rematch': True, 'prefer_gift': False}, 'activities': {'races': True}, 'daily_legend': {'opponent_number': 0}, 'limited_legend': {}, 'loh': {'max_entries': None, 'fill_empty_team': False}, 'champions_registration': {'division': None}, 'champions_race': {'rounds': 4, 'normal_only': False, 'allow_final_jewels': False, 'allow_jewels': False, 'division': None}}
+TASK_OPTIONS = {'story_event': {}, 'daily_rewards': {}, 'cleanup': {}, 'plant': {'trainee': 'scarlet'}, 'harvest': {'learn_skills': True, 'update_team': True, 'return_home': False, 'refine_skills': False, 'skill_recheck_min_pt': 60}, 'jjc': {'prefer_rematch': True, 'prefer_gift': False}, 'activities': {'races': True}, 'daily_legend': {'opponent_number': 0}, 'limited_legend': {}, 'loh': {'max_entries': None, 'fill_empty_team': False}, 'champions_registration': {'division': None}, 'champions_race': {'rounds': 4, 'normal_only': False, 'allow_final_jewels': False, 'allow_jewels': False, 'division': None}, 'guild_daily': {'donate': True, 'request_item': 'short'}}
 
 def validate_options(task, options):
+    if task == 'guild_daily':
+        from core.guild_daily import validate_options as validate_guild
+        return validate_guild(options)
     if task == 'loh':
         from desktop.mfa_loh import validate_options as validate_loh
         return validate_loh(options)
@@ -157,7 +160,7 @@ def validate_options(task, options):
 def execute_current(task, options, **kwargs):
     if kwargs.get('resume_deferred_harvest'):
         raise RuntimeError('public_private_deferred_harvest_not_supported')
-    if task == 'loh':
+    if task in {'loh', 'guild_daily'}:
         return _execute_current(task, options, **kwargs)
     if any((kwargs.get(key) is not None for key in ('resume_factor_choice_proof', 'verify_factor_choice_owner', 'verify_factor_choice_account'))):
         raise RuntimeError('public_private_resume_proof_not_supported')
@@ -204,7 +207,7 @@ def execute_current(task, options, **kwargs):
                 result['session_recovery'] = dict(ok=False, reason=str(error))
     return result
 
-def _execute_current(task, options, *, endpoint, adb_path, output, skill_database, emit, stop, resume_finish_result=None, resume_harvest_summary=None, resume_harvest_from=None, resume_deferred_harvest=False, resume_activities_from=None, resume_plant_from=None, resume_plant_setup_from=None, recovery_harvest_options=None, resume_jjc_from=None, resume_story_event_from=None, resume_settlement_from=None, resume_legend_from=None, resume_registration_from=None, resume_limited_from=None, resume_champions_race_from=None, recover_connection=None, auto_restart_game=True, verify_limited_account=None, verify_restart_account=None, verify_resume_owner=None, restart_from=None, restart_account_verified=False, resume_factor_choice_proof=None, resume_loh_from=None):
+def _execute_current(task, options, *, endpoint, adb_path, output, skill_database, emit, stop, resume_finish_result=None, resume_harvest_summary=None, resume_harvest_from=None, resume_deferred_harvest=False, resume_activities_from=None, resume_plant_from=None, resume_plant_setup_from=None, recovery_harvest_options=None, resume_jjc_from=None, resume_story_event_from=None, resume_settlement_from=None, resume_legend_from=None, resume_registration_from=None, resume_limited_from=None, resume_champions_race_from=None, recover_connection=None, auto_restart_game=True, verify_limited_account=None, verify_restart_account=None, verify_resume_owner=None, restart_from=None, restart_account_verified=False, resume_factor_choice_proof=None, resume_loh_from=None, resume_guild_from=None):
     if resume_deferred_harvest:
         raise RuntimeError('public_private_deferred_harvest_not_supported')
     if resume_factor_choice_proof is not None:
@@ -465,6 +468,9 @@ def _execute_current(task, options, *, endpoint, adb_path, output, skill_databas
         device = ChampionsRaceDevice(endpoint, adb_path, output)
         device.connect()
         result = ChampionsRaceRunner(device, emit, stop, prepare_entry=lambda: prepare_task_entry(device, stop, emit), max_rounds=options['rounds'], allow_final_jewels=options['allow_final_jewels'], allow_jewels=options['allow_jewels'], verify_resume_account=verify_restart_account).run(resume_from=resume_champions_race_from, restart_task=True)
+    elif task == 'guild_daily':
+        from desktop.mfa_guild_daily import execute as execute_guild
+        return execute_guild(options, endpoint=endpoint, adb_path=adb_path, output=output, emit=emit, stop=stop, resume_from=resume_guild_from)
     elif task == 'loh':
         from desktop.mfa_loh import execute as execute_loh
         return execute_loh(options, endpoint=endpoint, adb_path=adb_path, output=output, emit=emit, stop=stop, resume_from=resume_loh_from)
@@ -576,9 +582,14 @@ class CurrentAccountBackend:
         if task == 'loh':
             from desktop.mfa_loh import active_source
             loh_source = active_source(self.root, options, self.endpoint)
-        output = loh_source or self.root / str(time.time_ns()) / task
+        guild_source = None
+        if task == 'guild_daily':
+            from desktop.mfa_guild_daily import active_source as guild_active_source
+            guild_source = guild_active_source(self.root, options, self.endpoint)
+        owner_source = loh_source or guild_source
+        output = owner_source or self.root / str(time.time_ns()) / task
         active = self.root / 'active.json'
-        if loh_source is None:
+        if owner_source is None:
             try:
                 with active.open('x', encoding='utf8') as stream:
                     json.dump(dict(task=task, endpoint=self.endpoint, output=str(output), options=options), stream)
@@ -586,13 +597,15 @@ class CurrentAccountBackend:
                 return {**base, 'reason': 'mfa_active_attempt_requires_review', 'device_actions': 0}
         elif (output / 'backend_result.json').is_file():
             (output / ('previous-result-' + str(time.time_ns()) + '.json')).write_bytes((output / 'backend_result.json').read_bytes())
-        output.mkdir(parents=True, exist_ok=loh_source is not None)
+        output.mkdir(parents=True, exist_ok=owner_source is not None)
         from contextlib import nullcontext
         from core.passive_popup_runtime import PassivePopupSession
         popup_scope = PassivePopupSession(self.endpoint, stop) if task != 'batch' else nullcontext()
         try:
             with popup_scope as popups:
                 resume_options = {'resume_loh_from': loh_source} if loh_source is not None else {}
+                if guild_source is not None:
+                    resume_options['resume_guild_from'] = guild_source
                 result = self.executor(task, options, endpoint=self.endpoint, adb_path=self.adb_path, output=output, skill_database=self.skill_database, emit=emit, stop=stop, **resume_options)
                 if popups is not None:
                     popups.annotate(result)
@@ -626,6 +639,12 @@ class CurrentAccountBackend:
             elif task == 'champions_race':
                 observed = result.get('last_observation', {})
                 complete = complete and result.get('reason') in {'champions_race_home_verified', 'champions_race_available_entries_finished'} and (result.get('pending') is False and result.get('pending_matches') == 0 and (type(result.get('completed_rounds')) is int) and (0 <= result['completed_rounds'] <= 4) and (result['completed_rounds'] >= options['rounds'] or (result.get('reason') == 'champions_race_available_entries_finished' and result.get('skipped') is True and (result.get('limit_reason') == 'free_tickets_exhausted'))) and (observed.get('page') == 'home') and (observed.get('endpoint') == self.endpoint))
+            elif task == 'guild_daily':
+                from desktop.mfa_guild_daily import classify as classify_guild
+                guild_receipt = classify_guild(result, self.endpoint)
+                complete = complete and guild_receipt['game_task_complete']
+                accepted_skip = guild_receipt['skip_verified']
+                result.update(guild_receipt)
             elif task == 'loh':
                 from desktop.mfa_loh import classify
                 loh_receipt = classify(result, self.endpoint)
@@ -678,7 +697,7 @@ class CurrentAccountBackend:
             result['pending'] = not result['pre_entry_verified']
         if task in {'champions_registration', 'champions_race'} and (not result.get('game_task_complete')):
             result.setdefault('pending', True)
-        if task == 'loh':
+        if task in {'loh', 'guild_daily'}:
             result.setdefault('pending', True)
             if result.get('pending') or result.get('account_conflict') or stop.is_set():
                 result['queue_continue'] = False

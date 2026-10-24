@@ -6,14 +6,13 @@ import subprocess
 import sys
 import tempfile
 import time
-
 PACKAGE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE / 'backend'))
 NATIVE = PACKAGE / 'runtimes/win-x64/native'
 os.environ['PATH'] = str(NATIVE) + os.pathsep + str(PACKAGE / 'libs') + os.pathsep + os.environ.get('PATH', '')
 
-
 class ProcessBackend:
+
     def __init__(self):
         self.root = PACKAGE / 'runs/jobs'
 
@@ -28,7 +27,6 @@ class ProcessBackend:
             from desktop.maauma_error_feedback import record_task_failure
             record_task_failure(PACKAGE, task, result, directory.name)
         except Exception:
-            # Reporting is optional and cannot change the task outcome.
             pass
 
     def run(self, task, options, emit, stop, *, execute=False):
@@ -36,68 +34,61 @@ class ProcessBackend:
         check_task(task)
         if stop.is_set():
             return dict(ok=False, reason='operator_stop', game_task_complete=False, device_actions=0)
-        connection = json.loads((PACKAGE/'config/public-connection.json').read_text(encoding='utf8'))
+        connection = json.loads((PACKAGE / 'config/public-connection.json').read_text(encoding='utf8'))
         self.root.mkdir(parents=True, exist_ok=True)
         directory = Path(tempfile.mkdtemp(prefix='job-', dir=self.root))
-        request = directory/'request.json'
-        request.write_text(json.dumps(dict(task=task, options=options, execute=execute,
-            connection=connection, parent_pid=os.getpid()), ensure_ascii=False), encoding='utf8')
-        command = [str(PACKAGE/'runtime/python.exe'), '-B', '-X', 'utf8',
-                   str(PACKAGE/'backend/scripts/umaa_public_worker.py'), str(request)]
-        with subprocess.Popen(command, cwd=PACKAGE, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0)) as worker:
+        request = directory / 'request.json'
+        request.write_text(json.dumps(dict(task=task, options=options, execute=execute, connection=connection, parent_pid=os.getpid()), ensure_ascii=False), encoding='utf8')
+        command = [str(PACKAGE / 'runtime/python.exe'), '-B', '-X', 'utf8', str(PACKAGE / 'backend/scripts/umaa_public_worker.py'), str(request)]
+        with subprocess.Popen(command, cwd=PACKAGE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)) as worker:
             offset = 0
             while True:
                 exited = worker.poll() is not None
                 if stop.is_set():
-                    (directory/'stop').touch(exist_ok=True)
-                events = directory/'events.jsonl'
+                    (directory / 'stop').touch(exist_ok=True)
+                events = directory / 'events.jsonl'
                 if events.exists():
                     with events.open('rb') as stream:
                         stream.seek(offset)
                         while True:
-                            position = stream.tell(); line = stream.readline()
+                            position = stream.tell()
+                            line = stream.readline()
                             if not line or not line.endswith(b'\n'):
-                                offset = position; break
+                                offset = position
+                                break
                             offset = stream.tell()
                             try:
                                 emit(json.loads(line))
                             except Exception:
-                                (directory/'stop').touch(exist_ok=True)
+                                (directory / 'stop').touch(exist_ok=True)
                                 raise
                 if exited:
                     break
-                time.sleep(.1)
-        result = directory/'result.json'
+                time.sleep(0.1)
+        result = directory / 'result.json'
         if not result.is_file():
-            answer = dict(ok=False, reason='worker_result_missing', game_task_complete=False,
-                          device_action_count_complete=False)
+            answer = dict(ok=False, reason='worker_result_missing', game_task_complete=False, device_action_count_complete=False)
             self._remember_failure(task, answer, directory)
             return answer
         answer = json.loads(result.read_text(encoding='utf8'))
         self._remember_failure(task, answer, directory)
         return answer
 
-
 def main():
     if sys.argv[1:] == ['--self-test']:
         from desktop.umaa_public_context import self_test
-        print(json.dumps(self_test(), ensure_ascii=False)); return 0
+        print(json.dumps(self_test(), ensure_ascii=False))
+        return 0
     from maa.agent.agent_server import AgentServer
     from maa.toolkit import Toolkit
     from maa.library import Library
     from mfa_action import BackendTaskAction
     from desktop.umaa_public_context import TASKS
-    # This is the bundled native SDK, not an emulator manufacturer's DLL.
     Library.open(NATIVE, agent_server=True)
     backend = ProcessBackend()
-    names = {'plant':'UmaPlant','harvest':'UmaHarvest','jjc':'UmaJjc','activities':'UmaActivities',
-        'daily_legend':'UmaDailyLegend','limited_legend':'UmaLimitedLegend','loh':'UmaLoh',
-        'champions_registration':'UmaChampionsRegistration','champions_race':'UmaChampionsRace',
-        'story_event':'UmaStoryEvent','daily_rewards':'UmaDailyRewards','cleanup':'UmaCleanup',
-        'seed_cycle':'UmaSeedCycle'}
+    names = {'plant': 'UmaPlant', 'harvest': 'UmaHarvest', 'jjc': 'UmaJjc', 'activities': 'UmaActivities', 'daily_legend': 'UmaDailyLegend', 'limited_legend': 'UmaLimitedLegend', 'loh': 'UmaLoh', 'champions_registration': 'UmaChampionsRegistration', 'champions_race': 'UmaChampionsRace', 'story_event': 'UmaStoryEvent', 'daily_rewards': 'UmaDailyRewards', 'cleanup': 'UmaCleanup', 'seed_cycle': 'UmaSeedCycle', 'guild_daily': 'UmaGuildDaily'}
     for task in TASKS:
-        AgentServer.register_custom_action(names[task]+'BackendLive', BackendTaskAction(backend, task, execute=True))
+        AgentServer.register_custom_action(names[task] + 'BackendLive', BackendTaskAction(backend, task, execute=True))
     if len(sys.argv) != 2:
         return 2
     Toolkit.init_option(str(PACKAGE))
@@ -107,7 +98,5 @@ def main():
     finally:
         AgentServer.shut_down()
     return 0
-
-
 if __name__ == '__main__':
     raise SystemExit(main())

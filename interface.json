@@ -1,7 +1,7 @@
 {
   "interface_version": 2,
   "name": "MaaUma 普通版",
-  "version": "0.4.37",
+  "version": "0.4.38",
   "rid": "umaa-public",
   "icon": "resource/umaa-hishi-miracle.png",
   "controller": [
@@ -83,6 +83,16 @@
       "default_check": false,
       "option": [],
       "description": "账号日活收尾：活动任务领奖、未读剧情奖励、8行连续转盘，轮盘币不足即结束。不购买资源。"
+    },
+    {
+      "name": "社团日活",
+      "entry": "UmaGuildDaily",
+      "default_check": false,
+      "option": [
+        "社团捐赠",
+        "社团请求鞋子"
+      ],
+      "description": "领取收到的跑鞋，向团友捐赠现有跑鞋，并按设置发起请求。未入团、请求冷却、无可捐赠时正常返回主页；不买道具、不申请或退出社团。"
     },
     {
       "name": "每日任务领奖／礼物箱",
@@ -3423,6 +3433,98 @@
             "UmaLoh": {
               "custom_action_param": {
                 "fill_empty_team": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "社团捐赠": {
+      "type": "select",
+      "default_case": "开启",
+      "cases": [
+        {
+          "name": "开启",
+          "pipeline_override": {
+            "UmaGuildDaily": {
+              "custom_action_param": {
+                "donate": true
+              }
+            }
+          }
+        },
+        {
+          "name": "关闭",
+          "pipeline_override": {
+            "UmaGuildDaily": {
+              "custom_action_param": {
+                "donate": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "社团请求鞋子": {
+      "type": "select",
+      "default_case": "短距离跑鞋",
+      "cases": [
+        {
+          "name": "不发请求",
+          "pipeline_override": {
+            "UmaGuildDaily": {
+              "custom_action_param": {
+                "request_item": "none"
+              }
+            }
+          }
+        },
+        {
+          "name": "短距离跑鞋",
+          "pipeline_override": {
+            "UmaGuildDaily": {
+              "custom_action_param": {
+                "request_item": "short"
+              }
+            }
+          }
+        },
+        {
+          "name": "英里跑鞋",
+          "pipeline_override": {
+            "UmaGuildDaily": {
+              "custom_action_param": {
+                "request_item": "mile"
+              }
+            }
+          }
+        },
+        {
+          "name": "中距离跑鞋",
+          "pipeline_override": {
+            "UmaGuildDaily": {
+              "custom_action_param": {
+                "request_item": "middle"
+              }
+            }
+          }
+        },
+        {
+          "name": "长距离跑鞋",
+          "pipeline_override": {
+            "UmaGuildDaily": {
+              "custom_action_param": {
+                "request_item": "long"
+              }
+            }
+          }
+        },
+        {
+          "name": "泥地跑鞋",
+          "pipeline_override": {
+            "UmaGuildDaily": {
+              "custom_action_param": {
+                "request_item": "dirt"
               }
             }
           }

@@ -1,8 +1,8 @@
 {
   "edition": "standard",
-  "version": "0.4.37",
+  "version": "0.4.38",
   "base": "E:\\uma\\.worktrees\\account-cycle-card-desktop-e\\integrations\\maauma-0426-next\\gui\\standard",
-  "project": "E:\\uma\\.worktrees\\account-cycle-card-desktop-e\\integrations\\maauma-release-0437-next\\gui\\standard\\MFAAvalonia\\MFAAvalonia.csproj",
+  "project": "E:\\uma\\.worktrees\\account-cycle-card-desktop-e\\integrations\\maauma-release-0438-next\\gui\\standard\\MFAAvalonia\\MFAAvalonia.csproj",
   "activation_shared": true,
   "pacer_controls": false,
   "source_projection_reused": false,
@@ -14,6 +14,6 @@
   "download_source_selection": true,
   "event_boost_interface_option": true,
   "stop_screenshot_repair": false,
-  "formal_stage_source": "E:\\uma\\.worktrees\\account-cycle-card-desktop-e\\integrations\\maauma-release-0436-next\\gui\\standard",
+  "formal_stage_source": "E:\\uma\\.worktrees\\account-cycle-card-desktop-e\\integrations\\maauma-release-0437-next\\gui\\standard",
   "personal_binary_reused": false
 }

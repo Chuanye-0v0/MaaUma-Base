@@ -1,7 +1,11 @@
 {
   "schema_version": "maauma.external_resources.v1",
-  "version": "0.4.37",
+  "version": "0.4.38",
   "files": [
+    "MaaUma.Entry.deps.json",
+    "MaaUma.Entry.dll",
+    "MaaUma.Entry.runtimeconfig.json",
+    "MaaUma.exe",
     "agent/main.py",
     "agent/mfa_action.py",
     "backend/core/account_inventory/assets/title_logo.png",
@@ -102,6 +106,10 @@
     "backend/core/daily_legend/assets/rank-suffix.png",
     "backend/core/daily_legend/assets/trophy-close.png",
     "backend/core/daily_legend/assets/trophy-title.png",
+    "backend/core/guild_daily/assets/guild-donation-list-icon.png",
+    "backend/core/guild_daily/assets/guild-request-icon.png",
+    "backend/core/guild_daily/assets/locked.png",
+    "backend/core/guild_daily/assets/unlocked.png",
     "backend/core/jjc/assets/next.png",
     "backend/core/jjc/assets/skip.png",
     "backend/core/page_assets/anchors.json",

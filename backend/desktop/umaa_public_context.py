@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import re
 PRODUCT_ID = 'umaa-public'
-TASKS = ('harvest', 'jjc', 'story_event', 'plant', 'daily_legend', 'activities', 'daily_rewards', 'limited_legend', 'champions_registration', 'champions_race', 'loh', 'cleanup', 'seed_cycle')
+TASKS = ('harvest', 'jjc', 'story_event', 'plant', 'daily_legend', 'activities', 'daily_rewards', 'limited_legend', 'champions_registration', 'champions_race', 'loh', 'cleanup', 'seed_cycle', 'guild_daily')
 
 def backend_root():
     return Path(__file__).resolve().parents[1]
