@@ -203,7 +203,7 @@ def dispatch_team(request, *, root=None, account_book_path=None, relations_path=
         private.extend((text for row in accounts for text in (row['id'], row['label'])))
         bundle = build_team_context(req, evidence, catalog, resource, private_values=private, request_text=team.get('request_text', '') if team else request.get('request_text', ''))
         if team is None:
-            transport = transport_factory(profile, home) if transport_factory else pedigree.OpenAIPlanningTransport(profile, home, system_prompt=TEAM_SYSTEM_PROMPT + TEAM_COMPACT_OUTPUT, max_tokens=TEAM_OUTPUT_TOKENS, max_timeout_seconds=TIMEOUT_SECONDS)
+            transport = transport_factory(profile, home) if transport_factory else pedigree.OpenAIPlanningTransport(profile, home, system_prompt=TEAM_SYSTEM_PROMPT + TEAM_COMPACT_OUTPUT, max_tokens=TEAM_OUTPUT_TOKENS, max_timeout_seconds=TIMEOUT_SECONDS, deepseek_max_tokens=pedigree.DEEPSEEK_OUTPUT_TOKENS)
             reply = transport.propose(bundle['payload'], timeout_seconds=TIMEOUT_SECONDS)
             revisions = _check_current(root, account, revisions, token, inventory_loader)
             team = validate_team_reply(reply, bundle, research_id=research_id, context_revisions=revisions)
@@ -229,7 +229,7 @@ def dispatch_team(request, *, root=None, account_book_path=None, relations_path=
         seed_bundle['payload']['team_evidence'] = [deepcopy(row) for row in bundle['payload']['evidence'] if row['source_id'] in member['source_ids']]
         seed_bundle['payload']['team_preferences'] = bundle['request_text']
         factory = seed_transport_factory or transport_factory
-        transport = factory(profile, home) if factory else pedigree.OpenAIPlanningTransport(profile, home, system_prompt=pedigree.SYSTEM_PROMPT + '还要依据confirmed_team_member中的多适性与技能继承路线给出草稿，所有已知缺口由本地重新核验。', max_tokens=6000, max_timeout_seconds=TIMEOUT_SECONDS)
+        transport = factory(profile, home) if factory else pedigree.OpenAIPlanningTransport(profile, home, system_prompt=pedigree.SYSTEM_PROMPT + '还要依据confirmed_team_member中的多适性与技能继承路线给出草稿，所有已知缺口由本地重新核验。', max_tokens=6000, max_timeout_seconds=TIMEOUT_SECONDS, deepseek_max_tokens=pedigree.DEEPSEEK_OUTPUT_TOKENS)
         reply = transport.propose(seed_bundle['payload'], timeout_seconds=TIMEOUT_SECONDS)
         revisions = _check_current(root, account, revisions, token, inventory_loader)
         evaluate = lambda candidate: evaluate_local_route(library, projected, member['character_id'], candidate, race_catalog=races, aptitude_catalog=aptitudes, characters=list(catalog.characters.values()))
