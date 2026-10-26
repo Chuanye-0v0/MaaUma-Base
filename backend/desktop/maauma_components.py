@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import shutil
 import stat
+import time
 import subprocess
 import sys
 from urllib.parse import urlsplit
@@ -247,11 +248,241 @@ def _base_entry(catalog):
     return {**value,**value.get('package',{})}
 
 
+
+def _live_suite_helpers(root):
+    """Read executable paths only; no command lines, tokens or process control."""
+    if os.name != 'nt':return set()
+    try:
+        import ctypes
+        from ctypes import wintypes as w
+        class Entry(ctypes.Structure):
+            _fields_=[('size',w.DWORD),('usage',w.DWORD),('pid',w.DWORD),('heap',ctypes.c_size_t),
+                      ('module',w.DWORD),('threads',w.DWORD),('parent',w.DWORD),('priority',w.LONG),
+                      ('flags',w.DWORD),('name',w.WCHAR*260)]
+        k=ctypes.WinDLL('kernel32',use_last_error=True)
+        k.CreateToolhelp32Snapshot.argtypes=[w.DWORD,w.DWORD];k.CreateToolhelp32Snapshot.restype=w.HANDLE
+        k.Process32FirstW.argtypes=[w.HANDLE,ctypes.POINTER(Entry)]
+        k.Process32NextW.argtypes=[w.HANDLE,ctypes.POINTER(Entry)]
+        k.OpenProcess.argtypes=[w.DWORD,w.BOOL,w.DWORD];k.OpenProcess.restype=w.HANDLE
+        k.CloseHandle.argtypes=[w.HANDLE]
+        k.QueryFullProcessImageNameW.argtypes=[w.HANDLE,w.DWORD,w.LPWSTR,ctypes.POINTER(w.DWORD)]
+        snapshot=k.CreateToolhelp32Snapshot(2,0)
+        if snapshot==ctypes.c_void_p(-1).value:return None
+        live=set();entry=Entry();entry.size=ctypes.sizeof(entry)
+        try:
+            ok=k.Process32FirstW(snapshot,ctypes.byref(entry))
+            if not ok:return None
+            while ok:
+                if entry.name.lower() in {'python.exe','pythonw.exe'}:
+                    process=k.OpenProcess(0x1000,False,entry.pid)
+                    if not process:return None
+                    if process:
+                        try:
+                            name=ctypes.create_unicode_buffer(32768);size=w.DWORD(len(name))
+                            if k.QueryFullProcessImageNameW(process,0,name,ctypes.byref(size)):
+                                path=Path(name.value).resolve()
+                                if path.is_relative_to(root/'updates/suite-staged'):
+                                    live.add(path.relative_to(root/'updates/suite-staged').parts[0])
+                            else:return None
+                        finally:k.CloseHandle(process)
+                ok=k.Process32NextW(snapshot,ctypes.byref(entry))
+                if not ok and ctypes.get_last_error()!=18:return None
+        finally:k.CloseHandle(snapshot)
+        return live
+    except Exception:return None
+
+
+def _stage_size(stage,deadline):
+    info=stage.lstat()
+    if stat.S_ISLNK(info.st_mode) or getattr(info,'st_file_attributes',0)&0x400:return None
+    total=0;pending=[stage]
+    while pending:
+        if time.monotonic()>deadline:return None
+        directory=pending.pop()
+        with os.scandir(updates.transaction_io_path(directory)) as entries:
+            for entry in entries:
+                info=entry.stat(follow_symlinks=False)
+                if stat.S_ISLNK(info.st_mode) or getattr(info,'st_file_attributes',0)&0x400:return None
+                if stat.S_ISDIR(info.st_mode):pending.append(Path(entry.path))
+                elif stat.S_ISREG(info.st_mode):total+=info.st_size
+                else:return None
+    return total
+
+
+def _download_owner_exited(pid):
+    """False includes uncertainty; never authorize deletion from access denied."""
+    if type(pid)is not int or pid<1:return False
+    try:
+        if os.name=='nt':
+            import ctypes
+            from ctypes import wintypes as w
+            k=ctypes.WinDLL('kernel32',use_last_error=True)
+            k.OpenProcess.argtypes=[w.DWORD,w.BOOL,w.DWORD];k.OpenProcess.restype=w.HANDLE
+            k.CloseHandle.argtypes=[w.HANDLE];k.GetExitCodeProcess.argtypes=[w.HANDLE,ctypes.POINTER(w.DWORD)]
+            handle=k.OpenProcess(0x1000,False,pid)
+            if not handle:return ctypes.get_last_error()==87
+            try:
+                result=w.DWORD()
+                return bool(k.GetExitCodeProcess(handle,ctypes.byref(result)))and result.value!=259
+            finally:k.CloseHandle(handle)
+        else:
+            try:os.kill(pid,0)
+            except ProcessLookupError:return True
+            except OSError:return False
+    except Exception:pass
+    return False
+
+
+def _unprepared_download_reason(root,stage,names,*,own_call=False):
+    allowed={'download.json','download.json.tmp','ticket.json.tmp','base.zip','pacer.zip',
+             'base-patch.zip','pacer-patch.zip','materialized','recipe-literals'}
+    if names-allowed:return 'prepared_or_unrecognized_content'
+    try:
+        info=(stage/'download.json').lstat()
+        if stat.S_ISLNK(info.st_mode)or getattr(info,'st_file_attributes',0)&0x400:return 'linked_download_owner'
+        marker=updates.read_json(stage/'download.json');pid=marker.get('owner_pid')
+        if(marker.get('schema_version')!='maauma.suite_download.v1'or marker.get('stage_id')!=stage.name
+                or type(pid)is not int or pid<1):return 'download_owner_unidentified'
+        if own_call and pid==os.getpid():return None
+        if not _download_owner_exited(pid):return 'download_owner_active_or_unknown'
+        return None
+    except Exception:return 'download_owner_unreadable'
+
+
+def _discard_failed_preparation(root,stage):
+    """Only this invocation's fresh stage, before ticket/backup/helper exist."""
+    try:
+        if stage.parent!=root/'updates/suite-staged'or not re.fullmatch('[0-9a-f]{32}',stage.name):return
+        for part in(stage,stage.parent,root/'updates'):
+            info=part.lstat()
+            if stat.S_ISLNK(info.st_mode)or getattr(info,'st_file_attributes',0)&0x400:return
+        names={p.name for p in stage.iterdir()}
+        if _unprepared_download_reason(root,stage,names,own_call=True)is not None:return
+        current=root/TRANSACTION
+        if current.exists():
+            info=current.lstat()
+            if stat.S_ISLNK(info.st_mode)or getattr(info,'st_file_attributes',0)&0x400:return
+        if current.is_file()and updates.read_json(current).get('ticket')==str(stage/'ticket.json'):return
+        if _stage_size(stage,time.monotonic()+4)is None:return
+        shutil.rmtree(updates.transaction_io_path(stage))
+    except Exception:pass
+
+
+def _legacy_download_version(stage,names):
+    """Only finished, identifiable old ZIPs are disposable without a ticket."""
+    allowed={'base.zip','pacer.zip','base-patch.zip','pacer-patch.zip','materialized','recipe-literals'}
+    if not names or names-allowed:return None
+    versions=[]
+    for name in sorted(names & {'base.zip','pacer.zip','base-patch.zip','pacer-patch.zip'}):
+        try:
+            with ZipFile(updates.transaction_io_path(stage/name)) as archive:
+                member=('maauma-file-patch.json' if '-patch.' in name else
+                        'public-package-manifest.json' if name=='base.zip' else 'maauma-component-manifest.json')
+                item=archive.getinfo(member)
+                if item.file_size>8*1024*1024:return None
+                value=json.loads(archive.read(item))
+                if value.get('schema_version') not in {'umaa.public_package.v1','maauma.component.v1','maauma.file_patch_manifest.v1'}:return None
+                if value.get('product_id') not in {'umaa-public','uma-cut'}:return None
+                versions.append(updates.version_parts(value.get('base_version',value.get('version'))))
+        except (OSError,ValueError,KeyError,BadZipFile,updates.UpdateError):return None
+    return max(versions) if versions else None
+
+
+def cleanup_staged_updates(root,*,dry_run=False,max_seconds=4.0):
+    """Retire obsolete suite caches, preserving current rollback and live work.
+
+    A previous successful stage or a provably obsolete, unapplied download is
+    reclaimable. Unknown/corrupt stages remain for explicit review. Failure is
+    housekeeping only and never changes authorization or an update outcome.
+    """
+    from contextlib import nullcontext
+    outcome=dict(dry_run=dry_run,removed_stages=0,removed_bytes=0,candidates=[],protected=[],budget_exhausted=False,
+                 byte_count_basis='logical_file_lengths',physical_bytes_released=None)
+    try:
+        supplied=Path(root).absolute()
+        if(supplied/'.git').exists()or(supplied/'.worktrees').exists():return {**outcome,'status':'source_tree_not_a_client'}
+        for path in (supplied,*supplied.parents):
+            if path.exists():
+                attributes=path.lstat()
+                if stat.S_ISLNK(attributes.st_mode) or getattr(attributes,'st_file_attributes',0)&0x400:
+                    return {**outcome,'status':'linked_application_root'}
+        root,_,installed=updates.installation(root)
+        staged=root/'updates/suite-staged';state_path=root/TRANSACTION
+        if not staged.is_dir():return outcome
+        for path in (root/'updates',staged,state_path):
+            if not path.exists():continue
+            attributes=path.lstat()
+            if stat.S_ISLNK(attributes.st_mode) or getattr(attributes,'st_file_attributes',0)&0x400:
+                return {**outcome,'status':'linked_update_state'}
+        deadline=time.monotonic()+max_seconds
+        with nullcontext() if dry_run else updates.installation_lock(root):
+            keep=None;history_allowed=False
+            if state_path.is_file():
+                current=updates.read_json(state_path)
+                if current.get('phase')!='installed' or current.get('base_version')!=installed['version']:return outcome
+                _,keep,ticket=_ticket(root,current.get('ticket'))
+                journal=updates.read_json(keep/'journal.json')
+                if journal.get('phase')!='installed' or ticket.get('base_version')!=installed['version']:return outcome
+                history_allowed=True
+            live=_live_suite_helpers(root)
+            if live is None:return {**outcome,'status':'process_check_unavailable'}
+            state_info=state_path.stat()if state_path.is_file()else None
+            state_token=(state_info.st_dev,state_info.st_ino,state_info.st_size,state_info.st_mtime_ns)if state_info else None
+            owned={'ticket.json','journal.json','base.zip','pacer.zip','base-patch.zip','pacer-patch.zip',
+                   'helper','backup','incoming','retired','materialized','recipe-literals','download.json'}
+            for path in sorted(staged.iterdir()):
+                if time.monotonic()>deadline:outcome['budget_exhausted']=True;break
+                if not path.is_dir() or not re.fullmatch('[0-9a-f]{32}',path.name):continue
+                reason=None
+                if keep is not None and path.name==keep.name:reason='current_rollback'
+                elif path.name in live:reason='live_helper'
+                if reason:outcome['protected'].append({'stage':path.name,'reason':reason});continue
+                try:size=_stage_size(path,deadline)
+                except OSError:size=None
+                if size is None:
+                    outcome['protected'].append({'stage':path.name,'reason':'linked_or_unreadable_stage'});continue
+                names={p.name for p in path.iterdir()}
+                if names-owned:reason='unrecognized_stage_content'
+                elif 'ticket.json' in names:
+                    try:
+                        if not history_allowed:
+                            outcome['protected'].append({'stage':path.name,'reason':'no_installed_history_guard'});continue
+                        _,_,old=_ticket(root,path/'ticket.json')
+                        target=updates.version_parts(old.get('base_version'))
+                        source=updates.version_parts(old.get('from_version'))
+                        version=updates.version_parts(installed['version'])
+                        saved=updates.read_json(path/'journal.json') if 'journal.json'in names else None
+                        if saved is not None and (saved.get('schema_version')!='maauma.suite_transaction.v1' or saved.get('phase')!='installed'):
+                            reason='unfinished_or_failed_transaction'
+                        elif target>version or saved is None and source>=version:reason='current_or_future_prepared_update'
+                        elif saved is None and names & {'backup','incoming','retired'}:reason='uncommitted_program_backup'
+                    except (OSError,ValueError,TypeError,KeyError,updates.UpdateError):reason='unreadable_stage_metadata'
+                else:
+                    if 'download.json'in names:reason=_unprepared_download_reason(root,path,names)
+                    elif not history_allowed:reason='download_owner_unidentified'
+                    else:
+                        target=_legacy_download_version(path,names)
+                        if target is None or target>=updates.version_parts(installed['version']):reason='unidentified_or_current_download'
+                if reason:outcome['protected'].append({'stage':path.name,'reason':reason});continue
+                outcome['candidates'].append({'stage':path.name,'bytes':size})
+                if dry_run:continue
+                info=state_path.stat()if state_path.is_file()else None
+                current_token=(info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns)if info else None
+                if current_token!=state_token:break
+                try:
+                    shutil.rmtree(updates.transaction_io_path(path))
+                    outcome['removed_stages']+=1;outcome['removed_bytes']+=size
+                except OSError:outcome['protected'].append({'stage':path.name,'reason':'remove_failed'})
+    except Exception:outcome['status']='cleanup_unavailable'
+    return outcome
+
+
 def prepare(root,*,mode='pacer',progress=None):
     if progress is not None:progress.stage('checking')
     if mode not in {'pacer','update'}:_error('invalid_update_mode')
     root,name,installed=updates.installation(root)
     if installed['product_id']!='umaa-public':_error('wrong_product')
+    cleanup_staged_updates(root)
     current=state(root);has_pacer='pacer' in current['components']
     private_required=mode=='pacer' or has_pacer
     auth=None;warning=None
@@ -289,10 +520,12 @@ def prepare(root,*,mode='pacer',progress=None):
         progress.set_items(([('base',base_entry.get('size_bytes'))] if base_entry else [])+
                            ([('authorized_extension',None)] if component_entry else []))
     stage=root/'updates/suite-staged'/uuid.uuid4().hex;stage.mkdir(parents=True)
+    updates.write_json(stage/'download.json',{'schema_version':'maauma.suite_download.v1',
+        'stage_id':stage.name,'owner_pid':os.getpid()})
     ticket={'schema_version':'maauma.prepared_suite.v1','from_version':installed['version'],'base_version':target_version,
             'base_manifest':name,'trace_id':auth['distribution_receipt']['trace_id'] if component_entry else None,'entries':[]}
     from desktop import maauma_file_patches as patches
-    plans=[]
+    plans=[];prepared=False
     try:
         if base_entry:
             row,plan=patches.prepare_transfer(root,stage,kind='base',full=base_entry,
@@ -329,12 +562,16 @@ def prepare(root,*,mode='pacer',progress=None):
                     force_full=True,fallback_reason='local_state_mismatch')
                 ticket['entries'][index]=row;plans[index]=plan
                 if progress is not None:progress.complete_item()
-    finally:patches.close(plans)
-    if not ticket['entries']:return {'ok':True,'status':'current','version':installed['version'],**context}
-    if progress is not None:progress.stage('preparing')
-    updates.write_json(stage/'ticket.json',ticket)
-    return {'ok':True,'status':'prepared','ticket':str(stage/'ticket.json'),'version':target_version,
-            'components':['pacer'] if component_entry else [],'requires_exit':True,**context}
+        if not ticket['entries']:return {'ok':True,'status':'current','version':installed['version'],**context}
+        if progress is not None:progress.stage('preparing')
+        updates.write_json(stage/'ticket.json',ticket)
+        prepared=True
+        return {'ok':True,'status':'prepared','ticket':str(stage/'ticket.json'),'version':target_version,
+                'components':['pacer'] if component_entry else [],'requires_exit':True,**context}
+    finally:
+        try:patches.close(plans)
+        finally:
+            if not prepared:_discard_failed_preparation(root,stage)
 
 
 def _ticket(root,path):
@@ -532,7 +769,8 @@ def apply_prepared(root,ticket_path,*,parent_pid=None):
                 _error('install_failed_rolled_back')
         finally:
             for archive in archives:archive.close()
-    return {'ok':True,'status':'installed','version':ticket['base_version'],'components':list(new_state['components'])}
+    return {'ok':True,'status':'installed','version':ticket['base_version'],'components':list(new_state['components']),
+            'cache_cleanup':cleanup_staged_updates(root)}
 
 
 def rollback(root,ticket_path,*,parent_pid=None):

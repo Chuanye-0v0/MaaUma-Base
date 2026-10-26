@@ -371,7 +371,10 @@ def dispatch(root,value,*,progress=None):
     root=Path(root).resolve(strict=True)
     if not isinstance(value,dict):raise ServiceError('invalid_request')
     action=value.get('action')
-    if action=='info':return info(root)
+    if action=='info':
+        from desktop import maauma_components as components
+        value=info(root);value['cache_cleanup']=components.cleanup_staged_updates(root)
+        return value
     if action=='check_update_connectivity':return diagnose(root)
     if action=='configure':return configure(root,value.get('base_url'),value.get('channel','preview'),value.get('download_source'),value.get('api_transport'))
     if action=='migrate_service_transport':return migrate_service_transport(root,value.get('base_url'))

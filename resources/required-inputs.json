@@ -1,6 +1,6 @@
 {
   "schema_version": "maauma.external_resources.v1",
-  "version": "0.4.43",
+  "version": "0.4.44",
   "files": [
     "MaaUma.Entry.deps.json",
     "MaaUma.Entry.dll",
@@ -869,7 +869,8 @@
     "resource/portraits/110401.png",
     "resource/portraits/110501.png",
     "resource/portraits/110601.png",
-    "resource/portraits/110701.png"
+    "resource/portraits/110701.png",
+    "tools/maintenance/MaaUma-storage-audit-tool.zip"
   ],
   "included_in_git": false,
   "notice": "Game-derived data/images and runtime model assets retain separate provenance and permission boundaries."
