@@ -157,7 +157,7 @@ public static class UmaPublicRuntime
             throw new Exception("接受了无效或非本机模拟器地址");
         }
         var ownAssembly=typeof(UmaPublicRuntime).Assembly;
-        var allowed=new[]{"UmaPublicRuntime","UmaHarvestPresets","UmaPublicUpdateView","UmaPublicPlant","UmaSeedCycle","UmaParentLibraryView","UmaParentLibraryPage","UmaSupportChoice","UmaSupportPicker","UmaTraineeChoice","UmaTraineePicker","UmaSkillReferenceView","UmaParentCompatibilityView","UmaParentPlannerView","UmaParentPlannerPage","UmaParentPlannerBrowser","UmaIconRendering"};
+        var allowed=new[]{"UmaPublicRuntime","UmaHarvestPresets","UmaPublicUpdateView","UmaPublicPlant","UmaSeedCycle","UmaParentLibraryView","UmaParentLibraryPage","UmaSupportChoice","UmaSupportPicker","UmaTraineeChoice","UmaTraineePicker","UmaSkillReferenceView","UmaParentCompatibilityView","UmaParentPlannerView","UmaParentPlannerPage","UmaParentPlannerBrowser","UmaIconRendering","UmaKnowledgeToolsLauncher","UmaKnowledgeToolsClient","UmaKnowledgeToolsContext"};
         if(ownAssembly.GetTypes().Any(type=>type.Name.StartsWith("Uma",StringComparison.Ordinal) && !allowed.Contains(type.Name)))
             throw new Exception("公开 GUI 包含未登记的扩展类型。");
         var payload=JObject.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"interface.json")));

@@ -55,7 +55,9 @@ public sealed class UmaParentPlannerView : UserControl
         this.request=request;fakeBrowserFactory=browserFactory;fakeReadTargets=readWebTargets;
         this.Bind(TextElement.ForegroundProperty,new DynamicResourceExtension("SukiText"));
         var root=new Grid { RowDefinitions=new("Auto,*"),Margin=new Thickness(16),RowSpacing=7 };
-        var heading=new StackPanel { Spacing=3 };heading.Children.Add(Label("种马规划",22));
+        var heading=new StackPanel { Spacing=3 };var headingLine=new WrapPanel{VerticalAlignment=VerticalAlignment.Center};headingLine.Children.Add(Label("种马规划",22));
+        var toolbox=new Button{Name="ParentPlannerKnowledgeTools",Content="资料工具箱",Margin=new Thickness(16,0,0,0),Padding=new Thickness(12,5)};
+        var toolboxNote=Label("",12);toolbox.Click+=async(_,_)=>{toolbox.IsEnabled=false;try{toolboxNote.Text=await new UmaKnowledgeToolsClient().OpenAsync();}catch(Exception error){toolboxNote.Text="本地资料工具箱暂未打开："+error.Message;}finally{toolbox.IsEnabled=true;}};headingLine.Children.Add(toolbox);heading.Children.Add(headingLine);heading.Children.Add(toolboxNote);
         heading.Children.Add(Label("从比赛需求组建团队，再为每名成员匹配种马；也可独立查询素材、相性与技能。",12));root.Children.Add(heading);
         var toolbar=new StackPanel { Spacing=5 };var siteButtons=new WrapPanel { Orientation=Orientation.Horizontal };
         foreach(var site in Sites) { var button=new Button { Content=site.Label,Margin=new Thickness(0,0,6,3) };button.Click+=(_,_)=>OpenSite(site.Key,site.Url);siteButtons.Children.Add(button); }

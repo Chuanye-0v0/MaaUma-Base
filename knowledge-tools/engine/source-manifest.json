@@ -1,0 +1,181 @@
+{
+  "ok": true,
+  "repo": "https://github.com/kachi-dev/uma-tools",
+  "commit": "4401e25987d9c78707f2d3f8a9dcd02c1c56529c",
+  "files": [
+    {
+      "path": "uma-skill-tools/ActivationConditions.ts",
+      "upstream_sha256": "93ab639130b57f0718ec87ed957665bb4277aa749391624c37b3ce62f019d0b5",
+      "sha256": "93ab639130b57f0718ec87ed957665bb4277aa749391624c37b3ce62f019d0b5",
+      "bytes": 52468
+    },
+    {
+      "path": "uma-skill-tools/ActivationSamplePolicy.ts",
+      "upstream_sha256": "9607140a4b8693f87e72062e6e733292e556fff39a9927b585bd8eba4dfb9789",
+      "sha256": "9607140a4b8693f87e72062e6e733292e556fff39a9927b585bd8eba4dfb9789",
+      "bytes": 11301
+    },
+    {
+      "path": "uma-skill-tools/ApproximateConditions.ts",
+      "upstream_sha256": "cdc5ef65d15ff270626d345d822d747faf4efc352810bfe630ea765a1731ad75",
+      "sha256": "cdc5ef65d15ff270626d345d822d747faf4efc352810bfe630ea765a1731ad75",
+      "bytes": 1812
+    },
+    {
+      "path": "uma-skill-tools/ConditionParser.ts",
+      "upstream_sha256": "d458b347035d23f47816eea51e7051ae9adb4a3d18d7e53d4c71d49e711c4f30",
+      "sha256": "d458b347035d23f47816eea51e7051ae9adb4a3d18d7e53d4c71d49e711c4f30",
+      "bytes": 8089
+    },
+    {
+      "path": "uma-skill-tools/CourseData.ts",
+      "upstream_sha256": "aa7a9abbd755945b58c057e507238735dbe4eac9b0922751e7a70e287812cdbf",
+      "sha256": "aa7a9abbd755945b58c057e507238735dbe4eac9b0922751e7a70e287812cdbf",
+      "bytes": 4071
+    },
+    {
+      "path": "uma-skill-tools/HorseTypes.ts",
+      "upstream_sha256": "a8a59a30cabb66a6d5ecfd351e67e16c7382c1dd1426ec35e1807340cc2cb033",
+      "sha256": "a8a59a30cabb66a6d5ecfd351e67e16c7382c1dd1426ec35e1807340cc2cb033",
+      "bytes": 913
+    },
+    {
+      "path": "uma-skill-tools/HpPolicy.ts",
+      "upstream_sha256": "0ebe65a8dc7fa1f3ab47ca98e7cc4cd1748471e95776e4fa9b5118d445230a09",
+      "sha256": "0ebe65a8dc7fa1f3ab47ca98e7cc4cd1748471e95776e4fa9b5118d445230a09",
+      "bytes": 6094
+    },
+    {
+      "path": "uma-skill-tools/RaceParameters.ts",
+      "upstream_sha256": "54a8b6f394c09ca4f3d568b5fd9ada8613ad6f01b3f14059c77de47c4d0e2d58",
+      "sha256": "54a8b6f394c09ca4f3d568b5fd9ada8613ad6f01b3f14059c77de47c4d0e2d58",
+      "bytes": 769
+    },
+    {
+      "path": "uma-skill-tools/RaceSolver.ts",
+      "upstream_sha256": "9fb8d6f74f95122c88c0abd0e723d9c4275242c30a1791151d793f411a6c065b",
+      "sha256": "9fb8d6f74f95122c88c0abd0e723d9c4275242c30a1791151d793f411a6c065b",
+      "bytes": 53152
+    },
+    {
+      "path": "uma-skill-tools/RaceSolverBuilder.ts",
+      "upstream_sha256": "2ed170a873f5f213914fc633533f90502e3c700676dcd7f94037df69998bf438",
+      "sha256": "b6cacbd68e3591ce8e52d3787e75587884760681d665f32ff4ae9eaf27ef0f69",
+      "bytes": 31315
+    },
+    {
+      "path": "uma-skill-tools/Random.ts",
+      "upstream_sha256": "bb21bf2bd64f05d70bd5c8d3b9fa1359eb0e3fdfdf9cbe4314b7b9eaa6fd9c2c",
+      "sha256": "bb21bf2bd64f05d70bd5c8d3b9fa1359eb0e3fdfdf9cbe4314b7b9eaa6fd9c2c",
+      "bytes": 524
+    },
+    {
+      "path": "uma-skill-tools/Region.ts",
+      "upstream_sha256": "f2375717b8236d9f60acf15d580f104e1d222d47180791e4c72466c674c6290a",
+      "sha256": "f2375717b8236d9f60acf15d580f104e1d222d47180791e4c72466c674c6290a",
+      "bytes": 1462
+    },
+    {
+      "path": "uma-skill-tools/SpecialConditions.ts",
+      "upstream_sha256": "34fe2904a03fdcc1423dcb38f95e6b51c2f39f1db71e2a00a9eadf8b17fefa9e",
+      "sha256": "34fe2904a03fdcc1423dcb38f95e6b51c2f39f1db71e2a00a9eadf8b17fefa9e",
+      "bytes": 1712
+    },
+    {
+      "path": "uma-skill-tools/SpurtCalculator.ts",
+      "upstream_sha256": "f049c97fa5bdeb88139d1d391c43f2f0385d977c653714938c77cb9a7ba8ca01",
+      "sha256": "f049c97fa5bdeb88139d1d391c43f2f0385d977c653714938c77cb9a7ba8ca01",
+      "bytes": 10665
+    },
+    {
+      "path": "uma-skill-tools/data/skill_data.json",
+      "upstream_sha256": "bc8d9eae1cbedd80d39a699d6e733231b96da6a48657bd55ea634031df9c4fa6",
+      "sha256": "bc8d9eae1cbedd80d39a699d6e733231b96da6a48657bd55ea634031df9c4fa6",
+      "bytes": 472365
+    },
+    {
+      "path": "uma-skill-tools/data/skillnames.json",
+      "upstream_sha256": "73ec30d0f0ff156121b8f8031ff930f2ce205da712a7ccb670f442ac29fd1176",
+      "sha256": "73ec30d0f0ff156121b8f8031ff930f2ce205da712a7ccb670f442ac29fd1176",
+      "bytes": 149628
+    },
+    {
+      "path": "uma-skill-tools/data/course_data.json",
+      "upstream_sha256": "4d7327a2f391677d30f9bd5149f9b60c23377ebb245f7eae5c11192b56c716d4",
+      "sha256": "4d7327a2f391677d30f9bd5149f9b60c23377ebb245f7eae5c11192b56c716d4",
+      "bytes": 60006
+    },
+    {
+      "path": "uma-skill-tools/data/tracknames.json",
+      "upstream_sha256": "f9a7434e7b253b128e78fdc063877b048cd21b34d19e270aebb72d78b6fa1025",
+      "sha256": "f9a7434e7b253b128e78fdc063877b048cd21b34d19e270aebb72d78b6fa1025",
+      "bytes": 522
+    },
+    {
+      "path": "umalator-global/skill_data.json",
+      "upstream_sha256": "5fcbc79e50d734ea1c4f3ae851b2de9caa3f5e555e44808baeb7812344b85d13",
+      "sha256": "5fcbc79e50d734ea1c4f3ae851b2de9caa3f5e555e44808baeb7812344b85d13",
+      "bytes": 138392
+    },
+    {
+      "path": "umalator-global/skillnames.json",
+      "upstream_sha256": "e574d75c287eb8a2d37a098936fd6f6d544735b102f789a09405aec41c52faf7",
+      "sha256": "e574d75c287eb8a2d37a098936fd6f6d544735b102f789a09405aec41c52faf7",
+      "bytes": 49803
+    },
+    {
+      "path": "umalator-global/course_data.json",
+      "upstream_sha256": "9eba030d188c71a92dc04c5160b79bae44d95e72a7ae6861942e6c4cc77fd6af",
+      "sha256": "9eba030d188c71a92dc04c5160b79bae44d95e72a7ae6861942e6c4cc77fd6af",
+      "bytes": 115889
+    },
+    {
+      "path": "umalator-global/tracknames.json",
+      "upstream_sha256": "d6caf5e672578be330da9c8ba0a6851c004b8370e0a7486c5052698f84546f39",
+      "sha256": "d6caf5e672578be330da9c8ba0a6851c004b8370e0a7486c5052698f84546f39",
+      "bytes": 296
+    },
+    {
+      "path": "LICENSE",
+      "upstream_sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+      "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+      "bytes": 35823
+    },
+    {
+      "path": "README.md",
+      "upstream_sha256": "4389aedb44ffd07ad92c2f8d7b7ba8b0c90cab182fd5e1d061f4b6edd19da8e7",
+      "sha256": "4389aedb44ffd07ad92c2f8d7b7ba8b0c90cab182fd5e1d061f4b6edd19da8e7",
+      "bytes": 3419
+    },
+    {
+      "path": "package.json",
+      "upstream_sha256": "f965b550c89eecb211aacf4537b49f942d99c7eb8ac0065066f93c1b1a0e9e54",
+      "sha256": "f965b550c89eecb211aacf4537b49f942d99c7eb8ac0065066f93c1b1a0e9e54",
+      "bytes": 577
+    },
+    {
+      "path": "package-lock.json",
+      "upstream_sha256": "cb42ff1ed8c370d06fad734a16cca7eb717b0aff067205a7a6e259fbdadd6654",
+      "sha256": "cb42ff1ed8c370d06fad734a16cca7eb717b0aff067205a7a6e259fbdadd6654",
+      "bytes": 40200
+    }
+  ],
+  "patches": [
+    {
+      "path": "uma-skill-tools/RaceSolverBuilder.ts",
+      "reason": "Remove an unused value import to an absent source file; no model logic changed.",
+      "original_sha256": "2ed170a873f5f213914fc633533f90502e3c700676dcd7f94037df69998bf438"
+    },
+    {
+      "path": "uma-skill-tools/RaceSolverBuilder.ts",
+      "reason": "Bind originWisdom by skill identity/perspective instead of a flattened index; synthetic post-1200 effects have no original skill entry.",
+      "original_sha256": "2ed170a873f5f213914fc633533f90502e3c700676dcd7f94037df69998bf438"
+    }
+  ],
+  "dependency_versions_from_upstream_lock": {
+    "esbuild": "0.19.12",
+    "prando": "6.0.1"
+  },
+  "license": "GPL-3.0-or-later",
+  "game_or_device_actions": 0
+}

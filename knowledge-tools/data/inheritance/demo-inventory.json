@@ -1,0 +1,36 @@
+{
+  "schema_version": "uma.parent_library.v1",
+  "name": "演示马库（合成数据，非真实账号）",
+  "server": "cn",
+  "source": {"kind": "synthetic_demo", "note": "用于演示归属、因子、实际与计划胜场的分离，不代表这些角色的真实因子。"},
+  "entries": [
+    {
+      "entry_id": "demo-owned-a", "character_id": "1002", "character_name": "无声铃鹿", "variant_id": "100201",
+      "status": "owned", "is_demo": true,
+      "self": {"character_id": "1002", "status": "complete", "scope": ["red"], "factors": [{"kind": "red", "factor_key": "red:泥地", "stars": 3}],
+        "race_records": {"entry_id": "demo-owned-a", "coverage": "partial", "source": "synthetic_demo", "wins": [{"race_id": "race.1001.senior.02.second", "status": "confirmed", "source": "synthetic_demo"}]}},
+      "parents": [
+        {"character_id": "1006", "character_name": "小栗帽", "status": "partial", "factors": [{"kind": "red", "factor_key": "red:泥地", "stars": 2}], "is_demo": true,
+          "race_records": {"entry_id": "demo-gp-a1", "coverage": "partial", "source": "synthetic_demo", "wins": [{"race_id": "race.1001.senior.02.second", "status": "confirmed", "source": "synthetic_demo"}]}},
+        {"character_id": "1007", "character_name": "黄金船", "status": "partial", "factors": [{"kind": "red", "factor_key": "red:草地", "stars": 3}], "is_demo": true}
+      ],
+      "custom_note": "此额外导入字段会保留在 imported 中。"
+    },
+    {
+      "entry_id": "demo-borrow-b", "character_id": "1003", "character_name": "东海帝王", "variant_id": "100301",
+      "status": "borrowable", "is_demo": true,
+      "self": {"character_id": "1003", "status": "partial", "factors": [{"kind": "red", "factor_key": "red:泥地", "stars": 1}],
+        "race_records": {"entry_id": "demo-borrow-b", "coverage": "partial", "source": "synthetic_demo", "wins": [{"race_id": "race.1001.senior.02.second", "status": "confirmed", "source": "synthetic_demo"}]}},
+      "parents": [
+        {"character_id": "1008", "status": "partial", "factors": [{"kind": "red", "factor_key": "red:泥地", "stars": 1}], "is_demo": true},
+        {"character_id": "1009", "status": "partial", "factors": [], "is_demo": true}
+      ]
+    },
+    {"entry_id": "demo-planned-c", "character_id": "1004", "character_name": "丸善斯基", "status": "planned", "is_demo": true,
+      "red_target": {"factor_key": "red:泥地", "stars": 3},
+      "planned_wins": [{"race_id": "race.1002.senior.03.second", "name": "演示计划赛事", "grade": "G1", "status": "planned", "source": "synthetic_demo"}],
+      "parents": [null, null]},
+    {"entry_id": "demo-unknown-d", "character_id": "1005", "character_name": "富士奇石", "status": "unknown", "is_demo": true,
+      "red_factors": {"dirt": null}, "parents": [null, null]}
+  ]
+}

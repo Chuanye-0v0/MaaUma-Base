@@ -16,8 +16,8 @@ import xml.etree.ElementTree as ET
 from core.team_requirements import assess_requirements, normalize_requirements, VENUES
 from core.team_guides import article_evidence, load_sources, local_facts, source_profile
 RSS_BYTES = 128 * 1024
-ARTICLE_BYTES = 384 * 1024
-TOTAL_BYTES = 1280 * 1024
+ARTICLE_BYTES = 2 * 1024 * 1024
+TOTAL_BYTES = 6 * 1024 * 1024
 MAX_PAGES = 3
 TOTAL_SECONDS = 16
 

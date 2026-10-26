@@ -17,10 +17,12 @@ namespace MFAAvalonia.Helper;
 /// <summary>Local release notes. Reading or dismissing them never invokes a task or service.</summary>
 public static class MaaUmaUpdateAnnouncement
 {
-    public const string CurrentVersion = "0.4.39";
+    public const string CurrentVersion = "0.4.40";
     private const bool EnhancedBuild = false;
     private static readonly string[] CurrentNotes = {
-        "沿用日活、社团和LOH功能及现有配置。"
+        "新增本地资料工具箱：查询技能、SP费用、系谱相性与赛道参考收益。",
+        "种马规划支持把目标与库资料带入工具箱，并取回系谱草稿。",
+        "修复团队规划中适性别名、空值及缺项误拦，增加攻略网页读取容量。"
     };
     private const string SeenFile = "maauma-update-announcements.json";
     private static readonly Dictionary<string, Window> OpenWindows = new(StringComparer.OrdinalIgnoreCase);

@@ -43,9 +43,9 @@ public sealed partial class TeamPlanningView : UserControl
     private int generation,teamRevision;
     private bool busy,loading,loaded,suppressRoute;
     private string researchContext="",displayedDescription="",displayedGuideUrls="";
-    public TeamPlanningView(Func<JObject,Task<JObject>> request)
+    public TeamPlanningView(Func<JObject,Task<JObject>> request,UmaKnowledgeToolsClient? toolboxClient=null)
     {
-        this.request=request;Name="TeamPlanningView";
+        this.request=request;this.toolboxClient=toolboxClient;Name="TeamPlanningView";
         inventory=new TeamPlanningInventoryEditor(request,()=>AccountId);inventory.Changed+=()=>Invalidate("账号持有资料已变化，已有建议需要重新生成。",true);
         route=new ParentLocalRouteView(request,MemberContext,()=>[],RecordsSaved,memberMode:true);
         route.DraftChanged+=()=>{if(suppressRoute||selectedMember==null)return;StoreMemberRoute();Invalidate("成员系谱草稿已修改。",false);};
@@ -56,7 +56,7 @@ public sealed partial class TeamPlanningView : UserControl
         save.Content="保存草稿 / 方案";top.Children.Add(account);top.Children.Add(teamName);top.Children.Add(save);
         var openDraft=new Button{Name="TeamOpenSavedDrafts",Content="打开已保存的草稿",Margin=new Thickness(0,0,8,5)};
         openDraft.Click+=(_,_)=>{draftPanel.IsVisible=!draftPanel.IsVisible;draftPanel.IsExpanded=true;};top.Children.Add(openDraft);
-        restoreDraft.Click+=async(_,_)=>await RestorePlanningDraft();top.Children.Add(restoreDraft);toolbar.Children.Add(top);
+        restoreDraft.Click+=async(_,_)=>await RestorePlanningDraft();top.Children.Add(restoreDraft);toolbar.Children.Add(top);toolbar.Children.Add(BuildToolboxActions());
         var persisted=new WrapPanel();savedTeams.Width=280;
         foreach(var control in new Control[]{savedTeams,load,refresh})control.Margin=new Thickness(0,0,8,5);
         load.Content="打开所选草稿";refresh.Content="刷新本地资料";

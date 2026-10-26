@@ -1,0 +1,13 @@
+{
+  "name": "maauma-reference-simulation",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "esbuild": "0.19.12",
+    "prando": "6.0.1"
+  }
+}

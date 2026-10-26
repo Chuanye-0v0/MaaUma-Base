@@ -1,0 +1,52 @@
+{
+  "source_api": "https://wiki.biligame.com/umamusume/api.php?action=query&format=json&formatversion=2&prop=revisions&rvprop=ids%7Ctimestamp%7Ccontent&rvslots=main&titles=%E6%A8%A1%E5%9D%97%3A%E6%8A%80%E8%83%BD%E6%95%B0%E6%8D%AE%E5%BA%93%7C%E6%A8%A1%E5%9D%97%3A%E6%8A%80%E8%83%BD%E7%B9%81%E4%B8%AD%E6%95%B0%E6%8D%AE%E5%BA%93%7C%E6%A8%A1%E5%9D%97%3A%E6%8A%80%E8%83%BD%E7%AE%80%E4%B8%AD%E6%95%B0%E6%8D%AE%E5%BA%93%7C%E6%A8%A1%E5%9D%97%3A%E6%95%B0%E6%8D%AE%E5%BA%93%E5%86%85%E5%AE%B9%7C%E6%A8%A1%E5%9D%97%3A%E7%AE%80%E4%B8%AD%E6%95%B0%E6%8D%AE%E5%BA%93%E5%86%85%E5%AE%B9%7C%E6%A8%A1%E5%9D%97%3A%E7%B9%81%E4%B8%AD%E6%95%B0%E6%8D%AE%E5%BA%93%E5%86%85%E5%AE%B9",
+  "fetched_at_utc": "2026-10-24T19:17:51.970466+00:00",
+  "pages": [
+    {
+      "title": "模块:技能简中数据库",
+      "pageid": null,
+      "missing": true
+    },
+    {
+      "title": "模块:技能繁中数据库",
+      "pageid": null,
+      "missing": true
+    },
+    {
+      "title": "模块:技能数据库",
+      "pageid": null,
+      "missing": true
+    },
+    {
+      "title": "模块:数据库内容",
+      "pageid": 2243,
+      "missing": null,
+      "revid": 146772,
+      "timestamp": "2026-10-13T19:35:46Z",
+      "path": "wiki-names-03.lua",
+      "sha256": "5aeea3f1b1738083cce260f8a85b257359d9eb85b66b2f4d0fb22bd4a45c2d50",
+      "bytes": 2085249
+    },
+    {
+      "title": "模块:繁中数据库内容",
+      "pageid": 29210,
+      "missing": null,
+      "revid": 143796,
+      "timestamp": "2026-06-28T15:15:32Z",
+      "path": "wiki-names-04.lua",
+      "sha256": "8a5bb2e6a8f61d6fcf9f70a3bc1467a214981f5bab7193b8fbe40e54b1bfea33",
+      "bytes": 694749
+    },
+    {
+      "title": "模块:简中数据库内容",
+      "pageid": 56848,
+      "missing": null,
+      "revid": 145762,
+      "timestamp": "2026-09-06T07:53:18Z",
+      "path": "wiki-names-05.lua",
+      "sha256": "b884f00167087d89dea8b7544aee7f49700e851adb1421b800b6c04556539f9c",
+      "bytes": 498255
+    }
+  ],
+  "code_executed": false
+}
