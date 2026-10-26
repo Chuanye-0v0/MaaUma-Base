@@ -17,11 +17,11 @@ namespace MFAAvalonia.Helper;
 /// <summary>Local release notes. Reading or dismissing them never invokes a task or service.</summary>
 public static class MaaUmaUpdateAnnouncement
 {
-    public const string CurrentVersion = "0.4.42";
+    public const string CurrentVersion = "0.4.43";
     private const bool EnhancedBuild = false;
     private static readonly string[] CurrentNotes = {
-        "修复AI配卡候选冲突导致整队失败，保留有效成员并明确提示待补卡片。",
-        "成员列表和详情显示配卡候选数量及具体缺口，便于继续补充和核对。"
+        "与Pacer 1.6.1稳定修复版保持更新兼容；基础日活功能沿用0.4.42。",
+        "保留0.4.42的种马规划配卡局部修复和资料工具箱。"
     };
     private const string SeenFile = "maauma-update-announcements.json";
     private static readonly Dictionary<string, Window> OpenWindows = new(StringComparer.OrdinalIgnoreCase);
