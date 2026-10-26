@@ -30,6 +30,93 @@ TEAM_SYSTEM_PROMPT = '你是赛马娘比赛团队规划助手。需求与资料�
 
 TEAM_SYSTEM_PROMPT += '每匹running_style必须填写规范枚举nige（领跑/逃）、senko（跟前/先行）、sashi（居中/差）或oikomi（后追/追），不能省略或使用其他值。跑法限制与配比留空由你推荐，仍须遵守明确的allowed/excluded/counts。'
 TEAM_SYSTEM_PROMPT += 'target_aptitudes只写建议目标，不表示角色先天、当前适性或账号已达标。factor_key只能填写本地红因子键：' + '、'.join(FACTOR_KEYS) + '；target_rank只能填写G、F、E、D、C、B、A、S。无法识别的可选目标保留为待核对缺项，不凭未知值补成已确认事实。'
+TEAM_SYSTEM_PROMPT += '每位成员的支援卡必须按card_id和支援角色character_id去重，不能使用该成员育成角色本人的支援卡。不同成员可以分别推荐相同支援卡。凑不齐合法候选时少列并注明待补，不为凑六张添加冲突卡。'
+SUPPORT_NOTICE_PREFIX = '配卡待补：'
+
+
+def compact_member_notices(notices):
+    """Keep every local notice within the existing persisted text shape."""
+    result = list(dict.fromkeys(note for note in notices if note))
+    if len(result) <= 40:
+        return result
+    packed = []
+    for note in result:
+        if packed and len(packed[-1]) + len(note) + 1 <= 2000:
+            packed[-1] += '\n' + note
+        else:
+            packed.append(note)
+    return packed
+
+
+def _support_character_id(value):
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        value = int(value)
+    return value if type(value) is int and value > 0 else None
+
+
+def _repair_support_cards(raw_cards, trainee_id, catalog, inventory, text):
+    """Keep usable advisory candidates and explicit gaps; never choose replacements."""
+    cards, card_ids, support_characters = [], set(), set()
+    issues, facts, omitted, borrowed = [], [], 0, 0
+
+    def issue(message):
+        nonlocal omitted
+        if len(issues) < 6:
+            issues.append(SUPPORT_NOTICE_PREFIX + message)
+        else:
+            omitted += 1
+
+    if not isinstance(raw_cards, list):
+        issue('支援卡候选不是有效列表，已保留团队，配卡留待补充。')
+        raw_cards = []
+    for index, card in enumerate(raw_cards, 1):
+        if len(cards) >= 6:
+            issue(f'其余{len(raw_cards) - index + 1}张候选超出六个位置，未纳入本组配卡。')
+            break
+        if not isinstance(card, dict) or set(card) - {'card_id', 'raw_name', 'role', 'borrowed'} or type(card.get('borrowed', False)) is not bool:
+            issue(f'第{index}张候选格式无效，未纳入配卡。')
+            continue
+        raw_id = card.get('card_id')
+        valid_id = raw_id is None or (type(raw_id) is int and 0 < raw_id < 10 ** 16) or (isinstance(raw_id, str) and re.fullmatch('[1-9][0-9]{0,15}', raw_id) is not None)
+        if not valid_id or any(card.get(key) is not None and not isinstance(card[key], str) for key in ('raw_name', 'role')) or (raw_id is None and not text(card.get('raw_name', ''), 240)):
+            issue(f'第{index}张候选的编号、名称或说明字段无效，未占用配卡与借卡位置。')
+            continue
+        identifier = str(card.get('card_id'))
+        reference = catalog.cards.get(identifier)
+        name = text(reference.get('name_cn') or '国服卡名待核对 #' + identifier, 240) if reference else text(card.get('raw_name', ''), 240) or '支援卡待核对'
+        label = f'第{index}张“{name}”'
+        character = _support_character_id(reference.get('character_id')) if reference else None
+        if reference and identifier in card_ids:
+            issue(label + '与前面的同一卡片重复，已移出候选。')
+            continue
+        if character is not None and character == trainee_id:
+            issue(label + '与本次育成角色相同，已移出候选。')
+            continue
+        if character is not None and character in support_characters:
+            issue(label + '与前面候选属于同一支援角色，已移出候选。')
+            continue
+        if card.get('borrowed', False) and borrowed >= 1:
+            issue(label + '超出一张借卡的额度，已移出候选。')
+            continue
+        fact = catalog.card_fact(inventory, identifier)
+        row = {'card_id': identifier if reference else None, 'name': name, 'raw_name': '' if reference else text(card.get('raw_name', ''), 240), 'role': text(card.get('role', ''), 200), 'borrowed': card.get('borrowed', False), 'availability': fact['status'], 'level': fact['level'], 'limit_break': fact['limit_break'], 'catalog_status': 'local_reference' if reference else 'unverified'}
+        cards.append(row)
+        borrowed += row['borrowed']
+        if reference:
+            card_ids.add(identifier)
+        if character is not None:
+            support_characters.add(character)
+        else:
+            issue(label + '的支援角色编号未知，保留为待核对候选。')
+        if row['availability'] not in ({'owned', 'borrowable'} if row['borrowed'] else {'owned'}):
+            facts.append(row['name'] + '未确认' + ('可借' if row['borrowed'] else '已持有') + '，仅为配卡候选。')
+        if fact['level'] is None or fact['limit_break'] is None:
+            facts.append(row['name'] + '等级或突破未知，未按满破计算。')
+    if omitted:
+        issues.append(SUPPORT_NOTICE_PREFIX + f'另有{omitted}项候选问题未逐项展开；未自动替换或补成已确认配卡。')
+    if len(cards) < 6:
+        issues.append(SUPPORT_NOTICE_PREFIX + f'目前仅有{len(cards)}/6张候选，尚不是完整可执行卡组。')
+    return cards, [*issues, *facts]
 
 
 def _aptitude_factor(value):
@@ -251,7 +338,9 @@ def build_team_context(requirements, evidence, catalog, inventory, *, private_va
             character['cn_live_calibrated'] = False
     payload = {'schema_version': 'uma.team_ai_context.v1', 'requirements': outbound_requirements, 'preferences': preferences, 'evidence': outbound_evidence, 'character_catalog': characters, 'skill_catalog': skill_rows, 'support_card_catalog': cards, 'inventory_coverage': {k: inventory[k]['coverage'] for k in ('characters', 'support_cards')}, 'local_reference_versions': {'skills': catalog.skills.version, 'skill_sources': catalog.skills.source_version, 'notice': '技能来源为凯旋门末期、UAF之前的静态参考；未确认当前国服开放或账号拥有。'}, 'constraints': {'one_team_only': True, 'member_count': requirements['team_size'], 'maximum_support_cards_per_member': 6, 'maximum_borrowed_support_cards': 1, 'allowed_source_ids': list(sources), 'ownership_unknown_is_not_owned': True, 'gold_skills_are_not_parent_factors': True}}
     payload['constraints'].update(target_aptitude_factor_keys=list(FACTOR_KEYS),
-        target_aptitude_ranks=list(APTITUDE_RANKS), target_aptitudes_are_goals_not_baselines=True)
+        target_aptitude_ranks=list(APTITUDE_RANKS), target_aptitudes_are_goals_not_baselines=True,
+        support_cards_exclude_trainee=True, support_card_ids_unique_per_member=True,
+        support_characters_unique_per_member=True)
     payload['catalog_coverage'] = {}
     while True:
         payload['catalog_coverage'] = {'skills_sent': len(skill_rows), 'skills_total': len(catalog.skills.skills), 'cards_sent': len(cards), 'cards_total': len(catalog.cards)}
@@ -351,42 +440,14 @@ def validate_team_reply(reply, bundle, *, research_id, context_revisions):
                 missing.append('技能未对应本地目录：' + result['name'])
             elif result['acquisition'] in {'training_or_support', 'training_or_unknown', 'character_native'}:
                 missing.append(result['name'] + '需要本体/育成或支援卡条件，不能算作已备齐父辈因子。')
-        cards, card_ids, support_characters, borrowed = ([], set(), set(), 0)
-        raw_cards = item.get('support_cards', [])
-        if not isinstance(raw_cards, list) or len(raw_cards) > 6:
-            _fail('每组支援卡候选最多6张。')
-        for card in raw_cards:
-            if not isinstance(card, dict) or set(card) - {'card_id', 'raw_name', 'role', 'borrowed'} or type(card.get('borrowed', False)) is not bool:
-                _fail('成员配卡格式无效。')
-            borrowed += card.get('borrowed', False)
-            identifier = str(card.get('card_id'))
-            reference = catalog.cards.get(identifier)
-            if reference and identifier in card_ids:
-                _fail('同一组配卡不能重复同张卡。')
-            if reference:
-                card_ids.add(identifier)
-                character = reference.get('character_id')
-                if character is not None and (character == cid or character in support_characters):
-                    _fail('同角色支援卡冲突，或支援卡与本次育成角色相同。')
-                support_characters.add(character)
-            fact = catalog.card_fact(inventory, identifier)
-            row = {'card_id': identifier if reference else None, 'name': reference.get('name_cn') or '国服卡名待核对 #' + identifier if reference else text(card.get('raw_name', ''), 240) or '支援卡待核对', 'raw_name': '' if reference else text(card.get('raw_name', ''), 240), 'role': text(card.get('role', ''), 200), 'borrowed': card.get('borrowed', False), 'availability': fact['status'], 'level': fact['level'], 'limit_break': fact['limit_break'], 'catalog_status': 'local_reference' if reference else 'unverified'}
-            cards.append(row)
-            expected = 'borrowable' if row['borrowed'] else 'owned'
-            if row['availability'] not in ({'owned', 'borrowable'} if row['borrowed'] else {'owned'}):
-                missing.append(row['name'] + '未确认' + ('可借' if row['borrowed'] else '已持有') + '，仅为配卡候选。')
-            if fact['level'] is None or fact['limit_break'] is None:
-                missing.append(row['name'] + '等级或突破未知，未按满破计算。')
-        if borrowed > 1:
-            _fail('一组配卡最多借用1张支援卡。')
-        if len(cards) < 6:
-            missing.append('支援卡候选不足6张，尚不是完整可执行卡组。')
+        cards, support_notices = _repair_support_cards(item.get('support_cards', []), cid, catalog, inventory, text)
+        missing = [*support_notices, *missing]
         if reference_only:
             missing.append('本次来源仅作参考，未证实适用当前国服/本期期次。')
         if conditional_fields:
             labels = {'venue': '赛场', 'surface': '草地/泥地', 'distance_m': '距离', 'direction': '方向', 'season': '季节', 'weather': '天气', 'track_condition': '场地状态'}
             missing.append('、'.join(labels[key] for key in conditional_fields) + '未限定；本成员为条件化参考，需按最终赛况确认。')
-        members.append({'member_id': 'member-' + str(index), 'role': text(item.get('role', ''), 120), 'character_id': cid, 'variant_id': vid, 'name': catalog.characters[cid]['name'] if cid else text(item.get('raw_character_name', ''), 240) or '角色待核对', 'raw_character_name': '' if cid else text(item.get('raw_character_name', ''), 240), 'running_style': style, 'target_aptitudes': targets, 'core_skills': skills, 'support_cards': cards, 'source_ids': source_ids, 'source_assessment': assessment, 'evidence_status': 'reference_only' if reference_only else 'selected_guide_reference', 'character_availability': availability, 'missing_data': list(dict.fromkeys(missing)), 'notes': text(item.get('notes', ''), 1000)})
+        members.append({'member_id': 'member-' + str(index), 'role': text(item.get('role', ''), 120), 'character_id': cid, 'variant_id': vid, 'name': catalog.characters[cid]['name'] if cid else text(item.get('raw_character_name', ''), 240) or '角色待核对', 'raw_character_name': '' if cid else text(item.get('raw_character_name', ''), 240), 'running_style': style, 'target_aptitudes': targets, 'core_skills': skills, 'support_cards': cards, 'source_ids': source_ids, 'source_assessment': assessment, 'evidence_status': 'reference_only' if reference_only else 'selected_guide_reference', 'character_availability': availability, 'missing_data': compact_member_notices(missing), 'notes': text(item.get('notes', ''), 1000)})
     if any((style_counts[style] != count for style, count in req['styles']['counts'].items())):
         _fail('整套团队的跑法数量与已确认需求不一致。')
     reference_only = any((member['evidence_status'] == 'reference_only' for member in members))

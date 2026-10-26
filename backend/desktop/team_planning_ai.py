@@ -15,7 +15,7 @@ from core.parent_local_route import evaluate_local_route, normalize_local_route
 from core.parent_planner_catalog import ParentPlannerCatalog
 from core.parent_race_records import RaceCatalog
 from core.parent_skill_reference import SkillReference
-from core.team_planner import TeamCatalog, TEAM_SYSTEM_PROMPT, build_team_context, normalize_team_plan, validate_team_reply
+from core.team_planner import TeamCatalog, TEAM_SYSTEM_PROMPT, SUPPORT_NOTICE_PREFIX, build_team_context, compact_member_notices, normalize_team_plan, validate_team_reply
 from desktop import parent_planning_ai_api as pedigree
 ROOT = Path(__file__).resolve().parents[1]
 FIELDS = {'parent_planning_team_inventory_catalog': {'kind', 'query', 'limit'}, 'parent_planning_team_inventory_get': {'account_id'}, 'parent_planning_team_inventory_save': {'account_id', 'characters', 'support_cards', 'expected_revision'}, 'parent_planning_ai_team_propose': {'confirmed', 'requirements', 'research_id', 'selected_source_ids', 'account_id', 'library_id', 'expected_library_revision', 'expected_inventory_revision', 'expected_planning_revision', 'request_text'}, 'parent_planning_ai_team_member_seed': {'confirmed', 'team_plan', 'member_id', 'research_id', 'account_id', 'library_id', 'local_route'}}
@@ -213,6 +213,12 @@ def dispatch_team(request, *, root=None, account_book_path=None, relations_path=
             proposal['team_plan']['members'].append({k: deepcopy(member[k]) for k in ('role', 'character_id', 'variant_id', 'raw_character_name', 'running_style', 'target_aptitudes', 'source_ids', 'notes')})
             proposal['team_plan']['members'][-1].update(core_skills=[{k: deepcopy(s[k]) for k in ('skill_id', 'raw_name', 'purpose', 'source_ids')} for s in member['core_skills']], support_cards=[{k: deepcopy(c[k]) for k in ('card_id', 'raw_name', 'role', 'borrowed')} for c in member['support_cards']])
         checked = validate_team_reply(proposal, bundle, research_id=research_id, context_revisions=revisions)
+        for previous, current in zip(team['members'], checked['members']):
+            history = [safe_text(note, 2000, private_values=private, model_text=True) for note in previous['missing_data'] if SUPPORT_NOTICE_PREFIX in note]
+            retained = history[:8]
+            if len(history) > 8:
+                retained.append(SUPPORT_NOTICE_PREFIX + f'此前方案另有{len(history) - 8}条配卡提示，可在原团队草稿查看。')
+            current['missing_data'] = compact_member_notices([*retained, *current['missing_data']])
         member = next((row for row in checked['members'] if row['member_id'] == request.get('member_id')), None)
         if member is None or member['character_id'] is None or (not member['target_aptitudes']):
             raise ValueError('请先选择已对应本地角色和适性目标的团队成员。')

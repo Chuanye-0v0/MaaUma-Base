@@ -17,11 +17,11 @@ namespace MFAAvalonia.Helper;
 /// <summary>Local release notes. Reading or dismissing them never invokes a task or service.</summary>
 public static class MaaUmaUpdateAnnouncement
 {
-    public const string CurrentVersion = "0.4.41";
+    public const string CurrentVersion = "0.4.42";
     private const bool EnhancedBuild = false;
     private static readonly string[] CurrentNotes = {
-        "修复官方DeepSeek的团队及系谱生成，减少输出截断导致的失败。",
-        "完整方案继续核验；未完整生成时保留当前草稿。"
+        "修复AI配卡候选冲突导致整队失败，保留有效成员并明确提示待补卡片。",
+        "成员列表和详情显示配卡候选数量及具体缺口，便于继续补充和核对。"
     };
     private const string SeenFile = "maauma-update-announcements.json";
     private static readonly Dictionary<string, Window> OpenWindows = new(StringComparer.OrdinalIgnoreCase);
