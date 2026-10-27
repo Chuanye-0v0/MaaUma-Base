@@ -86,7 +86,7 @@ def main():
     from desktop.umaa_public_context import TASKS
     Library.open(NATIVE, agent_server=True)
     backend = ProcessBackend()
-    names = {'plant': 'UmaPlant', 'harvest': 'UmaHarvest', 'jjc': 'UmaJjc', 'activities': 'UmaActivities', 'daily_legend': 'UmaDailyLegend', 'limited_legend': 'UmaLimitedLegend', 'loh': 'UmaLoh', 'champions_registration': 'UmaChampionsRegistration', 'champions_race': 'UmaChampionsRace', 'story_event': 'UmaStoryEvent', 'daily_rewards': 'UmaDailyRewards', 'cleanup': 'UmaCleanup', 'seed_cycle': 'UmaSeedCycle', 'guild_daily': 'UmaGuildDaily'}
+    names = {'strongest_team': 'UmaStrongestTeam', 'plant': 'UmaPlant', 'harvest': 'UmaHarvest', 'jjc': 'UmaJjc', 'activities': 'UmaActivities', 'daily_legend': 'UmaDailyLegend', 'limited_legend': 'UmaLimitedLegend', 'loh': 'UmaLoh', 'champions_registration': 'UmaChampionsRegistration', 'champions_race': 'UmaChampionsRace', 'story_event': 'UmaStoryEvent', 'daily_rewards': 'UmaDailyRewards', 'cleanup': 'UmaCleanup', 'seed_cycle': 'UmaSeedCycle', 'guild_daily': 'UmaGuildDaily'}
     for task in TASKS:
         AgentServer.register_custom_action(names[task] + 'BackendLive', BackendTaskAction(backend, task, execute=True))
     if len(sys.argv) != 2:

@@ -1,0 +1,21 @@
+{
+  "UmaStrongestTeam": {
+    "recognition": "DirectHit",
+    "action": "Custom",
+    "custom_action": "UmaStrongestTeamBackendLive",
+    "custom_action_param": {
+      "max_entries": 15,
+      "special_extra": true,
+      "allow_existing_jelly": true,
+      "max_jellies": 5,
+      "max_clocks": 5,
+      "recruit": true,
+      "special_race": true
+    },
+    "next": [],
+    "focus": {
+      "Node.Action.Starting": "目标！最强团队：15场耗票赛＋免费特别赛",
+      "Node.Action.Failed": "最强团队未完成，保留原账号与原场次，请查看停止原因"
+    }
+  }
+}

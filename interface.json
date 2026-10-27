@@ -1,7 +1,7 @@
 {
   "interface_version": 2,
   "name": "MaaUma 普通版",
-  "version": "0.4.46",
+  "version": "0.5.0",
   "rid": "umaa-public",
   "icon": "resource/umaa-hishi-miracle.png",
   "controller": [
@@ -127,6 +127,17 @@
         "LOH一键编成"
       ],
       "description": "沿用已编队伍，使用已有门票；一键编成默认关闭，可在队伍全空时自动编成。已有完整队伍始终保留，部分编成请先手动补齐。优先缩短版比赛，游戏自动使用已有英雄对应道具；不买票、不补票、不购买或补充道具，未编队继续其他日活。"
+    },
+    {
+      "name": "目标！最强团队",
+      "entry": "UmaStrongestTeam",
+      "default_check": false,
+      "description": "多账号日活：每日最多15场耗票招揽赛，免费特别赛另计。只用已有迷你胡萝卜果冻最多5份、已有闹钟最多5次；招揽只花活动积分并保留队长，不买资源。",
+      "option": [
+        "最强团队招揽赛上限",
+        "最强团队额外补票",
+        "最强团队活动闹钟"
+      ]
     }
   ],
   "option": {
@@ -3525,6 +3536,136 @@
             "UmaGuildDaily": {
               "custom_action_param": {
                 "request_item": "dirt"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "最强团队招揽赛上限": {
+      "type": "select",
+      "default_case": "15场耗票赛",
+      "cases": [
+        {
+          "name": "5场耗票赛",
+          "pipeline_override": {
+            "UmaStrongestTeam": {
+              "custom_action_param": {
+                "max_entries": 5
+              }
+            }
+          }
+        },
+        {
+          "name": "10场耗票赛",
+          "pipeline_override": {
+            "UmaStrongestTeam": {
+              "custom_action_param": {
+                "max_entries": 10
+              }
+            }
+          }
+        },
+        {
+          "name": "15场耗票赛",
+          "pipeline_override": {
+            "UmaStrongestTeam": {
+              "custom_action_param": {
+                "max_entries": 15
+              }
+            }
+          }
+        }
+      ]
+    },
+    "最强团队额外补票": {
+      "type": "select",
+      "default_case": "已有迷你胡萝卜果冻，最多5份",
+      "cases": [
+        {
+          "name": "仅普通票与任务票",
+          "pipeline_override": {
+            "UmaStrongestTeam": {
+              "custom_action_param": {
+                "allow_existing_jelly": false,
+                "max_jellies": 0
+              }
+            }
+          }
+        },
+        {
+          "name": "已有迷你胡萝卜果冻，最多5份",
+          "pipeline_override": {
+            "UmaStrongestTeam": {
+              "custom_action_param": {
+                "allow_existing_jelly": true,
+                "max_jellies": 5
+              }
+            }
+          }
+        }
+      ]
+    },
+    "最强团队活动闹钟": {
+      "type": "select",
+      "default_case": "每天最多5次已有闹钟",
+      "cases": [
+        {
+          "name": "每天最多0次已有闹钟",
+          "pipeline_override": {
+            "UmaStrongestTeam": {
+              "custom_action_param": {
+                "max_clocks": 0
+              }
+            }
+          }
+        },
+        {
+          "name": "每天最多1次已有闹钟",
+          "pipeline_override": {
+            "UmaStrongestTeam": {
+              "custom_action_param": {
+                "max_clocks": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "每天最多2次已有闹钟",
+          "pipeline_override": {
+            "UmaStrongestTeam": {
+              "custom_action_param": {
+                "max_clocks": 2
+              }
+            }
+          }
+        },
+        {
+          "name": "每天最多3次已有闹钟",
+          "pipeline_override": {
+            "UmaStrongestTeam": {
+              "custom_action_param": {
+                "max_clocks": 3
+              }
+            }
+          }
+        },
+        {
+          "name": "每天最多4次已有闹钟",
+          "pipeline_override": {
+            "UmaStrongestTeam": {
+              "custom_action_param": {
+                "max_clocks": 4
+              }
+            }
+          }
+        },
+        {
+          "name": "每天最多5次已有闹钟",
+          "pipeline_override": {
+            "UmaStrongestTeam": {
+              "custom_action_param": {
+                "max_clocks": 5
               }
             }
           }

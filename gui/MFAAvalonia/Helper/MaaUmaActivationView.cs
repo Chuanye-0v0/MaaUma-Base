@@ -268,8 +268,14 @@ public sealed class MaaUmaActivationView : UserControl
             "linked_backend_path" or "linked_maintenance_state" or "linked_completed_run" or "run_outside_backend"=>" 目录范围暂时无法确认，文件已保留。",
             _=>" 返回了未识别的维护状态，尚不能确认已完成。"
         };
-        if(CleanupCount(result["protected_runs"]) is long protectedRuns && protectedRuns>0)text+=$" 保留 {protectedRuns} 局仍在使用或尚未确认结束的记录。";
-        if(CleanupCount(result["kept_runs"]) is long kept && kept>0)text+=$" {kept} 局沿用原留图设置。";
+        if(CleanupCount(result["protected_runs"]) is long protectedRuns && protectedRuns>0)text+=$" {protectedRuns} 局有当前动作或续跑现场受保护。";
+        var policy=result["policy"] as JObject;
+        var ordinaryHours=CleanupCount(policy?["ordinary_hours"]);var failureHours=CleanupCount(policy?["failure_hours"]);
+        if(ordinaryHours is >0 && failureHours is >0)
+            text+=$" 回收时限：普通过程图 {ordinaryHours} 小时，失败图 {failureHours} 小时；当前现场、续跑资料、JSON和导出复盘保留。";
+        else text+=" 本次按当前组件规则整理，回收时限尚未返回。";
+        if(policy?["legacy_keep_exempt"]?.Type==JTokenType.Boolean && (bool)policy["legacy_keep_exempt"]! == false)
+            text+=" 过去选择详细留图的记录也适用该时限。";
         if(CleanupCount(result["errors"]) is long errors && errors>0)text+=$" 有 {errors} 项整理未完成。";
         if(MaintenanceBudget(result))text+=" 本轮整理已达到时间预算，仍有内容待检查。";
         return text;

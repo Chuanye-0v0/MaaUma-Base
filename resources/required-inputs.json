@@ -1,6 +1,6 @@
 {
   "schema_version": "maauma.external_resources.v1",
-  "version": "0.4.46",
+  "version": "0.5.0",
   "files": [
     "MaaUma.Entry.deps.json",
     "MaaUma.Entry.dll",
@@ -186,6 +186,7 @@
     "backend/core/story_event/assets/story-menu.png",
     "backend/core/story_event/assets/story-new.png",
     "backend/core/story_event/assets/story-reward.png",
+    "backend/core/strongest_team/assets/score_update_title.png",
     "backend/core/support_library/assets/initial_eagle.png",
     "backend/core/support_library/assets/initial_eagle_breakthrough_selected.png",
     "backend/core/support_library/assets/initial_eagle_detail.png",
@@ -713,6 +714,7 @@
     "knowledge-tools/web/index.html",
     "knowledge-tools/web/style.css",
     "resource/pipeline/public-tasks.json",
+    "resource/pipeline/strongest-team.json",
     "resource/portraits/100101.png",
     "resource/portraits/100102.png",
     "resource/portraits/100103.png",
