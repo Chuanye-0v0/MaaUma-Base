@@ -8,6 +8,8 @@ ALLOWED = {
     'st_hub': {'home','open_captain','open_opponents','open_missions'},
     'st_closed': {'home'}, 'st_network': {'retry_network'}, 'st_paid': {'cancel'},
     'st_captain': {'confirm_captain'}, 'st_tactics': {'confirm_tactics'},
+    'st_team_confirm': {'confirm_team','cancel'},
+    'st_adaptation_warning': {'confirm_adaptation'},
     'st_opponents': {'home','back_event'},
     'st_preview': {'start_normal','start_special','open_refill','cancel'},
     'st_race_detail': {'view_result','continue_race'}, 'st_race': {'skip_race'},
@@ -15,6 +17,9 @@ ALLOWED = {
     'st_retry': {'confirm_retry','cancel'},
     'st_refill': {'confirm_refill','cancel','minimum_refill','maximum_refill','increase_refill','decrease_refill'},
     'st_refill_limit': {'close_refill_limit'},
+    'st_refill_prompt': {'open_refill','cancel'},
+    'st_refill_items': {'select_jelly','close_refill_items'},
+    'st_refill_done': {'close_refill_done'},
     'st_scout': {'open_recruit','open_replace','request_recruit','no_recruit'},
     'st_recruit_select': {'confirm_grid','cancel_grid'},
     'st_replace_select': {'confirm_grid','cancel_grid'},
@@ -45,6 +50,14 @@ def authorize(action, frame, data, options=None):
     if candidate.get('effect')=='purchase':
         return False, 'strongest_team_paid_resource_forbidden'
     op=data.get('pending_operation')
+    if action=='confirm_adaptation':
+        entry=data.get('pending_entry') or {};continuation=(op or {}).get('continuation')
+        bound=(op and entry.get('id')==op.get('id')==candidate.get('entry_id')==candidate.get('parent_intent_id')
+            and op.get('resource')==entry.get('kind') and entry.get('status')=='submitted' and not entry.get('progress_seen'))
+        active=(bound and op.get('status')=='continuation_reserved' and continuation
+            and continuation.get('dispatch_id')==(data.get('last_action')or{}).get('dispatch_id'))
+        ready=bound and op.get('status')=='submitted' and not continuation
+        return (True,'strongest_team_original_admission_continuation') if active or ready else (False,'strongest_team_continuation_not_owned')
     if op and action in {'start_normal','start_special','confirm_retry','confirm_refill','confirm_recruit','claim_all'}:
         # reserve() has already bound the only legitimate dispatch.
         if op.get('status')!='reserved' or op.get('action')!=action:
@@ -86,7 +99,7 @@ def choose(frame, journal, options=None):
         return action('retry_network','strongest_team_neutral_network_retry')
     if frame.get('native_busy'):
         return wait('strongest_team_native_request_in_flight')
-    if op and op.get('status')=='uncertain':
+    if op and op.get('status') in {'uncertain','continuation_reserved'}:
         # A fresh same-entry postcondition can resolve it in journal.observe.
         # The exact same confirmation is never issued a second time.
         if page in {'unknown','loading'}:return wait('strongest_team_uncertain_observe')
@@ -146,6 +159,15 @@ def choose(frame, journal, options=None):
         if any(s['selected'] for s in styles) or (last.get('source_page')==page and last.get('action','').startswith('style_') and last.get('action_outcome',{}).get('execution_status')=='executed'):
             return action('confirm_tactics','strongest_team_keep_best_native_style')
         return action(next(s['action'] for s in styles if s['grade']==best),'strongest_team_choose_native_style')
+    if page=='st_team_confirm':
+        if journal.pending:return finish('failed','strongest_team_pending_entry_at_team_confirmation')
+        if data.get('day_changed'):return action('cancel','strongest_team_day_boundary_no_team_registration')
+        return action('confirm_team','strongest_team_confirm_existing_initial_team')
+    if page=='st_adaptation_warning':
+        if data.get('day_changed'):return finish('failed','strongest_team_day_boundary_admission_preserved')
+        if op and (op.get('continuation') or {}).get('status')=='submitted':
+            return wait('strongest_team_continuation_submitted_rendering')
+        return action('confirm_adaptation','strongest_team_original_reserved_entry_confirmation')
     if page=='st_opponents':
         if entry:return finish('failed','strongest_team_original_entry_not_settled')
         if data.get('day_changed'):return action('home','strongest_team_day_boundary_return_home',exit_requested=True)
@@ -192,6 +214,20 @@ def choose(frame, journal, options=None):
                 or 'confirm_retry' not in actions):
             return action('cancel','strongest_team_retry_not_available',decline_retry_for=entry['id'])
         return action('confirm_retry','strongest_team_one_existing_alarm')
+    if page=='st_refill_done':return action('close_refill_done','strongest_team_close_verified_ticket_refill')
+    if page=='st_refill_items':
+        if entry:return finish('failed','strongest_team_owned_entry_at_item_selector')
+        if (data.get('day_changed') or not options['allow_existing_jelly'] or journal.cap_remaining()==0
+                or data['jelly_reserved']>=options['max_jellies'] or frame.get('stock_before')==0):
+            return action('close_refill_items','strongest_team_no_existing_item_budget',resources_exhausted=True)
+        return action('select_jelly','strongest_team_select_existing_mini_jelly_preview')
+    if page=='st_refill_prompt':
+        if entry:return finish('failed','strongest_team_owned_entry_at_refill_prompt')
+        if (data.get('day_changed') or not options['allow_existing_jelly'] or journal.cap_remaining()==0
+                or data['jelly_reserved']>=options['max_jellies']):
+            return action('cancel','strongest_team_no_refill_budget',resources_exhausted=True)
+        if not scans_complete:return action('cancel','strongest_team_free_missions_before_refill')
+        return action('open_refill','strongest_team_open_existing_item_selector',refill_tickets_before=0)
     if page=='st_refill':
         if entry:return finish('failed','strongest_team_entry_pending_at_refill')
         if data.get('day_changed'):return action('cancel','strongest_team_day_boundary_no_refill')

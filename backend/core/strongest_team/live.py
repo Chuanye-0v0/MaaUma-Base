@@ -17,7 +17,7 @@ from .policy import authorize
 
 
 def same_candidate(left, right):
-    for field in ['effect','resource_kind','cost','quantity','stock_before','stock_after']:
+    for field in ['effect','resource_kind','cost','quantity','stock_before','stock_after','free_remaining','entry_id','parent_intent_id']:
         if left.get(field)!=right.get(field):
             return False
     key='swipe' if 'swipe' in left else 'point'
@@ -115,7 +115,7 @@ class StrongestTeamDevice(SupportDevice):
         ok,reason=authorize(action,before,self.journal.data,self.options)
         if not ok:raise RuntimeError(reason)
         require_fresh_observation(before,action)
-        if action in {'start_normal','start_special','confirm_retry','confirm_refill','confirm_recruit','claim_all'}:
+        if action in {'start_normal','start_special','confirm_adaptation','confirm_retry','confirm_refill','confirm_recruit','claim_all'}:
             if self.day_clock()!=self.journal.data['scope']['day']:
                 raise RuntimeError('strongest_team_game_day_changed_before_submit')
         candidate=before['actions'][action]

@@ -43,7 +43,7 @@ def without_passive_popup(function):
     return call
 OWNER_REWARD_CLOSE = {'champions_rewards': 'close_registration_rewards', 'limited_mission_rewards': 'close_mission_rewards', 'claim_success': 'close_claim', 'claim': 'close'}
 PASSIVE_NAVIGATION_PAGES = {'unknown', 'home', 'races', 'events', 'other_event'}
-OWNER_TUTORIAL_ADVANCE = {'notice': 'close_notice', 'event_notice': 'dismiss_event_result', 'tutorial_help': 'dismiss_tutorial'}
+OWNER_TUTORIAL_ADVANCE = {'st_notice': 'continue_notice', 'notice': 'close_notice', 'event_notice': 'dismiss_event_result', 'tutorial_help': 'dismiss_tutorial'}
 
 class PassivePopupSession:
 

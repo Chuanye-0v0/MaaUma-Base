@@ -181,6 +181,47 @@ def observe(image, tokens, context=None):
         return finish('st_refill_limit','native_daily_refill_limit',actions,recovery_maxed_verified=True)
     if any(s in text for s in ['购买','充值','消耗宝石','消耗萝卜']):
         return finish('st_paid','paid_resource_not_allowed',cancel)
+    if context.get('context_verified'):
+        if page.find('上一页',(0,1130,200,1280)):
+            tutorial_action=page.button('continue_notice',('继续','关闭'),(200,1130,520,1280))
+            if not tutorial_action:
+                footer=page.rows((290,1170,450,1260))
+                partial=[t for t in footer if t['text']=='关' or t['text'].startswith('继')]
+                forbidden=any(any(w in t['text'] for w in ['确定','确认','是否','购买','消耗','充值']) for t in footer)
+                if len(partial)==1 and not forbidden and page.enabled(partial[0]):
+                    x,y,r,b=partial[0]['bbox']
+                    tutorial_action={'continue_notice':dict(point=[(x+r)//2,(y+b)//2],effect='navigation',
+                        resource_kind='free',basis='owned_paged_guide_partial_footer_caption')}
+            if tutorial_action:return finish('st_notice','native_paged_tutorial_footer',tutorial_action)
+
+    if (context.get('context_verified') and page.has('团队确认',(220,0,520,120))
+            and page.has('确定要以此团队参加活动吗',(100,1020,650,1135))
+            and page.has('队长',(0,450,150,550)) and page.has('成员',(0,650,150,740))):
+        actions=dict(cancel)
+        actions.update(page.button('confirm_team','确定',(380,1130,690,1250)))
+        return finish('st_team_confirm','native_initial_team_confirmation',actions)
+    if (context.get('context_verified') and page.has('队长适应性确认',(150,250,600,410))
+            and page.has('适应性低于B',(70,580,670,720))
+            and page.has('今后不再弹出该提示',(150,740,610,840))):
+        entry=context.get('pending_entry') or {};operation=context.get('pending_operation') or {}
+        actions={}
+        if (entry.get('id') and operation.get('id')==entry['id']
+                and operation.get('resource')==entry.get('kind') and not entry.get('progress_seen')):
+            actions=page.button('confirm_adaptation',('参赛!','参赛'),(350,850,690,1000),
+                effect='admission_continuation',resource_kind='event_ticket' if entry['kind']=='normal' else 'free_special',
+                entry_id=entry['id'],parent_intent_id=operation['id'])
+        return finish('st_adaptation_warning','native_captain_adaptation_warning',actions)
+    entry=context.get('pending_entry') or {}
+    if (context.get('context_verified') and entry.get('status')=='submitted'
+            and entry.get('progress_seen')):
+        outcomes=[t for t in page.rows((100,500,620,1000))
+            if t['text'] in {'胜利','失败'} and t['confidence']>=.9
+            and t['bbox'][2]-t['bbox'][0]>=200 and t['bbox'][3]-t['bbox'][1]>=80]
+        if len(outcomes)==1:
+            x,y,r,b=outcomes[0]['bbox']
+            return finish('st_race','owned_result_presentation',
+                {'skip_race':dict(point=[(x+r)//2,(y+b)//2],bbox=outcomes[0]['bbox'],
+                    effect='progress',resource_kind='free',basis='owned_large_outcome_presentation')})
     update_title=template('score_update_title')
     if context.get('context_verified') and update_title is not None:
         _,score,_,location=cv2.minMaxLoc(cv2.matchTemplate(image[130:300,30:690],update_title,cv2.TM_CCOEFF_NORMED))
@@ -192,6 +233,24 @@ def observe(image, tokens, context=None):
                 team_total=page.number((200,440,520,560)))
 
     # Match complete named dialogs before loading captions/background pages.
+    if page.has('回复完毕') and page.has('已回复招揽赛入场券'):
+        counts=[re.fullmatch(r'([0-5])/5',t['text']) for t in page.rows((300,630,470,750))]
+        values=[int(m[1]) for m in counts if m]
+        return finish('st_refill_done','native_ticket_refill_completed',
+            page.button('close_refill_done','关闭',(200,750,520,930)),
+            tickets=values[0] if len(values)==1 else None)
+    if (page.has('招揽赛入场券回复') and page.has('迷你胡萝卜果冻',(120,500,460,650))
+            and page.has('持有数',(120,550,250,650))):
+        actions=page.button('close_refill_items','关闭',(200,850,520,1000))
+        actions.update(page.button('select_jelly','使用',(530,520,690,660)))
+        return finish('st_refill_items','native_existing_mini_jelly_selector',actions,
+            item='mini_jelly',stock_before=page.number((250,570,400,615)))
+    if (page.has('招揽赛入场券回复') and page.has('招揽赛入场券不足')
+            and page.has('是否回复入场券')):
+        actions=dict(cancel)
+        actions.update(page.button('open_refill','确定',(350,750,690,930)))
+        return finish('st_refill_prompt','native_insufficient_ticket_recovery_prompt',actions,
+            recovery_needed_verified=True,tickets=0)
     if page.has('招揽赛入场券回复') and page.has('迷你胡萝卜果冻') and page.has('获得1枚入场券'):
         quantity_rows = [re.fullmatch(r'([1-5])/5',t['text']) for t in page.rows((250,580,450,700))]
         quantity = next((int(m[1]) for m in quantity_rows if m),None)
@@ -219,15 +278,20 @@ def observe(image, tokens, context=None):
                 stock_before=before,stock_after=after))
         return finish('st_refill','native_mini_jelly_refill',actions,
                       quantity=quantity,stock_before=before,stock_after=after,item='mini_jelly')
-    if page.has('是否使用闹钟进行重新挑战') and page.has('己方团队的优俊少女基础能力+25%'):
+    if page.has('是否使用闹钟进行重新挑战') and page.has('己方团队的优俊少女基础能力+'):
         before,after=page.stock()
         free_rows=[re.search(r'(?:免费剩余|免费.*剩余)([1-5])次',t['text']) for t in page.rows((250,690,650,840))]
         free=next((int(m[1]) for m in free_rows if m),None)
+        if free is None:
+            labels=page.rows((280,760,390,830));counts=page.rows((390,760,620,830))
+            values=[int(m[1]) for t in counts if (m:=re.fullmatch(r'剩余([0-5])次',t['text']))
+                and any(label['text']=='免费' and abs(sum(label['bbox'][1::2])-sum(t['bbox'][1::2]))<=24 for label in labels)]
+            if len(values)==1:free=values[0]
         actions=dict(cancel)
         if before is not None and after is not None and before-after == 1:
             actions.update(page.green('confirm_retry',(360,840,710,990),effect='resource',
                 resource_kind='existing_alarm',stock_before=before,stock_after=after,cost=1))
-        elif free is not None and before is not None and before==after:
+        elif type(free) is int and free>0 and before is not None and before==after:
             actions.update(page.green('confirm_retry',(360,840,710,990),effect='resource',
                 resource_kind='free_retry',stock_before=before,stock_after=after,cost=0,free_remaining=free))
         return finish('st_retry','native_existing_alarm_retry',actions,stock_before=before,stock_after=after,free_remaining=free)
@@ -354,7 +418,7 @@ def observe(image, tokens, context=None):
     if page.has('目标!最强团队',(0,0,350,80)) or page.has('目标！最强团队',(0,0,350,80)):
         actions=dict(home)
         actions.update(page.button('open_captain','选择队长',(200,850,550,1040)))
-        actions.update(page.button('open_opponents','招揽赛',(180,850,550,1030)))
+        actions.update(page.button('open_opponents',('招揽赛','特别赛'),(180,850,550,1030)))
         missions=[t for t in page.rows((560,1020,710,1140)) if t['text'].startswith('活动任')]
         if len(missions)==1:
             x,y,r,b=missions[0]['bbox'];actions['open_missions']=dict(point=[(x+r)//2,(y+b)//2-30],effect='navigation',resource_kind='free',basis='native_event_mission_icon_caption')
@@ -407,17 +471,6 @@ def observe(image, tokens, context=None):
         return finish('races','shared_native_races_navigation',{'open_events':candidate},requires_context=False)
 
     if context.get('context_verified'):
-        if page.find('上一页',(0,1130,200,1280)):
-            tutorial_action=page.button('continue_notice',('继续','关闭'),(200,1130,520,1280))
-            if not tutorial_action:
-                footer=page.rows((290,1170,450,1260))
-                partial=[t for t in footer if t['text']=='关' or t['text'].startswith('继')]
-                forbidden=any(any(w in t['text'] for w in ['确定','确认','是否','购买','消耗','充值']) for t in footer)
-                if len(partial)==1 and not forbidden and page.enabled(partial[0]):
-                    x,y,r,b=partial[0]['bbox']
-                    tutorial_action={'continue_notice':dict(point=[(x+r)//2,(y+b)//2],effect='navigation',
-                        resource_kind='free',basis='owned_paged_guide_partial_footer_caption')}
-            if tutorial_action:return finish('st_notice','native_paged_tutorial_footer',tutorial_action)
         # Shared tutorials and owned presentation footers are neutral only.
         from core.passive_tutorial import detect
         tutorial=detect(image,page.tokens)

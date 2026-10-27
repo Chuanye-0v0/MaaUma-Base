@@ -104,6 +104,21 @@ class Journal:
 
     def reserve(self, action, frame):
         candidate = frame['actions'][action]
+        if action=='confirm_adaptation':
+            operation=self.data['pending_operation'];entry=self.data['pending_entry']
+            if (not operation or not entry or operation['id']!=entry['id']
+                    or operation['resource']!=entry['kind'] or operation['status']!='submitted'
+                    or operation.get('continuation') or entry.get('progress_seen')
+                    or entry['status']!='submitted' or candidate.get('entry_id')!=entry['id']):
+                raise RuntimeError('strongest_team_original_admission_continuation_required')
+            dispatch=uuid.uuid4().hex
+            operation['status']='continuation_reserved'
+            operation['continuation']=dict(dispatch_id=dispatch,status='reserved',parent_submission_counted=True)
+            intent=dict(id=operation['id'],dispatch_id=dispatch,action=action,resource=operation['resource'],
+                quantity=operation['quantity'],source_page=frame['page'],source_frame_sha256=frame['frame_sha256'],
+                status='reserved',admission_continuation=True)
+            self.data['last_action']=deepcopy(intent);self.record('intent',**intent);self.save()
+            return dispatch
         resource = RESOURCES.get(action)
         identity = uuid.uuid4().hex
         intent = dict(id=identity, action=action, source_page=frame['page'],
@@ -201,7 +216,20 @@ class Journal:
         self.record('receipt', intent_id=action.get('id'), receipt=compact)
         operation = self.data['pending_operation']
         if operation and operation['id'] == action.get('id'):
-            if (outcome.get('execution_status') == 'not_executed'
+            if action.get('admission_continuation'):
+                continuation=operation.get('continuation') or {}
+                if continuation.get('dispatch_id')!=action.get('dispatch_id'):
+                    raise RuntimeError('strongest_team_continuation_receipt_owner_mismatch')
+                if (outcome.get('execution_status')=='not_executed'
+                        and outcome.get('input_attempts')==outcome.get('acknowledged_inputs')==0):
+                    operation['status']='submitted';operation.pop('continuation',None)
+                elif (outcome.get('execution_status')=='executed'
+                        and outcome.get('input_attempts')==outcome.get('acknowledged_inputs')==1):
+                    operation['status']='submitted';continuation['status']='submitted'
+                else:
+                    operation['status']='uncertain';continuation['status']='uncertain'
+                    self.data['pending_entry']['status']='uncertain'
+            elif (outcome.get('execution_status') == 'not_executed'
                     and outcome.get('input_attempts') == outcome.get('acknowledged_inputs') == 0):
                 self._release_zero_input(operation)
             elif (outcome.get('execution_status') == 'executed'
@@ -230,7 +258,8 @@ class Journal:
         if resource=='points':
             self.data['recruited_for']=(self.data.get('last_completed_entry') or {}).get('id')
         if resource in {'normal','special'} and operation['status'] == 'uncertain':
-            self.data[resource+'_submitted'] += 1
+            if not (operation.get('continuation') or {}).get('parent_submission_counted'):
+                self.data[resource+'_submitted'] += 1
             self.data['pending_entry']['status'] = 'submitted'
         self.record('operation_verified', operation=operation, reason=reason)
         self.data['pending_operation'] = None
@@ -244,7 +273,7 @@ class Journal:
         operation = self.data['pending_operation']
         entry = self.data['pending_entry']
         owned = self.data['context_verified']
-        if owned and operation and operation['status'] in {'submitted','uncertain'}:
+        if owned and operation and operation['status'] in {'submitted','uncertain','continuation_reserved'}:
             resource = operation['resource']
             if resource in {'normal','special'} and page in {'st_race','st_result','st_race_detail'}:
                 self._confirm_operation('same_owned_entry_progress')
@@ -290,8 +319,9 @@ class Journal:
         if page=='st_closed' and frame.get('event_verified'):
             self.data['event_unavailable'] = True
         if (operation and operation.get('resource')=='normal' and operation.get('status')=='submitted'
-                and page=='st_refill' and entry and not entry['progress_seen']
-                and frame.get('item')=='mini_jelly'):
+                and entry and not entry['progress_seen']
+                and (page=='st_refill' and frame.get('item')=='mini_jelly'
+                     or page=='st_refill_prompt' and frame.get('recovery_needed_verified') is True)):
             # The native zero-ticket recovery dialog rejects this first entry.
             # Its ACK remains a real input; it is not rewritten as zero-input.
             self.record('entry_not_started', entry=entry, reason='native_ticket_recovery_before_race')
