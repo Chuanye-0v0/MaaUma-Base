@@ -37,6 +37,9 @@ public partial class RootView : SukiWindow
 
         // 初始化组件
         InitializeComponent();
+        MaaUmaActivationView.AttachStartupMaintenance(this,
+            ()=>(MaaUmaActivationView)App.Services.GetService(typeof(MaaUmaActivationView))!,
+            text=>ToastHelper.Warn("自动整理",text));
         DragDrop.SetAllowDrop(this, true);
         AddHandler(DragDrop.DragOverEvent, OnResourcePackageDragOver);
         AddHandler(DragDrop.DropEvent, OnResourcePackageDrop);

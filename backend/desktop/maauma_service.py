@@ -367,13 +367,44 @@ def info(root):
             'modules':read_json(state) if state.is_file() else {'components':{}},'authorization_root':str(Path(root).resolve())}
 
 
+def _pacer_storage_cleanup(root,components,*,force=False):
+    """Optional installed-component housekeeping; never import game runners."""
+    empty={'removed':0,'budget_exhausted':False}
+    try:
+        if 'pacer'not in components.state(root)['components']:
+            return {**empty,'skipped':'not_installed'}
+        import stat
+        from importlib import util
+        root=Path(root).resolve(strict=True)
+        path=root/'pacer/backend/core/auto_trainer/pacer_storage.py'
+        if not path.is_file():return {**empty,'skipped':'module_unavailable','errors':1}
+        for part in (path,*path.parents):
+            info=part.lstat()
+            if stat.S_ISLNK(info.st_mode)or getattr(info,'st_file_attributes',0)&0x400:
+                return {**empty,'skipped':'linked_storage_module','errors':1}
+            if part==root:break
+        if not path.resolve(strict=True).is_relative_to(root):
+            return {**empty,'skipped':'linked_storage_module','errors':1}
+        spec=util.spec_from_file_location('maauma_pacer_storage_housekeeping',path)
+        module=util.module_from_spec(spec)
+        # Use the checked source itself, never a pre-existing bytecode cache.
+        exec(compile(path.read_bytes(),str(path),'exec'),module.__dict__)
+        result=module.maintain(root/'pacer/backend',max_seconds=2.0,min_interval=0 if force else 3600)
+        if isinstance(result,dict):return result
+    except Exception:
+        pass
+    return {**empty,'skipped':'maintenance_unavailable','errors':1}
+
+
 def dispatch(root,value,*,progress=None):
     root=Path(root).resolve(strict=True)
     if not isinstance(value,dict):raise ServiceError('invalid_request')
     action=value.get('action')
     if action=='info':
         from desktop import maauma_components as components
-        value=info(root);value['cache_cleanup']=components.cleanup_staged_updates(root)
+        force_maintenance=value.get('maintenance') is True
+        value=info(root);value['cache_cleanup']=components.cleanup_staged_updates(root,max_seconds=30.0)
+        value['pacer_cleanup']=_pacer_storage_cleanup(root,components,force=force_maintenance)
         return value
     if action=='check_update_connectivity':return diagnose(root)
     if action=='configure':return configure(root,value.get('base_url'),value.get('channel','preview'),value.get('download_source'),value.get('api_transport'))

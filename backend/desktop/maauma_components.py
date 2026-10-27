@@ -29,6 +29,16 @@ MAX_ARCHIVE=updates.MAX_ARCHIVE
 MUTABLE={'local_backend.json','pacer/portable_config.json'}
 PUBLIC_DOWNLOAD_HOST='maauma-downloads-1508966578.cos.ap-guangzhou.myqcloud.com'
 
+# Original downloads and immutable prefixes produced by the updater itself.
+_STAGED_ARCHIVE_MANIFESTS={
+    'base.zip':'public-package-manifest.json',
+    'pacer.zip':'maauma-component-manifest.json',
+    'base-patch.zip':'maauma-file-patch.json',
+    'pacer-patch.zip':'maauma-file-patch.json',
+    'pacer-base.zip':'maauma-component-manifest.json',
+    'pacer-patch-prefix.zip':'maauma-file-patch.json',
+}
+
 
 def _error(code):raise updates.UpdateError(code)
 
@@ -334,8 +344,8 @@ def _download_owner_exited(pid):
 
 
 def _unprepared_download_reason(root,stage,names,*,own_call=False):
-    allowed={'download.json','download.json.tmp','ticket.json.tmp','base.zip','pacer.zip',
-             'base-patch.zip','pacer-patch.zip','materialized','recipe-literals'}
+    allowed={'download.json','download.json.tmp','ticket.json.tmp',
+             'materialized','recipe-literals'} | set(_STAGED_ARCHIVE_MANIFESTS)
     if names-allowed:return 'prepared_or_unrecognized_content'
     try:
         info=(stage/'download.json').lstat()
@@ -370,14 +380,13 @@ def _discard_failed_preparation(root,stage):
 
 def _legacy_download_version(stage,names):
     """Only finished, identifiable old ZIPs are disposable without a ticket."""
-    allowed={'base.zip','pacer.zip','base-patch.zip','pacer-patch.zip','materialized','recipe-literals'}
+    allowed=set(_STAGED_ARCHIVE_MANIFESTS) | {'materialized','recipe-literals'}
     if not names or names-allowed:return None
     versions=[]
-    for name in sorted(names & {'base.zip','pacer.zip','base-patch.zip','pacer-patch.zip'}):
+    for name in sorted(names & set(_STAGED_ARCHIVE_MANIFESTS)):
         try:
             with ZipFile(updates.transaction_io_path(stage/name)) as archive:
-                member=('maauma-file-patch.json' if '-patch.' in name else
-                        'public-package-manifest.json' if name=='base.zip' else 'maauma-component-manifest.json')
+                member=_STAGED_ARCHIVE_MANIFESTS[name]
                 item=archive.getinfo(member)
                 if item.file_size>8*1024*1024:return None
                 value=json.loads(archive.read(item))
@@ -428,8 +437,8 @@ def cleanup_staged_updates(root,*,dry_run=False,max_seconds=4.0):
             if live is None:return {**outcome,'status':'process_check_unavailable'}
             state_info=state_path.stat()if state_path.is_file()else None
             state_token=(state_info.st_dev,state_info.st_ino,state_info.st_size,state_info.st_mtime_ns)if state_info else None
-            owned={'ticket.json','journal.json','base.zip','pacer.zip','base-patch.zip','pacer-patch.zip',
-                   'helper','backup','incoming','retired','materialized','recipe-literals','download.json'}
+            owned={'ticket.json','journal.json','helper','backup','incoming','retired',
+                   'materialized','recipe-literals','download.json'} | set(_STAGED_ARCHIVE_MANIFESTS)
             for path in sorted(staged.iterdir()):
                 if time.monotonic()>deadline:outcome['budget_exhausted']=True;break
                 if not path.is_dir() or not re.fullmatch('[0-9a-f]{32}',path.name):continue
@@ -452,7 +461,7 @@ def cleanup_staged_updates(root,*,dry_run=False,max_seconds=4.0):
                         source=updates.version_parts(old.get('from_version'))
                         version=updates.version_parts(installed['version'])
                         saved=updates.read_json(path/'journal.json') if 'journal.json'in names else None
-                        if saved is not None and (saved.get('schema_version')!='maauma.suite_transaction.v1' or saved.get('phase')!='installed'):
+                        if saved is not None and (saved.get('schema_version')!='maauma.suite_transaction.v1' or saved.get('phase') not in {'installed','rolled_back'}):
                             reason='unfinished_or_failed_transaction'
                         elif target>version or saved is None and source>=version:reason='current_or_future_prepared_update'
                         elif saved is None and names & {'backup','incoming','retired'}:reason='uncommitted_program_backup'
