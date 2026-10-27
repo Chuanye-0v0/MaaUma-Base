@@ -1,6 +1,6 @@
 {
   "schema_version": "maauma.external_resources.v1",
-  "version": "0.4.45",
+  "version": "0.4.46",
   "files": [
     "MaaUma.Entry.deps.json",
     "MaaUma.Entry.dll",

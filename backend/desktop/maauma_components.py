@@ -1,6 +1,7 @@
 """Authorized Pacer overlays and coordinated base/module transactions."""
 from __future__ import annotations
 from contextlib import contextmanager
+import errno
 import hashlib
 from http.client import IncompleteRead
 import json
@@ -390,11 +391,72 @@ def _legacy_download_version(stage,names):
                 item=archive.getinfo(member)
                 if item.file_size>8*1024*1024:return None
                 value=json.loads(archive.read(item))
+                if not isinstance(value,dict):return None
+                if not isinstance(value.get('schema_version'),str)or not isinstance(value.get('product_id'),str):return None
                 if value.get('schema_version') not in {'umaa.public_package.v1','maauma.component.v1','maauma.file_patch_manifest.v1'}:return None
                 if value.get('product_id') not in {'umaa-public','uma-cut'}:return None
                 versions.append(updates.version_parts(value.get('base_version',value.get('version'))))
-        except (OSError,ValueError,KeyError,BadZipFile,updates.UpdateError):return None
-    return max(versions) if versions else None
+        except Exception:return None
+    try:return max(versions) if versions else None
+    except (TypeError,ValueError):return None
+
+
+class _CacheMaintenanceBusy(updates.UpdateError):
+    pass
+
+
+@contextmanager
+def _cache_maintenance_lock(root):
+    """Serialize housekeeping without taking the GUI's lifetime application lock."""
+    path=updates.contained(root,'updates/cache-maintenance.lock')
+    path.parent.mkdir(parents=True,exist_ok=True)
+    try:
+        descriptor=os.open(path,os.O_RDWR|os.O_CREAT|os.O_EXCL,0o600)
+    except FileExistsError:stream=path.open('r+b')
+    else:stream=os.fdopen(descriptor,'r+b')
+    with stream:
+        stream.seek(0)
+        try:
+            if os.name=='nt':
+                import msvcrt
+                msvcrt.locking(stream.fileno(),msvcrt.LK_NBLCK,1)
+            else:
+                import fcntl
+                fcntl.flock(stream.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except OSError as error:
+            if error.errno in {errno.EACCES,errno.EAGAIN,errno.EDEADLK}or getattr(error,'winerror',None)in {32,33}:
+                busy=_CacheMaintenanceBusy('cache_maintenance_busy')
+                busy.errno=error.errno;busy.winerror=getattr(error,'winerror',None)
+                raise busy from None
+            raise
+        try:
+            stream.seek(0,os.SEEK_END)
+            if stream.tell()==0:stream.write(b'0');stream.flush()
+            yield
+        finally:
+            try:
+                stream.seek(0)
+                if os.name=='nt':msvcrt.locking(stream.fileno(),msvcrt.LK_UNLCK,1)
+                else:fcntl.flock(stream.fileno(),fcntl.LOCK_UN)
+            except OSError as error:
+                error.cleanup_phase='release_maintenance_lock'
+                raise
+
+
+def _cleanup_failure(error,phase):
+    code=str(error)if isinstance(error,updates.UpdateError)else ''
+    if not re.fullmatch('[a-z][a-z0-9_]{0,79}',code):
+        if isinstance(error,PermissionError):code='cleanup_access_denied'
+        elif isinstance(error,FileNotFoundError):code='cleanup_path_missing'
+        elif isinstance(error,json.JSONDecodeError):code='cleanup_invalid_json'
+        elif isinstance(error,TypeError):code='cleanup_invalid_metadata'
+        else:code='cache_cleanup_failed'
+    fields={'error_code':code,'error_type':type(error).__name__,
+            'phase':getattr(error,'cleanup_phase',phase)}
+    for name in ('errno','winerror'):
+        value=getattr(error,name,None)
+        if type(value)is int:fields[name]=value
+    return fields
 
 
 def cleanup_staged_updates(root,*,dry_run=False,max_seconds=4.0):
@@ -405,8 +467,9 @@ def cleanup_staged_updates(root,*,dry_run=False,max_seconds=4.0):
     housekeeping only and never changes authorization or an update outcome.
     """
     from contextlib import nullcontext
-    outcome=dict(dry_run=dry_run,removed_stages=0,removed_bytes=0,candidates=[],protected=[],budget_exhausted=False,
+    outcome=dict(dry_run=dry_run,removed_stages=0,removed_bytes=0,candidates=[],protected=[],budget_exhausted=False,retry_pending=False,
                  byte_count_basis='logical_file_lengths',physical_bytes_released=None)
+    phase='validate_application_root'
     try:
         supplied=Path(root).absolute()
         if(supplied/'.git').exists()or(supplied/'.worktrees').exists():return {**outcome,'status':'source_tree_not_a_client'}
@@ -415,6 +478,7 @@ def cleanup_staged_updates(root,*,dry_run=False,max_seconds=4.0):
                 attributes=path.lstat()
                 if stat.S_ISLNK(attributes.st_mode) or getattr(attributes,'st_file_attributes',0)&0x400:
                     return {**outcome,'status':'linked_application_root'}
+        phase='read_installation_manifest'
         root,_,installed=updates.installation(root)
         staged=root/'updates/suite-staged';state_path=root/TRANSACTION
         if not staged.is_dir():return outcome
@@ -424,22 +488,30 @@ def cleanup_staged_updates(root,*,dry_run=False,max_seconds=4.0):
             if stat.S_ISLNK(attributes.st_mode) or getattr(attributes,'st_file_attributes',0)&0x400:
                 return {**outcome,'status':'linked_update_state'}
         deadline=time.monotonic()+max_seconds
-        with nullcontext() if dry_run else updates.installation_lock(root):
+        phase='acquire_maintenance_lock'
+        with nullcontext() if dry_run else _cache_maintenance_lock(root):
             keep=None;history_allowed=False
+            phase='read_current_state'
             if state_path.is_file():
                 current=updates.read_json(state_path)
                 if current.get('phase')!='installed' or current.get('base_version')!=installed['version']:return outcome
+                phase='read_current_ticket'
                 _,keep,ticket=_ticket(root,current.get('ticket'))
+                phase='read_current_journal'
                 journal=updates.read_json(keep/'journal.json')
                 if journal.get('phase')!='installed' or ticket.get('base_version')!=installed['version']:return outcome
                 history_allowed=True
+            phase='check_live_helpers'
             live=_live_suite_helpers(root)
             if live is None:return {**outcome,'status':'process_check_unavailable'}
+            phase='snapshot_transaction_state'
             state_info=state_path.stat()if state_path.is_file()else None
             state_token=(state_info.st_dev,state_info.st_ino,state_info.st_size,state_info.st_mtime_ns)if state_info else None
             owned={'ticket.json','journal.json','helper','backup','incoming','retired',
                    'materialized','recipe-literals','download.json'} | set(_STAGED_ARCHIVE_MANIFESTS)
+            phase='enumerate_stages'
             for path in sorted(staged.iterdir()):
+                phase='inspect_stage'
                 if time.monotonic()>deadline:outcome['budget_exhausted']=True;break
                 if not path.is_dir() or not re.fullmatch('[0-9a-f]{32}',path.name):continue
                 reason=None
@@ -470,19 +542,26 @@ def cleanup_staged_updates(root,*,dry_run=False,max_seconds=4.0):
                     if 'download.json'in names:reason=_unprepared_download_reason(root,path,names)
                     elif not history_allowed:reason='download_owner_unidentified'
                     else:
-                        target=_legacy_download_version(path,names)
-                        if target is None or target>=updates.version_parts(installed['version']):reason='unidentified_or_current_download'
+                        try:
+                            target=_legacy_download_version(path,names)
+                            if target is None or target>=updates.version_parts(installed['version']):reason='unidentified_or_current_download'
+                        except (TypeError,ValueError):reason='unidentified_or_current_download'
                 if reason:outcome['protected'].append({'stage':path.name,'reason':reason});continue
                 outcome['candidates'].append({'stage':path.name,'bytes':size})
                 if dry_run:continue
+                phase='recheck_transaction_state'
                 info=state_path.stat()if state_path.is_file()else None
                 current_token=(info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns)if info else None
                 if current_token!=state_token:break
                 try:
+                    phase='remove_stage'
                     shutil.rmtree(updates.transaction_io_path(path))
                     outcome['removed_stages']+=1;outcome['removed_bytes']+=size
                 except OSError:outcome['protected'].append({'stage':path.name,'reason':'remove_failed'})
-    except Exception:outcome['status']='cleanup_unavailable'
+    except _CacheMaintenanceBusy as error:
+        outcome.update(status='cleanup_busy',retry_pending=True,**_cleanup_failure(error,phase))
+    except Exception as error:
+        outcome.update(status='cleanup_unavailable',retry_pending=False,**_cleanup_failure(error,phase))
     return outcome
 
 

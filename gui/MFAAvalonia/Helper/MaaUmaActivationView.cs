@@ -187,6 +187,36 @@ public sealed class MaaUmaActivationView : UserControl
         "remove_failed"=>"未能删除的暂存",
         _=>"原因尚未确认的暂存"
     };
+    private static string? CleanupDiagnosticToken(JToken? value)
+    {
+        var token=CleanupCode(value);
+        return token is {Length:>0 and <=80} && System.Text.RegularExpressions.Regex.IsMatch(token,@"\A[A-Za-z_][A-Za-z0-9_]*\z") ? token : null;
+    }
+    private static string? CleanupDiagnosticPhase(JToken? value)
+    {
+        var phase=CleanupDiagnosticToken(value);
+        return phase is "validate_application_root" or "read_installation_manifest" or "acquire_maintenance_lock"
+            or "read_current_state" or "read_current_ticket" or "read_current_journal" or "check_live_helpers"
+            or "snapshot_transaction_state" or "enumerate_stages" or "inspect_stage" or "recheck_transaction_state"
+            or "remove_stage" or "release_maintenance_lock" ? phase : null;
+    }
+    private static string? CleanupNativeError(JToken? value)
+    {
+        if(value?.Type!=JTokenType.Integer)return null;
+        var number=value.ToString(Formatting.None);
+        return number.Length<=11 && int.TryParse(number,System.Globalization.NumberStyles.AllowLeadingSign,
+            System.Globalization.CultureInfo.InvariantCulture,out _) ? number : null;
+    }
+    private static string CleanupDiagnostics(JObject result)
+    {
+        var fields=new System.Collections.Generic.List<string>();
+        if(CleanupDiagnosticToken(result["error_code"]) is string code)fields.Add("代码 "+code);
+        if(CleanupDiagnosticPhase(result["phase"]) is string phase)fields.Add("阶段 "+phase);
+        if(CleanupDiagnosticToken(result["error_type"]) is string type)fields.Add("类型 "+type);
+        if(CleanupNativeError(result["errno"]) is string errno)fields.Add("errno "+errno);
+        if(CleanupNativeError(result["winerror"]) is string winerror)fields.Add("winerror "+winerror);
+        return fields.Count>0 ? " 诊断："+string.Join("，",fields)+"。" : " 未返回可用的错误代码或阶段。";
+    }
     private static string CacheCleanupSummary(JToken? value)
     {
         if(value is not JObject result)return "更新缓存：未取得清理结果，是否完成尚未确认。";
@@ -198,11 +228,13 @@ public sealed class MaaUmaActivationView : UserControl
         text+=status switch {
             null or ""=>"",
             "process_check_unavailable"=>" 更新助手状态暂时无法确认，缓存已保留。",
-            "cleanup_unavailable"=>" 本次缓存整理未完成，请保留诊断信息。",
+            "cleanup_unavailable"=>" 本次缓存整理未完成。",
+            "cleanup_busy"=>MaintenanceRetry(result) ? " 另一项缓存整理正在进行，已标记待重试。" : " 另一项缓存整理正在进行，本次尚未完成。",
             "source_tree_not_a_client"=>" 当前是源码工作区，已跳过整理。",
             "linked_application_root" or "linked_update_state"=>" 安装或更新目录包含链接，已跳过整理。",
             _=>" 返回了未识别的整理状态，尚不能确认已完成。"
         };
+        if(status is "cleanup_unavailable" or "cleanup_busy")text+=CleanupDiagnostics(result);
         if(result["budget_exhausted"]?.Type==JTokenType.Boolean && (bool)result["budget_exhausted"]!)
             text+=" 本次整理已达到时间预算，仍可能有旧缓存待处理。";
         if(result["protected"] is JArray entries && entries.Count>0) {
@@ -212,6 +244,8 @@ public sealed class MaaUmaActivationView : UserControl
         return text;
     }
     private static bool MaintenanceBudget(JToken? value)=>value is JObject result && result["budget_exhausted"]?.Type==JTokenType.Boolean && (bool)result["budget_exhausted"]!;
+    private static bool MaintenanceRetry(JToken? value)=>value is JObject result && CleanupCode(result["status"])=="cleanup_busy"
+        && result["retry_pending"]?.Type==JTokenType.Boolean && (bool)result["retry_pending"]!;
     private static long AddMaintenanceCount(long total,JToken? value)
     {
         var next=CleanupCount(value);return next is long count && count<=long.MaxValue-total ? total+count : total;
@@ -275,7 +309,7 @@ public sealed class MaaUmaActivationView : UserControl
                 ApplyMaintenanceResult(result,true);
                 cacheTotal=AddMaintenanceCount(cacheTotal,result["cache_cleanup"]?["removed_stages"]);
                 imagesTotal=AddMaintenanceCount(imagesTotal,result["pacer_cleanup"]?["removed"]);
-                bool more=(bool?)result["ok"]==true && (MaintenanceBudget(result["cache_cleanup"]) || MaintenanceBudget(result["pacer_cleanup"]));
+                bool more=(bool?)result["ok"]==true && (MaintenanceBudget(result["cache_cleanup"]) || MaintenanceBudget(result["pacer_cleanup"]) || MaintenanceRetry(result["cache_cleanup"]));
                 bool issue=MaintenanceIssue(result);
                 startupMaintenanceStatus.Text=$"本次启动自动整理累计：{cacheTotal} 个旧更新暂存，{imagesTotal} 张过期过程图。"
                     +(more?" 约一分钟后继续检查。":issue?" 部分结果未确认或内容已保留，请查看维护说明。":" 本轮检查已结束，保留项不受影响。");

@@ -17,11 +17,11 @@ namespace MFAAvalonia.Helper;
 /// <summary>Local release notes. Reading or dismissing them never invokes a task or service.</summary>
 public static class MaaUmaUpdateAnnouncement
 {
-    public const string CurrentVersion = "0.4.45";
+    public const string CurrentVersion = "0.4.46";
     private const bool EnhancedBuild = false;
     private static readonly string[] CurrentNotes = {
-        "升级重开后自动维护可回收更新缓存与Pacer普通过程图，无需先打开更新页。",
-        "修复真实下载前缀归档识别与跨目录续扫，显示实际清理和保留原因。",
+        "修复程序运行时应用锁与缓存维护互相阻挡：升级重开后自动清理可回收缓存。",
+        "维护忙会按原间隔续查；其他失败显示安全错误代码和阶段，方便定位。",
         "当前事务、回退、keep、运行中、待确认与可恢复记录继续保留；已有策略和配置沿用。"
     };
     private const string SeenFile = "maauma-update-announcements.json";
