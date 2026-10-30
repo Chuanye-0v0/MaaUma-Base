@@ -13,10 +13,14 @@ PROGRESS_PAGES = frozenset({"loh_matching", "loh_preview", "loh_race", "loh_item
 ENTRY_PAGES = frozenset({"loh_hub", "loh_opponents", "loh_team_confirm", "loh_entry_confirm"})
 
 _PRIORITY = {
+    "loh_spectator_hub": ("spectator_open", "back_loh"),
+    "loh_spectator_list": ("spectator_vote", "spectator_a", "spectator_b", "back_loh"),
+    "loh_spectator_reward": ("spectator_close_reward",),
     "home": ("open_races",),
     "races": ("open_events",),
-    "events": ("open_loh", "scroll_events"),
+    "events": ("open_loh", "scroll_events", "back_loh"),
     "notice": ("close_notice", "back_loh"),
+    "loh_network_retry": ("retry_network",),
     "loh_hub": ("enter_loh", "choose_opponent"),
     "loh_opponents": ("choose_opponent", "confirm_entry"),
     "loh_team_confirm": ("confirm_team", "confirm_entry", "back_loh"),
@@ -25,6 +29,8 @@ _PRIORITY = {
     "loh_entry_confirm": ("enable_hero_items", "confirm_entry"),
     "loh_items": ("enable_hero_items", "skip_items", "confirm_items"),
     "loh_hero_skill": ("confirm_hero_skill", "select_hero_skill"),
+    "loh_title_selection": ("confirm_title", "select_title_candidate"),
+    "loh_title_confirm": ("confirm_title_choice",),
     "loh_matching": (),
     "loh_preview": ("enable_short", "view_result", "skip_race", "start_race"),
     "loh_race": ("view_result", "skip_race"),
@@ -32,6 +38,7 @@ _PRIORITY = {
     "loh_rewards": ("claim_reward", "close_reward", "continue_result", "back_loh", "reselect_opponent"),
     "loh_purchase": ("cancel_purchase",),
     "loh_no_tickets": ("continue_result", "back_loh"),
+    "loh_closed": ("back_loh",),
 }
 
 
@@ -87,12 +94,32 @@ def authorize(action_id, observed, state=None, options=None):
     input receipts are the live adapter's responsibility, not reconstructed here.
     """
     state = _state(state)
+    from .final_watch import authorize as authorize_watch, requirement as watch_requirement, complete as watch_complete
+    watching=watch_requirement(state)
+    verdict=authorize_watch(action_id,observed,state)
+    if verdict is not None:return verdict
+    if watching and not state.get('pending') and action_id in ENTRY_ACTIONS:
+        return {'ok':False,'reason':'loh_final_watch_no_ticket_admission','consuming':False}
+    if watching and not state.get('pending_like') and action_id=='spectator_vote':
+        return {'ok':False,'reason':'loh_final_watch_no_new_like','consuming':False}
+    if (watching and action_id=='back_loh' and observed.get('page')=='events'
+            and watch_complete(state) and not state.get('pending_watch')):
+        return {'ok':True,'reason':'loh_final_watch_return_home','consuming':False}
     if observed.get("requires_loh_context") is True and not has_loh_context(state):
         return {"ok": False, "reason": "loh_context_unverified", "consuming": False}
+    if observed.get('spectator_playback_cancel') and (state.get('pending') or state.get('pending_like')):
+        return {'ok':False,'reason':'loh_original_submission_preserved','consuming':False}
     candidate = (observed.get("actions") or {}).get(action_id)
     if not isinstance(candidate, dict) or candidate.get("enabled") is False:
         return {"ok": False, "reason": "loh_action_unavailable", "consuming": False}
+    if state.get('pending_like') and candidate.get('effect') == 'admission':
+        return {'ok': False, 'reason': 'loh_like_submission_unresolved', 'consuming': False}
     page = observed.get("page", "unknown")
+    if page=='events' and action_id=='back_loh' and not (
+            observed.get('spectator_playback_period') is True
+            and state.get('spectator_playback_cancel_verified') and not state.get('pending')
+            and not state.get('pending_like')):
+        return {'ok':False,'reason':'loh_spectator_period_not_verified','consuming':False}
     allowed = _PRIORITY.get(page, ())
     if action_id not in allowed:
         return {"ok": False, "reason": "loh_action_out_of_page", "consuming": False}
@@ -121,6 +148,10 @@ def authorize(action_id, observed, state=None, options=None):
     if resource not in {None, "", "none", "free"} and not (
             action_id in ENTRY_ACTIONS and effect == "admission" and resource == "ticket"):
         return {"ok": False, "reason": "loh_resource_consumption_not_allowed", "consuming": False}
+    from .spectator import authorize as authorize_spectator
+    spectator = authorize_spectator(action_id, observed, state)
+    if spectator is not None:
+        return spectator
     if action_id in ENTRY_ACTIONS:
         if effect not in {"navigation", "progress", "admission"}:
             return {"ok": False, "reason": "loh_entry_effect_unverified", "consuming": False}
@@ -165,6 +196,19 @@ def choose(observed, state=None, options=None):
         return _finish("failed", "loh_context_unverified")
     if page in {"connection_conflict", "connection_interrupted"}:
         return _finish("failed", page)
+    from .final_watch import choose as choose_watch, requirement as watch_requirement
+    viewing=choose_watch(observed,state)
+    if viewing is not None:return viewing
+    if watch_requirement(state) and not pending and page in ENTRY_PAGES|PROGRESS_PAGES|RESULT_PAGES:
+        return _finish('failed','loh_final_watch_page_not_verified')
+    from .spectator import choose as choose_spectator, complete as spectator_complete
+    if page == 'home' and state.get('spectator_active') and not pending:
+        if state.get('pending_like') or not spectator_complete(state):
+            return _finish('failed', 'loh_like_submission_unresolved')
+        return _finish('done', 'loh_spectator_groups_home_verified')
+    spectator = choose_spectator(observed, state)
+    if spectator is not None:
+        return spectator
     if page == "loh_unconfigured" and pending:
         return _finish("failed", "loh_pending_admission_unresolved")
     if page == "loh_unconfigured" and not (options['fill_empty_team'] and observed.get('team_empty') is True):
@@ -172,9 +216,25 @@ def choose(observed, state=None, options=None):
     if page == 'home' and state.get('tickets_exhausted') and not pending:
         return _finish('done' if state.get('entries_completed',0) else 'skipped',
                        'loh_tickets_exhausted_home_verified')
+    if page == 'home' and state.get('ranking_period_verified') and not pending:
+        return _finish('done' if state.get('entries_completed', 0) else 'skipped',
+                       'loh_ranking_period_home_verified')
+    if page=='events' and state.get('spectator_playback_cancel_verified'):
+        if (observed.get('spectator_playback_period') is True and not pending
+                and not state.get('pending_like') and 'back_loh' in observed.get('actions',{})):
+            verdict=authorize('back_loh',observed,state,options)
+            if verdict['ok']:
+                return _decision('action','loh_spectator_replay_period_return_home',action_id='back_loh')
+        return _finish('failed','loh_spectator_replay_period_unverified')
     if page in {"loh_no_tickets", "loh_closed"}:
         if pending:
             return _finish("failed", "loh_pending_admission_unresolved")
+        if page == 'loh_closed' and observed.get('unavailable_verified') is True:
+            if 'back_loh' in observed.get('actions', {}):
+                verdict = authorize('back_loh', observed, state, options)
+                if verdict['ok']:
+                    return _decision('action', 'loh_ranking_period_return_home', action_id='back_loh')
+            return _decision('wait', 'loh_ranking_period_exit_control_loading')
         if page == 'loh_no_tickets':
             for action in ('continue_result', 'back_loh'):
                 if action in observed.get('actions', {}):

@@ -12,6 +12,7 @@ import base64
 import errno
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import ssl
@@ -113,6 +114,29 @@ def api_origins(cfg, *, binary=False, anonymous=False):
     return (selected.cn_origin, selected.legacy_origin)
 
 
+def direct_cn_api(cfg, *, binary=False):
+    """A domestic JSON request must not depend on a leftover local proxy.
+
+    This only selects a per-request handler. It never changes Windows or env
+    proxy settings, custom service routing, explicit overseas mode, or ZIPs.
+    """
+    selected = policy()
+    return (not binary and cfg.get('api_transport', 'cn') == 'cn'
+            and selected.cn_origin is not None
+            and origin(cfg['base_url'], loopback=True) == selected.cn_origin)
+
+
+def proxy_tunnel_unavailable(cause):
+    # CPython's HTTPS CONNECT failure is an errno-less OSError wrapped by
+    # URLError. This is the proxy handshake, not an HTTP auth service reply.
+    if not isinstance(cause, URLError):
+        return False
+    cause = cause.reason
+    return (type(cause) is OSError and cause.errno is None
+            and re.fullmatch(r'Tunnel connection failed: (?:407|5[0-9]{2})(?: [^\r\n]*)?',
+                             str(cause)) is not None)
+
+
 def api_path(cfg, value):
     selected = policy()
     if not isinstance(value, str) or '\r' in value or '\n' in value:
@@ -136,6 +160,8 @@ def transient(cause, code=None):
         return False
     if isinstance(cause, HTTPError):
         return cause.code in {502, 503, 504}
+    if proxy_tunnel_unavailable(cause):
+        return True
     if isinstance(cause, URLError):
         cause = cause.reason
     if isinstance(cause, (ssl.SSLCertVerificationError, ssl.CertificateError)):

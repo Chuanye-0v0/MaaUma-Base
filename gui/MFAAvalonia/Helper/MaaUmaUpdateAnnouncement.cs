@@ -17,10 +17,12 @@ namespace MFAAvalonia.Helper;
 /// <summary>Local release notes. Reading or dismissing them never invokes a task or service.</summary>
 public static class MaaUmaUpdateAnnouncement
 {
-    public const string CurrentVersion = "0.5.2";
+    public const string CurrentVersion = "0.5.3";
     private const bool EnhancedBuild = false;
     private static readonly string[] CurrentNotes = {
-        "修复育成启动与续跑过程中，目标配置未初始化引起的异常。"
+        "更新LOH最终阶段观赛与快进流程。",
+        "新增育成策略1.7.15，保留旧版本选择。",
+        "修复国内授权请求被残留代理阻断及网络错误误判。"
     };
     private const string SeenFile = "maauma-update-announcements.json";
     private static readonly Dictionary<string, Window> OpenWindows = new(StringComparer.OrdinalIgnoreCase);

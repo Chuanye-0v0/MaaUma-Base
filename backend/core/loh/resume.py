@@ -132,8 +132,26 @@ class StateBook:
         if observed.get("endpoint", self.endpoint) != self.endpoint:
             raise ValueError("LOH observation endpoint mismatch")
         page = observed.get("page", "unknown")
+        if (observed.get('spectator_playback_cancel') is True and self.data.get('final_watch_auto')
+                and has_loh_context(self.data) and not self.data.get('pending') and not self.data.get('pending_like')):
+            self.data.setdefault('final_watch_requirement',dict(enabled=True,groups=['A','B'],reward_each=30,mode='current_two'))
+        from .final_watch import observe_state as observe_watch, requirement as watch_requirement
+        observe_watch(self.data,observed)
+        if watch_requirement(self.data) and not self.data.get('pending') and page in PROGRESS_PAGES|RESULT_PAGES:
+            self.data['last_observation']=_small_observation(observed)
+            self.save()
+            return self.data
         self._restore_unconfirmed_matching(observed)
         pending = self.data.get("pending")
+        if (page=='events' and observed.get('spectator_playback_period') is True
+                and self.data.get('spectator_playback_cancel_verified') and not pending
+                and not self.data.get('pending_like') and has_loh_context(self.data)):
+            self.data['ranking_period_verified']=True
+            self.data['ranking_period_basis']='native_replay_card_after_verified_cancel'
+        if (page == 'loh_closed' and observed.get('unavailable_verified') is True
+                and observed.get('entry_disabled') is True and not pending
+                and has_loh_context(self.data)):
+            self.data['ranking_period_verified'] = True
         if isinstance(page, str) and page.startswith("loh_") and observed.get("requires_loh_context") is not True:
             self.data["loh_context_verified"] = True
         if observed.get("requires_loh_context") is True and not has_loh_context(self.data):
@@ -142,6 +160,8 @@ class StateBook:
             self.data["last_observation"] = _small_observation(observed)
             self.save()
             return self.data
+        from .spectator import observe_state
+        observe_state(self.data, observed)
         if (page == 'loh_team_confirm' and observed.get('team_complete') is True
                 and observed.get('team_confirmation_modal') is False
                 and not self.data.get('empty_team_auto_requested') and not self.data.get('team_ready')):
@@ -240,6 +260,8 @@ class StateBook:
             "entry_continuation": continuation}
         if action_id == 'confirm_team':
             reserved['team_confirmation_final'] = observed.get('team_confirmation_modal') is True
+        if action_id=='close_notice' and observed.get('spectator_playback_cancel') is True:
+            reserved['spectator_playback_cancel']=True
         if continuation:
             prior_confirmation = deepcopy(pending["entry_confirmation"])
             prior_binding = {key: deepcopy(pending.get(key)) for key in _BINDING_KEYS}
@@ -258,6 +280,10 @@ class StateBook:
             self.data["cold_adoption_allowed"] = False
             self.data["result_boundary_ready"] = False
             reserved["entry_id"] = entry_id
+        from .spectator import reserve as reserve_spectator
+        reserve_spectator(self.data, action_id, observed, reserved)
+        from .final_watch import reserve as reserve_watch
+        reserve_watch(self.data,action_id,observed,reserved)
         self.data["last_action"] = reserved
         self.data["records"].append({"kind": "action_reserved", **deepcopy(reserved)})
         # This completes before device.step: a crash at the input boundary leaves
@@ -285,6 +311,12 @@ class StateBook:
                      and isinstance(acknowledged, int) and acknowledged > 0)
         if action.get("action_id") == "open_loh" and performed and not uncertain:
             self.data["loh_context_verified"] = True
+        if (action.get('spectator_playback_cancel') and performed and not uncertain
+                and outcome.get('execution_status')=='executed'
+                and type(attempts) is int and type(acknowledged) is int
+                and attempts==acknowledged and not self.data.get('pending')
+                and not self.data.get('pending_like')):
+            self.data['spectator_playback_cancel_verified']=True
         if action.get('action_id') == 'auto_team' and performed and not uncertain:
             self.data['empty_team_auto_requested'] = True
         if (action.get('action_id') == 'confirm_team' and action.get('team_confirmation_final')
@@ -328,6 +360,10 @@ class StateBook:
                 pending["entry_confirmation"] = {"status": "available",
                     "from_dispatch_id": action.get("dispatch_id"),
                     "from_page": action.get("source_page"), "from_action_id": action.get("action_id")}
+        from .final_watch import receipt as watch_receipt
+        watch_receipt(self.data,action,zero_input,performed,uncertain,outcome)
+        from .spectator import receipt as spectator_receipt
+        spectator_receipt(self.data, action, zero_input, performed, uncertain)
         self.data["records"].append({"kind": "action_receipt", "dispatch_id": action.get("dispatch_id"),
             "action_id": action.get("action_id"), "receipt": _small_observation(receipt)})
         self.save()

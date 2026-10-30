@@ -32,7 +32,7 @@ def _same_candidate(action_id, before, expected):
     right = expected.get('actions', {}).get(action_id)
     if not isinstance(left, dict) or not isinstance(right, dict):
         return False
-    for key in ('effect', 'uses_items'):
+    for key in ('effect', 'uses_items', 'like_key', 'like_group', 'like_race','watch_key','watch_group'):
         if left.get(key) != right.get(key):
             return False
     if left.get('enabled', True) != right.get('enabled', True):
@@ -68,6 +68,30 @@ class LohDevice(SupportDevice):
         self.options = {}
         super().__init__(endpoint, adb_path, output_dir)
 
+    @staticmethod
+    def _merge_spectator_caption(tokens, token):
+        from core.loh.observer import _text
+        x,y,r,b = token['bbox']
+        old = next((t for t in tokens if _text(t['text']) == _text(token['text'])
+            and abs(t['bbox'][0]+t['bbox'][2]-x-r) <= 16
+            and abs(t['bbox'][1]+t['bbox'][3]-y-b) <= 16), None)
+        if old is None:
+            tokens.append(token)
+        elif token['confidence'] > old['confidence']:
+            tokens[tokens.index(old)] = token
+
+    @staticmethod
+    def _merge_home_caption(tokens, regional):
+        """Replace only the same measured Home caption from the full pass."""
+        x, y, r, b = regional['bbox']
+        def same_caption(token):
+            if token.get('text', '').replace(' ', '') != '主页':
+                return False
+            a, c, d, e = token['bbox']
+            return abs((a+d-x-r)/2) <= 4 and abs((c+e-y-b)/2) <= 4
+        tokens[:] = [token for token in tokens if not same_caption(token)]
+        tokens.append(regional)
+
     def capture(self):
         raw = self.command('-s', self.endpoint, 'exec-out', 'screencap', '-p')
         captured = time.monotonic()
@@ -94,12 +118,26 @@ class LohDevice(SupportDevice):
                 # this brief read-only window. Keep polling for the live glyph.
                 return self._save_capture(raw, captured,
                     dict(page='loading',reason='loh_short_presentation_rendering',actions={}), [])
+        from .final_watch import observe_fast_skip
+        fast_watch=observe_fast_skip(image,self.book)
+        if fast_watch is not None:
+            return self._save_capture(raw,captured,fast_watch,[])
         rows, _ = self.ocr(image)
         tokens = [dict(text=text, confidence=float(confidence), bbox=[
             int(min(p[0] for p in box)), int(min(p[1] for p in box)),
             int(max(p[0] for p in box)), int(max(p[1] for p in box))])
             for box, text, confidence in rows or []]
         observed = dict(self.observer(image, ocr_items=tokens))
+        if (observed.get('page') == 'loh_spectator_list'
+                and (observed.get('like_group') is None or
+                     not observed.get('like_voted') and 'spectator_vote' not in observed.get('actions', {}))
+                or observed.get('page') == 'loh_spectator_reward' and not observed.get('actions')):
+            from core.ocr_regions import read_regions
+            regions = ([(10,450,710,530),(510,650,710,1030)]
+                       if observed.get('page') == 'loh_spectator_list' else [(200,740,520,950)])
+            for token in read_regions(image, self.ocr, regions):
+                self._merge_spectator_caption(tokens, token)
+            observed = dict(self.observer(image, ocr_items=tokens))
         if ((observed.get('page') == 'loh_no_tickets' and 'back_loh' not in observed.get('actions', {})
                 and 'continue_result' not in observed.get('actions', {})) or
                 (not observed.get('actions') and
@@ -109,7 +147,9 @@ class LohDevice(SupportDevice):
             from core.ocr_regions import read_regions
             tokens += read_regions(image, self.ocr, [(20,1100,705,1250)])
             observed = dict(self.observer(image, ocr_items=tokens))
-        if (observed.get('page') == 'loh_no_tickets'
+        if (observed.get('page') in {'loh_no_tickets', 'loh_closed'}
+                and (observed.get('page') == 'loh_no_tickets'
+                     or observed.get('unavailable_verified') is True)
                 and not observed.get('actions')):
             # The tiny two-character Home footer can split/disappear in the
             # full-frame pass. Read that same native caption enlarged, then
@@ -118,7 +158,7 @@ class LohDevice(SupportDevice):
             for box, text, confidence in rows or []:
                 if text.replace(' ', '') != '主页':
                     continue
-                tokens.append(dict(text=text,confidence=float(confidence),bbox=[
+                self._merge_home_caption(tokens, dict(text=text,confidence=float(confidence),bbox=[
                     290+int(min(p[0] for p in box)/2),1200+int(min(p[1] for p in box)/2),
                     290+int(max(p[0] for p in box)/2),1200+int(max(p[1] for p in box)/2)]))
             observed = dict(self.observer(image, ocr_items=tokens))
@@ -138,6 +178,17 @@ class LohDevice(SupportDevice):
             playback = observe_owned_playback(image,tokens)
             if playback is not None:
                 observed = dict(playback)
+        from .final_watch import observe as observe_watch, requirement as watch_requirement
+        if watch_requirement(self.book):
+            viewing=observe_watch(image,tokens,self.book,observed)
+            if viewing is None or not viewing.get('actions'):
+                if observed.get('page') in {'unknown','notice'} or viewing and viewing.get('page') in {'loh_watch_preview','loh_watch_settings','loh_watch_reward','loh_watch_result','loh_watch_lineup'}:
+                    from core.ocr_regions import read_regions
+                    for token in read_regions(image,self.ocr,[(180,350,600,470),(60,760,690,930),(160,500,560,750),(180,1100,700,1270)]):
+                        self._merge_spectator_caption(tokens,token)
+                    observed=dict(self.observer(image,ocr_items=tokens))
+                    viewing=observe_watch(image,tokens,self.book,observed)
+            if viewing is not None:observed=viewing
         return self._save_capture(raw, captured, observed, tokens)
 
     def _save_capture(self, raw, captured, observed, tokens):
@@ -186,16 +237,26 @@ class LohDevice(SupportDevice):
     def step(self, action_id, stop_event, expected):
         if stop_event.is_set():
             raise RuntimeError('operator_stop')
+        if action_id=='retry_network':
+            # Native screenshots can remain available after the ADB input
+            # transport disconnects. Reconnect before this fresh neutral retry.
+            self.connect()
         before = self.capture()
+        # An acknowledged shortening toggle can render after the runner's
+        # post-input frame. Its replacement result control requires a fresh
+        # policy decision, never another toggle or a replay of entry.
+        alternatives={'enable_short':('view_result',),
+                      'select_title_candidate':('confirm_title',)}.get(action_id,())
         if before.get('page') in {'unknown','loading'}:
             # A pulsing caption can vanish on the fresh frame. Wait read-only
             # for this same control, rather than spending the replan budget.
-            before = await_candidate(self.capture,stop_event,action_id,before,expected.get('page'))
+            before = await_candidate(self.capture,stop_event,action_id,before,expected.get('page'),
+                                     alternatives=alternatives)
         if before.get('page') != expected.get('page'):
             raise ReobserveRequired(action_id, before)
         if action_id not in before.get('actions', {}):
             before = await_candidate(self.capture, stop_event, action_id, before,
-                                     expected.get('page'))
+                                     expected.get('page'),alternatives=alternatives)
         if not _same_candidate(action_id, before, expected):
             raise ReobserveRequired(action_id, before)
         if before['actions'][action_id].get('effect') == 'admission':
@@ -222,10 +283,14 @@ class LohDevice(SupportDevice):
         self._loh_fast_skip_submitted = action_id == 'skip_race'
         try:
             self.command('-s', self.endpoint, 'shell', 'input', kind, *values)
-            # After the sole skip input, normal OCR observes the real result.
-            # Polling never resends it while the same glyph remains visible.
+            if action_id=='watch_skip' and stop_event.wait(.3):
+                raise RuntimeError('operator_stop_after_submit')
             from core.navigation_wait import wait_transition
-            after = wait_transition(self.capture, stop_event, before)
+            # Cinematic segments share one page and the same native glyph.
+            # Return its fresh frame immediately so the runner can advance
+            # the next segment, instead of waiting twenty seconds for a page.
+            ready=(lambda value: 'watch_skip' in value.get('actions',{})) if action_id=='watch_skip' else None
+            after = wait_transition(self.capture, stop_event, before,same_page_ready=ready)
         finally:
             self._loh_fast_skip_submitted = False
         receipt = dict(action_id=action_id, performed=True,

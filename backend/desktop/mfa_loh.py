@@ -23,7 +23,9 @@ def execute(options, *, endpoint, adb_path, output, emit, stop, resume_from=None
     device = None
     try:
         with ScreenshotSession() as screenshots:
-            StateBook(directory, endpoint, resume_from=resume_from)
+            owner=StateBook(directory, endpoint, resume_from=resume_from)
+            owner.data['final_watch_auto']=True
+            owner.save()
             menu = MenuNavigation()
             device = LohDevice(endpoint, adb_path, directory, observer=menu)
             device.connect()
@@ -80,6 +82,8 @@ def observe(frame, ocr_items=None):
     from core.loh.observer import observe as observe_loh
     menu = menu_entries(frame, ocr_items or [])
     if menu is None:
+        # Reuse the project's established selected-Home/races navigation.
+        # A Home advertisement can say "赛事进行中"; it is not race playback.
         import cv2
         from core.limited_legend.observer import observe as observe_navigation
         raw = cv2.imencode('.png', frame)[1].tobytes()
@@ -87,7 +91,8 @@ def observe(frame, ocr_items=None):
         page = navigation.get('page')
         action = {'home': 'open_races', 'races': 'open_events'}.get(page)
         if action and action in navigation.get('actions', {}):
-            return dict(page=page, actions={action: navigation['actions'][action]}, reason='shared_verified_' + page + '_navigation')
+            return dict(page=page, actions={action: navigation['actions'][action]},
+                        reason='shared_verified_'+page+'_navigation')
         return observe_loh(frame, ocr_items=ocr_items)
     if menu.get('loh_available') is False:
         return dict(menu, page='loh_closed', actions={}, reason='named_loh_card_closed')
@@ -96,7 +101,23 @@ def observe(frame, ocr_items=None):
         actions['open_loh'] = menu['actions']['open_loh']
     elif menu.get('navigation_actions', {}).get('scroll_events'):
         actions['scroll_events'] = menu['navigation_actions']['scroll_events']
-    return dict(menu, actions=actions, reason='named_loh_card' if 'open_loh' in actions else 'loh_menu_search')
+    # The final-day card opens a spectator replay directly, rather than a
+    # ticket/like entry. Its phase is metadata until the original cancel ACK.
+    from core.loh.observer import _Page, _tokens
+    height,width=frame.shape[:2]
+    page=_Page(frame,_tokens(ocr_items or [],width,height))
+    card=(menu.get('event_cards') or {}).get('loh') or {}
+    box=card.get('bbox')
+    playback=False
+    if box and 'open_loh' in actions:
+        x,y,right,bottom=box
+        playback=bool(page.find('特别赛事进行中',
+            (max(0,x-100)/width,max(0,y-100)/height,min(width,right+100)/width,y/height))
+            and not page.has('可进行点赞',(0,0,1,1)))
+        if playback:
+            actions.update(page.action('back_loh','主页',(.4,.95,.6,1),effect='navigation',resource_kind='free'))
+    return dict(menu, actions=actions, spectator_playback_period=playback,
+        reason='named_loh_card' if 'open_loh' in actions else 'loh_menu_search')
 
 def classify(result, endpoint):
     """Configuration-needed advances the queue without claiming game success."""

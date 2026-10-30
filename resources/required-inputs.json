@@ -1,6 +1,6 @@
 {
   "schema_version": "maauma.external_resources.v1",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "files": [
     "MaaUma.Entry.deps.json",
     "MaaUma.Entry.dll",
@@ -112,6 +112,9 @@
     "backend/core/guild_daily/assets/unlocked.png",
     "backend/core/jjc/assets/next.png",
     "backend/core/jjc/assets/skip.png",
+    "backend/core/loh/assets/watch-carrot-icon.png",
+    "backend/core/loh/assets/watch-fast-forward.png",
+    "backend/core/loh/assets/watch-reward-title.png",
     "backend/core/page_assets/anchors.json",
     "backend/core/page_assets/event-014.png",
     "backend/core/page_assets/event-015.png",

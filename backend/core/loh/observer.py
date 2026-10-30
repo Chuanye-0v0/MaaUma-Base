@@ -345,6 +345,39 @@ def _playback(page):
 def _terminal(page, event_header):
     if not event_header:
         return None
+    if (page.dialog is None and page.has('特别赛事', 'body')
+            and (page.has('参赛登记期间', 'body') or page.has('匹配期间', 'body')) and page.has('点赞', 'body')
+            and page.has('开始还剩', 'body')
+            and not any(t['text'] in {'比赛','参赛','报名','参赛登记','确定对战对手','决定对战对手'} for t in page.rows('footer'))):
+        actions=page.action('back_loh','主页','footer',effect='navigation',resource_kind='free')
+        # The native global Home tab is brown when unselected, not disabled.
+        # Keep its actual OCR measurement instead of applying modal-button color.
+        homes=[t for t in page.tokens if t['text']=='主页' and t['bbox'][1]>=page.height*.95
+               and page.width*.4<=t['bbox'][0]<t['bbox'][2]<=page.width*.6]
+        if not actions and len(homes)==1:
+            x,y,r,b=homes[0]['bbox']
+            actions={'back_loh':dict(point=[(x+r)//2,(y+b)//2],bbox=[x,y,r,b],
+                effect='navigation',resource_kind='free',basis='measured_native_home_footer')}
+        reason = 'native_special_matching_period' if page.has('匹配期间', 'body') else 'native_special_registration_period'
+        return _result('loh_closed',reason,actions,
+            unavailable_verified=True,entry_disabled=True,requires_loh_context=True)
+    # The main races close before the event itself ends. Require the named
+    # statistics period, its countdown, and the actually disabled race label.
+    if (page.dialog is None and page.has('排行榜统计期间', 'body')
+            and page.has('距离主要赛事排行榜公布还剩', 'body')):
+        races = [t for t in page.rows('footer') if t['text'] == '比赛']
+        if len(races) == 1:
+            x, y, r, b = races[0]['bbox']
+            label = cv2.cvtColor(page.image[y:b, x:r], cv2.COLOR_BGR2HSV)
+            grey = ((label[:, :, 1] < 65) & (label[:, :, 2] > 100)
+                    & (label[:, :, 2] < 205)).mean()
+            white = ((label[:, :, 1] < 65) & (label[:, :, 2] > 215)).mean()
+            if grey > .25 and white < .02:
+                return _result('loh_closed', 'native_ranking_period_disabled_race',
+                    page.action('back_loh', ('主页',), 'footer',
+                                effect='navigation', resource_kind='free'),
+                    unavailable_verified=True, entry_disabled=True,
+                    requires_loh_context=True)
     if page.has(("没有门票", "门票不足", "门票已用完", "今日可挑战次数已用完"), (0, 0, 1, 1)):
         return _result("loh_no_tickets", "explicit_no_tickets")
     if page.has(("尚未开放", "活动未开放", "活动已结束", "出走登记期间", "出走登录期间"), (0, 0, 1, 1)):
@@ -396,6 +429,79 @@ def _event_menu(image, tokens, page):
     return _result('events', 'named_event_card' if action else 'loh_card_not_read', action)
 
 
+def _title_selection(page):
+    """Cosmetic choice: only portraits above the native unachieved section."""
+    text=''.join(t['text'] for t in page.tokens)
+    if (page.find('获得称号', (0, .25, 1, .38))
+            and page.has('英雄传说', (0, .4, 1, .52))
+            and page.has('已获得活动限定称号', (0, .52, 1, .57))
+            and page.has('可在称号一览中进行设置', (0, .55, 1, .6))
+            and not _paid_text(text)):
+        actions = page.action('close_notice', '关闭', (0, .61, 1, .71),
+                              effect='navigation', resource_kind='free')
+        if actions:
+            return _result('notice', 'native_cosmetic_title_awarded', actions,
+                           requires_loh_context=True)
+    # The ranking-period title explanation can precede the hub. Its sole
+    # Close button neither chooses a title nor claims the later reward.
+    if (page.has('称号“英雄传说', (0, .25, 1, .38))
+            and page.has('排行榜统计期间', (0, .4, 1, .5))
+            and page.has('可通过活动首页的', (0, .43, 1, .5))
+            and page.has('公布排行榜后获得', (0, .55, 1, .64))
+            and not _paid_text(text)):
+        actions = page.action('close_notice', '关闭', (0, .61, 1, .71),
+                              effect='navigation', resource_kind='free')
+        if actions:
+            return _result('notice', 'native_ranking_title_information', actions,
+                           requires_loh_context=True)
+    if (page.find('确认',(0,.25,1,.38)) and page.has('英雄传说',(0,.35,1,.7))
+            and page.has('选择称号优俊少女',(0,.5,1,.62))
+            and page.has('确定选择',(0,.4,1,.5))
+            and page.has('是否确认执行',(0,.4,1,.53)) and not _paid_text(text)):
+        return _result('loh_title_confirm','native_cosmetic_title_confirmation',
+            page.action('confirm_title_choice','确定',(.5,.58,1,.75),
+                effect='navigation',resource_kind='free'),requires_loh_context=True)
+    if not page.find('选择称号优俊少女',(0,0,1,.1)):
+        return None
+    end=page.find('未达成优俊少女',(0,.4,1,.85))
+    info=page.find('重新选择',(0,.3,1,.4))
+    confirm=page.find('确定',(0,.85,1,1))
+    if not end or not info or not confirm or _paid_text(text):
+        return _result('loh_title_selection','title_controls_loading',requires_loh_context=True)
+    x,y,r,b=confirm['bbox']
+    crop=page.image[max(0,y-15):min(page.height,b+15),max(0,x-65):min(page.width,r+65)]
+    hsv=cv2.cvtColor(crop,cv2.COLOR_BGR2HSV)
+    bright=((hsv[:,:,0]>25)&(hsv[:,:,0]<95)&(hsv[:,:,1]>90)&(hsv[:,:,2]>185)).mean()
+    caption=cv2.cvtColor(page.image[y:b,x:r],cv2.COLOR_BGR2HSV)
+    white=((caption[:,:,1]<65)&(caption[:,:,2]>215)).mean()
+    if bright>.25 and white>.10:
+        return _result('loh_title_selection','selected_cosmetic_title',
+            {'confirm_title':dict(point=[(x+r)//2,(y+b)//2],bbox=confirm['bbox'],
+                effect='navigation',resource_kind='free',basis='enabled_native_title_confirm')},
+            requires_loh_context=True)
+    top=info['bbox'][3]+12;bottom=end['bbox'][1]-12
+    if not 80<bottom-top<page.height*.3:
+        return _result('loh_title_selection','eligible_portraits_loading',requires_loh_context=True)
+    roi=page.image[top:bottom]
+    circles=cv2.HoughCircles(cv2.cvtColor(roi,cv2.COLOR_BGR2GRAY),cv2.HOUGH_GRADIENT,
+        1.2,page.width*.118,param1=100,param2=35,
+        minRadius=round(page.width*.0625),maxRadius=round(page.width*.102))
+    candidates=[]
+    for cx,cy,radius in (() if circles is None else circles[0]):
+        cx,cy,radius=map(lambda v:round(float(v)),(cx,cy,radius))
+        if not (radius<cx<page.width-radius and radius*.75<cy<bottom-top-radius*.75):continue
+        portrait=roi[max(0,cy-radius//2):cy+radius//2,cx-radius//2:cx+radius//2]
+        color=cv2.cvtColor(portrait,cv2.COLOR_BGR2HSV)
+        if ((color[:,:,1]>50)&(color[:,:,2]>60)).mean()>.20:
+            candidates.append((cx,cy+top))
+    actions={}
+    if candidates:
+        actions['select_title_candidate']=dict(point=list(min(candidates)),effect='navigation',
+            resource_kind='free',basis='native_eligible_portrait_circle')
+    return _result('loh_title_selection','eligible_cosmetic_portraits',actions,
+                   requires_loh_context=True)
+
+
 def observe(frame, ocr_items=None):
     """Return serializable observations; OCR boxes use this frame's pixel units.
 
@@ -414,10 +520,46 @@ def observe(frame, ocr_items=None):
     page = _Page(image, tokens)
     if page.has(("账号在别处登录", "其他设备登录", "另一台设备登录"), (0, 0, 1, 1)):
         return _result("connection_conflict", "account_connection_conflict")
+    if (page.find('网络错误',(0,.25,1,.4))
+            and page.find('连接中出现错误',(0,.4,1,.6))
+            and page.find('返回标题页面',(0,.58,.5,.75))
+            and page.find('重试',(.5,.58,1,.75))):
+        # This neutral retry stays with the original LOH owner. The wording
+        # "连接中出现错误" must not be mistaken for a loading caption.
+        return _result('loh_network_retry','native_network_error',
+            page.action('retry_network','重试',(.5,.58,1,.75),
+                        effect='navigation',resource_kind='free'),requires_loh_context=True)
     if page.has(("连接中断", "通信错误", "连接失败", "网络连接错误"), (0, 0, 1, 1)):
         return _result("connection_interrupted", "connection_interrupted")
     if page.has(("加载中", "连接中", "正在匹配", "正在连接"), (0, 0, 1, 1)):
         return _result("loading", "transient_loading")
+    if (page.find('比赛播放确认',(0,.28,1,.36))
+            and page.find('英杰集结战特别赛事',(0,.4,1,.48))
+            and any(re.fullmatch(r'即将播放[ab]组',t['text']) for t in page.rows((0,.46,1,.52)))
+            and any(re.fullmatch(r'主要赛事\(第\d+场比赛\)',t['text']) for t in page.rows((0,.49,1,.55)))
+            and page.find('是否确认执行?',(0,.54,1,.59))
+            and page.find('确定',(.5,.61,1,.69))):
+        cancel=page.action('close_notice','取消',(0,.61,.5,.69),effect='navigation',resource_kind='free')
+        if cancel:
+            return _result('notice','native_spectator_playback_cancel',cancel,
+                spectator_playback_cancel=True,requires_loh_context=True)
+    from .spectator import observe as observe_spectator
+    spectator = observe_spectator(page, _result)
+    if spectator is not None:
+        return spectator
+    notice_text=''.join(t['text'] for t in tokens)
+    announced_title=[t for t in tokens if t['text']=='公布排行榜']
+    announced_close=[t for t in tokens if t['text']=='关闭']
+    if (len(announced_title)==1 and '主要赛事排行榜已公布' in notice_text
+            and '将参加特别赛事的比赛' in notice_text and not _paid_text(notice_text)
+            and len(announced_close)==1 and page.enabled(announced_close[0])):
+        x,y,r,b=announced_close[0]['bbox']
+        return _result('notice','native_ranking_published_information',
+            {'close_notice':dict(point=[(x+r)//2,(y+b)//2],bbox=[x,y,r,b],
+                effect='navigation',resource_kind='free',basis='named_ranking_publication_notice')},
+            requires_loh_context=True)
+    title=_title_selection(page)
+    if title is not None:return title
     promotions = [t for t in tokens if t['text'].startswith(('升至', '已升至'))]
     promotion_close = [t for t in tokens if t['text'] == '关闭']
     if promotions and len(promotion_close) == 1 and page.enabled(promotion_close[0]):
@@ -473,6 +615,8 @@ def observe(frame, ocr_items=None):
     event_header = loh or any(t["bbox"][1] < height * .23 and
         any(_text(name) in t["text"] for name in LOH_NAMES) for t in tokens)
     terminal = _terminal(page, event_header)
+    if terminal is not None and terminal.get('unavailable_verified') is True:
+        return terminal
     if page.dialog is not None and terminal is not None:
         return terminal
     if page.has(("公告", "活动说明", "活动通知"), "header"):

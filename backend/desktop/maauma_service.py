@@ -11,7 +11,7 @@ import time
 import uuid
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit
-from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler
 
 from desktop.product_updates import contained, read_json, write_json, installation, UpdateError
 from desktop.update_connectivity import observed_request, observed_phase, transport_failure, diagnose
@@ -175,7 +175,8 @@ def _wire_origin(root,base,path,body=None,*,authenticated=True,product='umaa-pub
     if binary:headers['X-MaaUma-Download-Source']=_download_source(cfg['download_source'] if download_source is None else download_source)
     request=Request(base+path,data=data if body is not None else None,headers=headers,method=method)
     try:
-        response=build_opener(NoRedirect()).open(request,timeout=timeout)
+        handlers=(ProxyHandler({}),) if transport.direct_cn_api(dict(cfg,base_url=base),binary=binary) else ()
+        response=build_opener(NoRedirect(),*handlers).open(request,timeout=timeout)
         if binary:return response
         with response:raw=response.read(2*1024**2+1)
         if len(raw)>2*1024**2:raise ServiceError('service_mismatch')
@@ -205,7 +206,8 @@ def _public_wire_origin(root,base,path,*,timeout=45,binary=False,download_source
     if binary:headers['X-MaaUma-Download-Source']=_download_source(cfg['download_source'] if download_source is None else download_source)
     request=Request(base+path,headers=headers,method='GET')
     try:
-        response=build_opener(NoRedirect()).open(request,timeout=timeout)
+        handlers=(ProxyHandler({}),) if transport.direct_cn_api(dict(cfg,base_url=base),binary=binary) else ()
+        response=build_opener(NoRedirect(),*handlers).open(request,timeout=timeout)
         if binary:return response
         with response:raw=response.read(2*1024**2+1)
         if len(raw)>2*1024**2:raise ServiceError('service_mismatch')

@@ -67,7 +67,10 @@ class LohRunner:
         self.wait_started, self.wait_reads, self.loading_seen = None, 0, False
 
     def _result(self, status, reason):
-        pending = bool(self.book.data.get('pending'))
+        from .final_watch import requirement as watch_requirement, complete as watch_complete
+        pending = bool(self.book.data.get('pending') or self.book.data.get('pending_like') or self.book.data.get('pending_watch'))
+        if watch_requirement(self.book.data) and status in {'done','skipped','needs_configuration'} and not watch_complete(self.book.data):
+            status,reason='failed','loh_final_watch_groups_unverified' 
         if pending and status in {'done', 'skipped'}:
             status, reason = 'failed', 'loh_pending_admission_unresolved'
         self.book.data['status'], self.book.data['reason'] = status, reason
@@ -85,6 +88,11 @@ class LohRunner:
             game_task_complete=status in {'done', 'skipped'}, skipped=status == 'skipped',
             pending=pending, state_path=str(self.book.path), output_dir=str(self.book.root),
             effective_options=deepcopy(self.options), last_observation=deepcopy(self.current),
+            final_watch_required=bool(watch_requirement(self.book.data)),
+            final_watch_groups=deepcopy(self.book.data.get('final_watch_groups',{})),
+            final_watch_reward_total=sum(30 for x in self.book.data.get('final_watch_groups',{}).values() if x.get('reward_verified')),
+            final_watch_target_race=(watch_requirement(self.book.data) or {}).get('race'),
+            spectator_groups=deepcopy(self.book.data.get('spectator_groups', {})),
             records=deepcopy(self.book.data.get('records', [])))
         if storage_error is not None:
             result['state_persistence_error'] = storage_error
@@ -121,7 +129,7 @@ class LohRunner:
                 before = self.current
                 signature = (before.get('page'), action)
                 repeated[signature] = repeated.get(signature, 0) + 1
-                if repeated[signature] > 3:
+                if repeated[signature] > (12 if action=='watch_skip' else 3):
                     raise RuntimeError('loh_repeated_action_no_progress')
                 actions_since_completion += 1
                 if actions_since_completion > 200:
@@ -145,6 +153,8 @@ class LohRunner:
                     replans.executed()
                 after = receipt.get('observation')
                 self.current = after if isinstance(after, dict) else self._capture()
+                if self.current.get('spectator_playback_cancel') and self.book.data.get('final_watch_requirement'):
+                    self.current=self._capture()  # Reparse the observed final phase after its owner ACK.
                 # apply_receipt already observes and durably saves its frame;
                 # _capture also observes. Repeating that write here delays the
                 # short-result skip window without adding a new observation.
