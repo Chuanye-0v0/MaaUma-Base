@@ -2682,8 +2682,52 @@
       "archive_identity_pending_actual_archive": false,
       "public_screenshot_retention_implementation_preserved": true,
       "private_screenshot_implementation_included": false
+    },
+    {
+      "version": "0.5.5",
+      "revision": "r1",
+      "scope": "Strongest-team first-cycle tutorial, team creation, result transitions, adaptation recovery, free retry benefits and special-race fixes; exact current public GUI version sources and metadata. Private batch/account switching and all Pacer-only sources remain outside this public repository.",
+      "ordinary_backend_baseline": "0.5.4",
+      "ordinary_backend_changed": false,
+      "ordinary_backend_source_paths": [],
+      "ordinary_gui_baseline": "0.5.4",
+      "ordinary_gui_release_baseline": "0.5.4",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.5.5.zip",
+      "ordinary_gui_archive_sha256": "82059804197d327005fb3717d84c6e06099f4e90db81c1d412e8982360976bf3",
+      "ordinary_gui_archive_size_bytes": 31090222,
+      "ordinary_gui_archive_version": "0.5.5",
+      "ordinary_gui_code_version": "0.5.5",
+      "ordinary_gui_code_reused_from": null,
+      "ordinary_gui_rebuilt_for_release": true,
+      "reviewed_source_input_paths": [
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "docs/PARENT-PLANNING-DATA-SOURCES.md",
+        "gui/MFAAvalonia/Helper/MaaUmaUpdateAnnouncement.cs",
+        "gui/MFAAvalonia/Views/Windows/RootView.axaml",
+        "gui/MFAAvalonia/maauma-activation-projection.json",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "changed_source_paths": [
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "gui/MFAAvalonia/Helper/MaaUmaUpdateAnnouncement.cs",
+        "gui/MFAAvalonia/Views/Windows/RootView.axaml",
+        "gui/MFAAvalonia/maauma-activation-projection.json",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false,
+      "archive_identity_pending_actual_archive": false,
+      "public_screenshot_retention_implementation_preserved": true,
+      "private_screenshot_implementation_included": false
     }
   ],
-  "latest_ordinary_source_update": "0.5.4",
+  "latest_ordinary_source_update": "0.5.5",
   "latest_ordinary_source_revision": "r1"
 }
