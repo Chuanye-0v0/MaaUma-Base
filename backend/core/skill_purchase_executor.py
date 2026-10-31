@@ -307,7 +307,10 @@ class SkillPurchaseExecutor:
             return self._stop('final_confirmation_probe_requires_one_purchase')
         if self.stage == 'batch_final_confirmation_probe' and len(purchases) < 2:
             return self._stop('batch_final_confirmation_probe_requires_multiple_purchases')
-        state, state_error = self._fresh_state()
+        for _ in range(3):
+            state, state_error = self._fresh_state()
+            if state_error not in {'fresh_screenshot_or_parse_failed', 'fresh_state_invalid'}:
+                break
         if state_error:
             return self._stop(state_error)
         assert state is not None
@@ -872,7 +875,7 @@ class SkillPurchaseExecutor:
         if not isinstance(rows, list):
             return (None, 'fresh_rows_missing')
         expected_name = expected.get('observed_name')
-        same_name = [row for row in rows if isinstance(row, Mapping) and row.get('item_id') == purchase.get('item_id') and name_similarity(row.get('observed_name'), expected_name) >= 0.60]
+        same_name = [row for row in rows if isinstance(row, Mapping) and row.get('item_id') == purchase.get('item_id') and (name_similarity(row.get('observed_name'), expected_name) >= 0.6)]
         if not same_name:
             return (None, f"planned_row_missing:{purchase.get('item_id')}")
         if len(same_name) != 1:
@@ -902,7 +905,7 @@ class SkillPurchaseExecutor:
             return (None, f'planned_row_ocr_invalid:{item_id}:discount_percent')
         exact_fields = ('row_complete', 'name_resolution_status', 'observed_name', 'observed_final_cost', 'plus_available', 'discount_percent', 'skill_type', 'rarity_or_icon_type')
         for field in exact_fields:
-            if (name_similarity(row[field], expected[field]) < 0.60 if field == 'observed_name' else row[field] != expected[field]):
+            if name_similarity(row[field], expected[field]) < 0.6 if field == 'observed_name' else row[field] != expected[field]:
                 return (None, f"planned_row_ocr_mismatch:{purchase.get('item_id')}:{field}")
         if row['hint_level'] is not None and expected['hint_level'] is not None and (row['hint_level'] != expected['hint_level']):
             return (None, f"planned_row_ocr_mismatch:{purchase.get('item_id')}:hint_level")

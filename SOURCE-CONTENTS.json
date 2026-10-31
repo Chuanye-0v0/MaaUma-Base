@@ -1266,7 +1266,7 @@
   "build_recipe": "scripts/build.py",
   "resource_contract": "resources/required-inputs.json",
   "bit_identical_binary_rebuild_claimed": false,
-  "latest_ordinary_source_update": "0.5.5",
+  "latest_ordinary_source_update": "0.5.6",
   "ordinary_updates": [
     {
       "version": "0.4.10",
@@ -3901,6 +3901,54 @@
       "changed_source_paths": [
         "SOURCE-CONTENTS.json",
         "SOURCE-ORIGIN.json",
+        "gui/MFAAvalonia/Helper/MaaUmaUpdateAnnouncement.cs",
+        "gui/MFAAvalonia/Views/Windows/RootView.axaml",
+        "gui/MFAAvalonia/maauma-activation-projection.json",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "bit_identical_release_rebuild_claimed": false,
+      "archive_identity_pending_actual_archive": false,
+      "public_screenshot_retention_implementation_preserved": true,
+      "private_screenshot_implementation_included": false
+    },
+    {
+      "version": "0.5.6",
+      "revision": "r1",
+      "scope": "Public shared skill final-confirmation read retry, retaining the published name-matching behavior; current standard GUI version sources and metadata. Private Pacer continuation and reward-page fixes remain outside this public repository.",
+      "ordinary_backend_baseline": "0.5.5",
+      "ordinary_backend_changed": true,
+      "ordinary_backend_source_paths": [
+        "backend/core/skill_purchase_executor.py"
+      ],
+      "ordinary_gui_baseline": "0.5.5",
+      "ordinary_gui_release_baseline": "0.5.5",
+      "ordinary_gui_archive": "MaaUma-standard-GUI-source-0.5.6.zip",
+      "ordinary_gui_archive_sha256": "bd5bc96e6c2c81046fdd413637fd4a1692b18ca6448060432cfcf1c2da61e3d3",
+      "ordinary_gui_archive_size_bytes": 31090005,
+      "ordinary_gui_archive_version": "0.5.6",
+      "ordinary_gui_code_version": "0.5.6",
+      "ordinary_gui_code_reused_from": null,
+      "ordinary_gui_rebuilt_for_release": true,
+      "reviewed_source_input_paths": [
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "backend/core/skill_purchase_executor.py",
+        "docs/PARENT-PLANNING-DATA-SOURCES.md",
+        "gui/MFAAvalonia/Helper/MaaUmaUpdateAnnouncement.cs",
+        "gui/MFAAvalonia/Views/Windows/RootView.axaml",
+        "gui/MFAAvalonia/maauma-activation-projection.json",
+        "interface.json",
+        "maauma-suite.json",
+        "resources/required-inputs.json",
+        "scripts/build.py"
+      ],
+      "changed_source_paths": [
+        "SOURCE-CONTENTS.json",
+        "SOURCE-ORIGIN.json",
+        "backend/core/skill_purchase_executor.py",
         "gui/MFAAvalonia/Helper/MaaUmaUpdateAnnouncement.cs",
         "gui/MFAAvalonia/Views/Windows/RootView.axaml",
         "gui/MFAAvalonia/maauma-activation-projection.json",

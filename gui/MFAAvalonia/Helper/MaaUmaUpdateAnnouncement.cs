@@ -17,13 +17,11 @@ namespace MFAAvalonia.Helper;
 /// <summary>Local release notes. Reading or dismissing them never invokes a task or service.</summary>
 public static class MaaUmaUpdateAnnouncement
 {
-    public const string CurrentVersion = "0.5.5";
+    public const string CurrentVersion = "0.5.6";
     private const bool EnhancedBuild = false;
     private static readonly string[] CurrentNotes = {
-        "新增可选策略1.7.26.3（试用），联合估算末次远征的训练与采购。",
-        "默认仍为1.7.16.1，旧配置和正在进行的育成保留原策略。",
-        "修复事件结算的属性收益与目标文字被误认为比赛列表。",
-        "263采用估值情景，覆盖不足时沿用161；不代表国服实战收益保证。",
+        "修复技能学习确认页重复推进时的停机判断。",
+        "保留现有设置和更新方式。",
     };
     private const string SeenFile = "maauma-update-announcements.json";
     private static readonly Dictionary<string, Window> OpenWindows = new(StringComparer.OrdinalIgnoreCase);
