@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.5.7'
+VERSION = '0.5.8'
 PROJECTS = {'gui': 'gui/MFAAvalonia.Desktop/MFAAvalonia.Desktop.csproj',
     'identity': 'tools/MaaUmaIdentity/MaaUmaIdentity.csproj',
     'check': 'tools/UmaPublicCheck/UmaPublicCheck.csproj'}

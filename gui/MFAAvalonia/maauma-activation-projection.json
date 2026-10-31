@@ -1,6 +1,6 @@
 {
   "edition": "standard",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "base": "E:\\uma\\.worktrees\\account-cycle-card-desktop-e\\integrations\\maauma-0426-next\\gui\\standard",
   "project": "E:\\uma\\.worktrees\\account-cycle-card-desktop-e\\integrations\\maauma-release-0504-next\\gui\\standard\\MFAAvalonia\\MFAAvalonia.csproj",
   "activation_shared": true,
