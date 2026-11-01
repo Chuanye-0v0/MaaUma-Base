@@ -88,7 +88,7 @@ def _execute_operation(options, *, endpoint, adb_path, output, emit, stop, resum
                     from core.strongest_team.storage import consume
                     result['consumed_capture_release']=consume(owner,screenshots,result['last_observation'],keep_current=False)
                 result['screenshot_retention']=screenshots.finish(result,complete=result['ok'])
-                result['capture_policy']=dict(ordinary_max_age_seconds=4*3600,failure_max_age_seconds=12*3600,
+                result['capture_policy']=dict(mode='no_archive',ordinary_max_age_seconds=0,failure_max_age_seconds=0,
                     pending_recovery_protected=True,consumed_work_released=True,full_dump=False)
                 return result
             finally:

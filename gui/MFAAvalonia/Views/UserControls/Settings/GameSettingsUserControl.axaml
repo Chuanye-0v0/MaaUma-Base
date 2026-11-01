@@ -1,4 +1,4 @@
-﻿<UserControl
+<UserControl
     d:DesignHeight="450"
     d:DesignWidth="800"
     mc:Ignorable="d"
@@ -98,7 +98,11 @@
                             Text="{markup:I18n {x:Static helper:LangKeys.EnableRecording}}" />
                     </StackPanel>
                 </DockPanel>
-                <DockPanel>
+                <TextBlock
+                    IsVisible="{Binding DailyScreenshotPolicyVisible}"
+                    TextWrapping="Wrap"
+                    Text="日活不保存过程图或识别失败图；只暂存当前未完成操作续跑必需的工作图，完成后清理。" />
+                <DockPanel IsVisible="{Binding NativeScreenshotArchivesAllowed}">
                     <ToggleSwitch
                         Classes="Switch"
                         DockPanel.Dock="Right"
@@ -112,7 +116,7 @@
                             Text="{markup:I18n {x:Static helper:LangKeys.EnableSaveDraw}}" />
                     </StackPanel>
                 </DockPanel>
-                <DockPanel>
+                <DockPanel IsVisible="{Binding NativeScreenshotArchivesAllowed}">
                     <ToggleSwitch
                         Classes="Switch"
                         DockPanel.Dock="Right"

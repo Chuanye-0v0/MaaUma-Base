@@ -1,4 +1,4 @@
-﻿using Avalonia.Controls;
+using Avalonia.Controls;
 using Avalonia.Controls.Notifications;
 using Avalonia.Media;
 using MaaFramework.Binding;
@@ -59,6 +59,14 @@ public class MaaProcessor
     // which throws an uncaught native std::filesystem exception and aborts the process.
     public static MaaToolkit Toolkit { get; } = new(true, AppPaths.DataRoot);
     public static MaaGlobal Global { get; } = new();
+    public static bool NativeScreenshotArchivesAllowed =>
+        !MaaUmaDailyScreenshotPolicy.AppliesTo(Interface?.Task?.Select(task => task.Entry));
+
+    public static void ApplyNativeScreenshotArchivePolicy(MaaGlobal global) =>
+        MaaUmaDailyScreenshotPolicy.Apply(!NativeScreenshotArchivesAllowed,
+            value => global.SetOption_SaveDraw(value),
+            value => global.SetOption(GlobalOption.SaveOnError, value));
+
     public string InstanceId { get; }
     public InstanceConfiguration InstanceConfiguration { get; }
     public MaaFWConfiguration Config { get; } = new();
@@ -1928,6 +1936,7 @@ public class MaaProcessor
             tasker.Global.SetOption_SaveDraw(ConfigurationManager.Maa.GetValue(ConfigurationKeys.SaveDraw, false));
             tasker.Global.SetOption(GlobalOption.SaveOnError, ConfigurationManager.Maa.GetValue(ConfigurationKeys.SaveOnError, true));
             tasker.Global.SetOption_DebugMode(ConfigurationManager.Maa.GetValue(ConfigurationKeys.ShowHitDraw, false));
+            ApplyNativeScreenshotArchivePolicy(tasker.Global);
             LoggerHelper.Info("MaaFW 调试模式：" + ConfigurationManager.Maa.GetValue(ConfigurationKeys.ShowHitDraw, false));
             // The Android native task runner invokes node callbacks while its action
             // lock is held. Crossing that callback into Mono can suspend the Avalonia

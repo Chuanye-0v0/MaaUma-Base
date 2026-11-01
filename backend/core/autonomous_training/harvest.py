@@ -539,6 +539,9 @@ def authorize_harvest_action(action, observed, context):
 def mark_harvest_dispatch(action, observed, context, receipt_path):
     """Consume irreversible intents before transport, including uncertain sends."""
     from core.harvest_factors import FACTOR_ACTIONS, mark_factor_dispatch
+    if action == 'open_skills':
+        from core.screenshot_retention import retain_transaction_proof
+        retain_transaction_proof('harvest_skill_entry', observed)
     if action in FACTOR_ACTIONS:
         mark_factor_dispatch(action, observed, context)
     flags = {'complete_training': 'completion_submitted', 'confirm_factors': 'factors_requested', 'confirm_factor_choice': 'factor_choice_submitted', 'open_completed_formation': 'formation_requested', 'open_team_formation': 'formation_requested', 'formation_home': 'formation_home_submitted', 'close_completed_training': 'harvest_home_submitted'}

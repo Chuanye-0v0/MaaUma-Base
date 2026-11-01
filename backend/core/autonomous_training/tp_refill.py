@@ -66,12 +66,8 @@ class TpRefill:
             raise RuntimeError('tp_refill_frame_invalid')
         scale = image.shape[1] / 720
         image = cv2.resize(image, (720, 1280))
-        selection = ({'kind': state['pending']['kind'], 'stage': 'confirmed'}
-                     if state.get('pending') else state.get('refill_selection'))
-        result = self.parser(image, remaining={'tp_items': 8 - state['tp_items'], 'carrots': 9999 - state['carrots']},
-            selected_resource_kind=state.get('selected'), returning=state.get('returning', False) or bool(state.get('pending')),
-            medicine_enabled=True, carrots_enabled=True, refill_selection=selection,
-            unavailable_resources=state.get('unavailable_resources', []))
+        selection = {'kind': state['pending']['kind'], 'stage': 'confirmed'} if state.get('pending') else state.get('refill_selection')
+        result = self.parser(image, remaining={'tp_items': 8 - state['tp_items'], 'carrots': 9999 - state['carrots']}, selected_resource_kind=state.get('selected'), returning=state.get('returning', False) or bool(state.get('pending')), medicine_enabled=True, carrots_enabled=True, refill_selection=selection, unavailable_resources=state.get('unavailable_resources', []))
         if result is None:
             result = hud_plus(image)
         if result is None:
@@ -79,16 +75,14 @@ class TpRefill:
         source = self.root / (str(time.time_ns()) + '.png')
         self.root.mkdir(parents=True, exist_ok=True)
         source.write_bytes(raw)
+        from core.screenshot_retention import register_working_file
+        register_working_file(source, device=self.device, sha=hashlib.sha256(raw).hexdigest(), proof_group=False)
         result.update(frame_sha256=hashlib.sha256(raw).hexdigest(), screenshot_path=str(source), captured_monotonic=captured, scale=scale, endpoint=self.device.endpoint)
         return result
 
     @staticmethod
     def signature(packet):
-        # Inventory/total-balance OCR is display-only and may disappear between
-        # the two reads. Only action-defining controls, dose and actual cost bind.
-        return {k: packet.get(k) for k in ('state', 'center', 'resource_kind', 'resource_amount',
-            'selected_resource_kind', 'selected_units', 'quantity_basis', 'unavailable_resource_kind',
-            'reported_resource_kind', 'refill_receipt', 'tp')}
+        return {k: packet.get(k) for k in ('state', 'center', 'resource_kind', 'resource_amount', 'selected_resource_kind', 'selected_units', 'quantity_basis', 'unavailable_resource_kind', 'reported_resource_kind', 'refill_receipt', 'tp')}
 
     def run(self, needed, emit, stop):
         if type(needed) is not int or not 0 < needed <= 200:
@@ -100,8 +94,6 @@ class TpRefill:
         state.setdefault('unavailable_resources', [])
         for key in ('normal_stop', 'resource_status', 'message'):
             state.pop(key, None)
-        # UI-only proof from an earlier invocation is not a current quantity or
-        # TP observation. Keep resource counters and a real pending transaction.
         state.pop('verified_tp', None)
         state.pop('menu_closed', None)
         state['result_closed'] = False
@@ -111,6 +103,7 @@ class TpRefill:
                 state['reason'] = 'tp_refill_input_unconfirmed'
                 _save(journal, state)
                 return dict(ok=False, **state)
+
         def record_receipt(kind, packet):
             pending = state.pop('pending')
             state.setdefault('refill_receipts', []).append({**pending, 'receipt': kind})
@@ -120,8 +113,6 @@ class TpRefill:
                     state['verified_tp'] = value
             state['result_closed'] = True
         try:
-            # Same eight-drink/9999-carrot policy; non-consuming Min/+ adds at
-            # most two UI steps per dose, so keep the bounded route long enough.
             for _ in range(64):
                 if stop.is_set():
                     raise RuntimeError('operator_stop')
@@ -134,20 +125,22 @@ class TpRefill:
                         raise RuntimeError('tp_refill_return_tp_unverified')
                     if pending:
                         before = pending.get('tp_before')
-                        if current >= needed or type(before) is int and current > before:
+                        if current >= needed or (type(before) is int and current > before):
                             record_receipt('verified_tp_return', packet)
                             pending = None
                         elif time.time() - pending.get('at', 0) < 15:
-                            if stop.wait(.5):raise RuntimeError('operator_stop')
+                            if stop.wait(0.5):
+                                raise RuntimeError('operator_stop')
                             continue
-                        else:raise RuntimeError('tp_refill_result_unverified')
+                        else:
+                            raise RuntimeError('tp_refill_result_unverified')
                     state['last_verified_tp'] = current
                     state['returning'] = False
                     if current >= needed:
                         state['reason'] = 'tp_refill_verified'
                         _save(journal, state)
                         return dict(ok=True, **state)
-                if kind == 'unknown' and state.get('result_closed') and not pending and state.get('verified_tp', -1) >= needed:
+                if kind == 'unknown' and state.get('result_closed') and (not pending) and (state.get('verified_tp', -1) >= needed):
                     state['reason'] = 'tp_refill_verified'
                     _save(journal, state)
                     return dict(ok=True, **state)
@@ -157,25 +150,27 @@ class TpRefill:
                         if packet.get('reported_resource_kind') != pending['kind']:
                             raise RuntimeError('tp_refill_result_unverified')
                         receipt_kind = 'success_result'
-                    elif kind == 'close_tp_menu':receipt_kind = 'returned_refill_menu'
-                    elif kind == 'dismiss_tp_unavailable':receipt_kind = 'explicit_resource_unavailable'
+                    elif kind == 'close_tp_menu':
+                        receipt_kind = 'returned_refill_menu'
+                    elif kind == 'dismiss_tp_unavailable':
+                        receipt_kind = 'explicit_resource_unavailable'
                     else:
                         if time.time() - pending.get('at', 0) < 15:
-                            if stop.wait(.5):raise RuntimeError('operator_stop')
+                            if stop.wait(0.5):
+                                raise RuntimeError('operator_stop')
                             continue
                         raise RuntimeError('tp_refill_result_unverified')
                 elif packet.get('normal_stop') is True:
-                    state.update(reason=packet.get('reason') or 'tp_insufficient_no_allowed_resources',
-                        normal_stop=True, resource_status=packet.get('resource_status', 'insufficient'), message=packet.get('message'))
+                    state.update(reason=packet.get('reason') or 'tp_insufficient_no_allowed_resources', normal_stop=True, resource_status=packet.get('resource_status', 'insufficient'), message=packet.get('message'))
                     _save(journal, state)
                     return dict(ok=False, **state)
                 if kind == 'wait':
-                    if stop.wait(.25):raise RuntimeError('operator_stop')
+                    if stop.wait(0.25):
+                        raise RuntimeError('operator_stop')
                     continue
-                if kind == 'close_tp_result' and not pending:
+                if kind == 'close_tp_result' and (not pending):
                     raise RuntimeError('tp_refill_result_unverified')
-                allowed = {'open_tp_menu', 'choose_tp_item', 'choose_tp_carrots', 'minimize_tp_refill',
-                    'select_one_tp_refill', 'confirm_tp_refill', 'close_tp_result', 'close_tp_menu', 'dismiss_tp_unavailable'}
+                allowed = {'open_tp_menu', 'choose_tp_item', 'choose_tp_carrots', 'minimize_tp_refill', 'select_one_tp_refill', 'confirm_tp_refill', 'close_tp_result', 'close_tp_menu', 'dismiss_tp_unavailable'}
                 if kind not in allowed or not packet.get('center'):
                     raise RuntimeError(packet.get('reason') or 'tp_refill_page_unverified')
                 fresh = self.capture(state)
@@ -186,8 +181,8 @@ class TpRefill:
                 if stop.is_set():
                     raise RuntimeError('operator_stop')
                 if kind == 'confirm_tp_refill':
-                    resource, amount = fresh.get('resource_kind'), fresh.get('resource_amount')
-                    if pending or resource not in {'tp_items', 'carrots'} or type(amount) is not int or amount <= 0 or fresh.get('selected_units') != 1:
+                    resource, amount = (fresh.get('resource_kind'), fresh.get('resource_amount'))
+                    if pending or resource not in {'tp_items', 'carrots'} or type(amount) is not int or (amount <= 0) or (fresh.get('selected_units') != 1):
                         raise RuntimeError('tp_refill_cost_unverified')
                     limit = 8 if resource == 'tp_items' else 9999
                     if state[resource] + amount > limit:
@@ -198,13 +193,13 @@ class TpRefill:
                     state['pending'] = dict(kind=resource, amount=amount, at=time.time(), tp_before=state.get('last_verified_tp'))
                 intent = dict(action_id=kind, endpoint=self.device.endpoint, performed=None, source_frame_sha256=fresh['frame_sha256'])
                 state['records'].append(intent)
-                _save(journal, state)  # Reservation and pending input precede the consuming confirmation.
-                x, y = fresh['center'];scale = fresh['scale']
+                _save(journal, state)
+                x, y = fresh['center']
+                scale = fresh['scale']
                 outcome = self.device.command('-s', self.device.endpoint, 'shell', 'input', 'tap', str(round(x * scale)), str(round(y * scale)))
                 if outcome is False:
                     raise RuntimeError('tp_refill_input_unconfirmed')
                 intent['performed'] = True
-                # Non-consuming dose state advances only after transport success.
                 if kind in {'choose_tp_item', 'choose_tp_carrots'}:
                     state['selected'] = 'tp_items' if kind == 'choose_tp_item' else 'carrots'
                     state['refill_selection'] = dict(kind=state['selected'], stage='opened')
@@ -217,18 +212,24 @@ class TpRefill:
                 elif kind in {'close_tp_result', 'close_tp_menu'}:
                     if state.get('pending'):
                         record_receipt(receipt_kind, fresh)
-                    if kind == 'close_tp_result':state['returning'] = True
-                    else:state['menu_closed'] = True;state['returning'] = True
+                    if kind == 'close_tp_result':
+                        state['returning'] = True
+                    else:
+                        state['menu_closed'] = True
+                        state['returning'] = True
                 elif kind == 'dismiss_tp_unavailable':
-                    if state.get('pending'):record_receipt(receipt_kind, fresh)
+                    if state.get('pending'):
+                        record_receipt(receipt_kind, fresh)
                     resource = fresh['unavailable_resource_kind']
-                    if resource not in state['unavailable_resources']:state['unavailable_resources'].append(resource)
-                    state.pop('selected', None);state.pop('refill_selection', None);state['returning'] = False
+                    if resource not in state['unavailable_resources']:
+                        state['unavailable_resources'].append(resource)
+                    state.pop('selected', None)
+                    state.pop('refill_selection', None)
+                    state['returning'] = False
                 _save(journal, state)
-                emit(dict(type='progress', message='补TP：' + {'choose_tp_item':'优先使用可用TP药',
-                    'choose_tp_carrots':'按已有补给策略使用萝卜','confirm_tp_refill':'确认一份恢复，费用已记录',
-                    'close_tp_result':'补给结果已确认'}.get(kind, '处理已识别恢复窗口')))
-                if stop.wait(.5):raise RuntimeError('operator_stop')
+                emit(dict(type='progress', message='补TP：' + {'choose_tp_item': '优先使用可用TP药', 'choose_tp_carrots': '按已有补给策略使用萝卜', 'confirm_tp_refill': '确认一份恢复，费用已记录', 'close_tp_result': '补给结果已确认'}.get(kind, '处理已识别恢复窗口')))
+                if stop.wait(0.5):
+                    raise RuntimeError('operator_stop')
             raise RuntimeError('tp_refill_step_limit')
         except (RuntimeError, OSError, ValueError) as error:
             state['reason'] = str(error)

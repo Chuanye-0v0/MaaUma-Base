@@ -57,6 +57,8 @@ def _capture_page(observation: Any, *, output_dir: Path, page_index: int) -> tup
     local_path = output_dir / 'capture' / f'page_{page_index:02d}.png'
     local_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, local_path)
+    from core.screenshot_retention import register_working_file
+    register_working_file(local_path, source=source, sha=raw_sha)
     if hashlib.sha256(local_path.read_bytes()).hexdigest() != raw_sha:
         return (Path(), {}, 'skill_evidence_copy_unverified')
     return (local_path, {'page_index': page_index, 'path': str(local_path), 'source_screenshot_path': str(source), 'raw_sha256': raw_sha, 'frame_sha256': frame_sha}, None)

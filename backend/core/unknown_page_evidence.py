@@ -8,6 +8,23 @@ import cv2
 def save_unknown_page(device, image, observed):
     if observed.get('page') != 'unknown':
         return
+    from core.screenshot_retention import daily_no_archive_active
+    if daily_no_archive_active():
+        try:
+            value = observed.get('screenshot_path') or observed.get('screenshot')
+            path = Path(value) if isinstance(value, str) else None
+            if path is not None and path.stem.isdigit() and (path.suffix.lower() == '.png') and (not path.is_symlink()) and (path.resolve().parent == Path(device.output_dir).resolve()) and path.is_file():
+                height, width = image.shape[:2]
+                region = [round(width * 20 / 720), round(height * 250 / 1280), round(width * 700 / 720), round(height * 1050 / 1280)]
+                masked = image.copy()
+                x0, y0, x1, y1 = region
+                masked[y0:y1, x0:x1] = 0
+                if cv2.imwrite(str(path), masked):
+                    observed.update(screenshot_redacted=True, screenshot_redacted_regions=[region], screenshot_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        except (OSError, ValueError, cv2.error):
+            observed['screenshot_diagnostic_error'] = 'unknown_page_evidence_save_failed'
+        observed['screenshot_archive'] = 'disabled_daily'
+        return
     try:
         root = Path(device.output_dir)
         root.mkdir(parents=True, exist_ok=True)

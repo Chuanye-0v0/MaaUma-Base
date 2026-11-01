@@ -252,6 +252,8 @@ class ExplicitDeviceTransportFacade:
         path = Path(save_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(raw)
+        from core.screenshot_retention import register_working_file
+        register_working_file(path, device=self._device, sha=hashlib.sha256(raw).hexdigest())
         return cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
 
     def tap(self, x: int, y: int, *, scaled: bool=True) -> bool:

@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using MaaFramework.Binding;
 using MFAAvalonia.Configuration;
 using MFAAvalonia.Extensions;
@@ -12,9 +12,12 @@ public partial class GameSettingsUserControlModel : ViewModelBase
 {
     [ObservableProperty] private bool _enableRecording = ConfigurationManager.Maa.GetValue(ConfigurationKeys.Recording, false);
 
-    [ObservableProperty] private bool _enableSaveDraw = ConfigurationManager.Maa.GetValue(ConfigurationKeys.SaveDraw, false);
+    [ObservableProperty] private bool _enableSaveDraw = MaaProcessor.NativeScreenshotArchivesAllowed && ConfigurationManager.Maa.GetValue(ConfigurationKeys.SaveDraw, false);
 
-    [ObservableProperty] private bool _enableSaveOnError = ConfigurationManager.Maa.GetValue(ConfigurationKeys.SaveOnError, true);
+    [ObservableProperty] private bool _enableSaveOnError = MaaProcessor.NativeScreenshotArchivesAllowed && ConfigurationManager.Maa.GetValue(ConfigurationKeys.SaveOnError, true);
+
+    public bool NativeScreenshotArchivesAllowed => MaaProcessor.NativeScreenshotArchivesAllowed;
+    public bool DailyScreenshotPolicyVisible => !NativeScreenshotArchivesAllowed;
 
     [ObservableProperty] private bool _showHitDraw = ConfigurationManager.Maa.GetValue(ConfigurationKeys.ShowHitDraw, false);
 
@@ -36,6 +39,7 @@ public partial class GameSettingsUserControlModel : ViewModelBase
     {
         ConfigurationManager.Maa.SetValue(ConfigurationKeys.SaveDraw, value);
         MaaProcessor.Global.SetOption_SaveDraw(value);
+        MaaProcessor.ApplyNativeScreenshotArchivePolicy(MaaProcessor.Global);
         Instances.RootViewModel.IsDebugMode = EnableSaveDraw || EnableRecording || ShowHitDraw || EnableSaveOnError;
         MaaProcessorManager.Instance.Current.SetTasker();
     }
@@ -44,6 +48,7 @@ public partial class GameSettingsUserControlModel : ViewModelBase
     {
         ConfigurationManager.Maa.SetValue(ConfigurationKeys.SaveOnError, value);
         MaaProcessor.Global.SetOption(GlobalOption.SaveOnError, value);
+        MaaProcessor.ApplyNativeScreenshotArchivePolicy(MaaProcessor.Global);
         Instances.RootViewModel.IsDebugMode = EnableSaveDraw || EnableRecording || ShowHitDraw || EnableSaveOnError;
         MaaProcessorManager.Instance.Current.SetTasker();
     }
@@ -52,6 +57,7 @@ public partial class GameSettingsUserControlModel : ViewModelBase
     {
         ConfigurationManager.Maa.SetValue(ConfigurationKeys.ShowHitDraw, value);
         MaaProcessor.Global.SetOption_DebugMode(value);
+        MaaProcessor.ApplyNativeScreenshotArchivePolicy(MaaProcessor.Global);
         Instances.RootViewModel.IsDebugMode = EnableSaveDraw || EnableRecording || ShowHitDraw || EnableSaveOnError;
         MaaProcessorManager.Instance.Current.SetTasker();
     }
