@@ -123,8 +123,9 @@ public static class UmaPublicRuntime
         // Removed task-preview snapshots stay rejected; never promote their intent.
         var oldActions = new HashSet<string>(new[] {
             "UmaHarvestBackend", "UmaPlantBackend", "UmaJjcBackend", "UmaActivitiesBackend",
-            "UmaDailyLegendBackend", "UmaStoryEventBackend", "UmaDailyRewardsBackend",
+            "UmaDailyLegendBackend", "UmaStoryEventBackend", "UmaGuildDailyBackend", "UmaDailyRewardsBackend",
             "UmaLimitedLegendBackend", "UmaChampionsRegistrationBackend", "UmaChampionsRaceBackend",
+            "UmaLohBackend", "UmaStrongestTeamBackend", "UmaRacingCarnivalBackend",
             "UmaSeedCycleBackend", "UmaCleanupBackend"
         }, StringComparer.Ordinal);
         void Check(JToken? token)

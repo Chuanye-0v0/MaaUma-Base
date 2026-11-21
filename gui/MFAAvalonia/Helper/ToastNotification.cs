@@ -228,7 +228,7 @@ public class ToastNotification
             // 步骤1：检查嵌入资源
             if (!AssetLoader.Exists(uri))
             {
-                // This public source tree intentionally omits the optional notification audio.
+                LoggerHelper.Error($"未找到嵌入资源：{uriString}");
                 return;
             }
 

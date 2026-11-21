@@ -1,4 +1,4 @@
-﻿<UserControl
+<UserControl
     d:DesignHeight="450"
     d:DesignWidth="1400"
     mc:Ignorable="d"
@@ -46,6 +46,7 @@
                     </suki:SettingsLayoutItem>
                     <suki:SettingsLayoutItem Header="常规">
                         <StackPanel Spacing="14">
+                            <helper:MaaUmaRecognitionFeedbackSettingsView />
                             <Expander Header="配置管理" HorizontalAlignment="Stretch"><ContentControl Content="{extensions:ServiceProvider ServiceType={x:Type settings:ConfigurationMgrUserControl}}" /></Expander>
                             <Expander Header="定时任务" HorizontalAlignment="Stretch"><ContentControl Content="{extensions:ServiceProvider ServiceType={x:Type settings:TimerSettingsUserControl}}" /></Expander>
                             <Expander Header="性能" HorizontalAlignment="Stretch"><ContentControl Content="{extensions:ServiceProvider ServiceType={x:Type settings:PerformanceUserControl}}" /></Expander>

@@ -37,6 +37,7 @@ public partial class RootView : SukiWindow
 
         // 初始化组件
         InitializeComponent();
+        MaaUmaWindowTitle.Apply(this, AppContext.BaseDirectory);
         MaaUmaActivationView.AttachStartupMaintenance(this,
             ()=>(MaaUmaActivationView)App.Services.GetService(typeof(MaaUmaActivationView))!,
             text=>ToastHelper.Warn("自动整理",text));
@@ -257,6 +258,11 @@ public partial class RootView : SukiWindow
 #pragma warning disable CS4014 // 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。
     protected override void OnClosing(WindowClosingEventArgs e)
     {
+        if (UmaPacerBridge.DelayClose(Close,ConfirmPacerFrontendExit))
+        {
+            e.Cancel = true;
+            return;
+        }
         if (Instances.RootViewModel.IsRunning && !_exitConfirmed)
         {
             e.Cancel = true;
@@ -285,8 +291,23 @@ public partial class RootView : SukiWindow
 
     public void ShutdownAfterConfirmedExit()
     {
+        if (UmaPacerBridge.DelayClose(ShutdownAfterConfirmedExit,ConfirmPacerFrontendExit)) return;
         _exitConfirmed = true;
         Instances.ShutdownApplication();
+    }
+
+    private async Task<bool> ConfirmPacerFrontendExit(string error)
+    {
+        if(!IsVisible)Show();
+        if(WindowState==WindowState.Minimized)WindowState=WindowState.Normal;
+        Activate();
+        var result=await SukiMessageBox.ShowDialog(new SukiMessageBoxHost
+        {
+            Content="已请求后台停止，但尚未收到停止确认。当前育成和记录会保留。\n\n是否只关闭面板窗口？后台可能仍在收尾；重新打开后请先查看原记录，不要重复开局。\n\n选择“否”会保留窗口。",
+            ActionButtonsPreset=SukiMessageBoxButtons.YesNo,
+            IconPreset=SukiMessageBoxIcons.Warning,
+        },new SukiMessageBoxOptions {Title="后台尚未确认停止"});
+        return result is SukiMessageBoxResult.Yes;
     }
 
     protected override void OnClosed(EventArgs e)

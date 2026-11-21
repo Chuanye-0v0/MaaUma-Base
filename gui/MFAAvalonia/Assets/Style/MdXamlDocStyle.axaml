@@ -11,7 +11,7 @@
     <!-- ==================== 默认字体资源 ==================== -->
     <!-- 避免中文字符缺失导致的字体加载内存过多 -->
     <Styles.Resources>
-        <FontFamily x:Key="MarkdownDefaultFontFamily">Microsoft YaHei,Microsoft JhengHei,PingFang SC,Noto Sans CJK SC,Ubuntu,Segoe UI</FontFamily>
+        <FontFamily x:Key="MarkdownDefaultFontFamily">avares://SukiUI/CustomFont#Alibaba PuHuiTi 3.0,Microsoft YaHei,Microsoft JhengHei,PingFang SC,Noto Sans CJK SC,Ubuntu,Segoe UI</FontFamily>
     </Styles.Resources>
 
     <!-- ==================== ColorTextBlock 组件字体设置 ==================== -->

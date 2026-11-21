@@ -19,6 +19,16 @@ MaaUma 普通版客户端的开源代码，面向 Windows，包含桌面界面�
 
 各功能所需的识别图、数据库和模型等运行输入独立提供，详见[运行资源说明](docs/RESOURCES.md)。
 
+<!-- MAAUMA_OPEN_PACER_SECTION_START -->
+## 开源 L'Arc 育成后端与策略扩展槽位（Open Pacer & Strategy SPI）
+
+本仓库除基础版日活 / 种马 / 公共界面外，现已公开 L'Arc 育成界面（`gui/MFAAvalonia`）与纯策略底座源码（`pacer/backend/`）：
+
+- **公开策略基线（2.0 ~ 2.3）**：内置完整 L'Arc 日历、体力、采购、远征路径规划与 `2.0 ~ 2.3` 参数基线，**开源运行无需授权码、邀请码或联网激活**（`LicensedRunControl` 为开源直通实现）。
+- **外部策略扩展槽位（Strategy Extension SPI）**：通过 `pacer/backend/core/auto_trainer/larc_strategy_extension.py` 与 GUI 端的 `StrategyPackCatalog` 自动发现 `pacer/strategy_pack/`、`pacer/strategy_packs/*/` 或环境变量 `MAAUMA_STRATEGY_PACK_DIR` 中的 `maauma.strategy_pack.v1` 扩展包（详见 [策略包接入说明](pacer/strategy_pack/README.md)）。
+- **不含私有高阶策略参数与运行资产**：高阶调参策略包以及游戏识别图、OCR 模型、独立运行环境均不包含在公开 Git 仓库中。
+<!-- MAAUMA_OPEN_PACER_SECTION_END -->
+
 ## 下载与使用
 
 - [GitHub 最新完整包](https://github.com/Chuanye-0v0/MaaUma-Base/releases/latest)

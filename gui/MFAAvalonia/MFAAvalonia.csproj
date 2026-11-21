@@ -17,7 +17,8 @@
 
     <ItemGroup>
         <Folder Include="Assets\Sound\" />
-        <AvaloniaResource Include="Assets\logo.ico" />
+        <AvaloniaResource Include="Assets\logo.ico" Condition="Exists('Assets\logo.ico')" />
+        <AvaloniaResource Include="Assets\MaaUmaPacerGuide\*.png" />
         <AvaloniaResource Include="Assets\Sound\**" />
         <Folder Include="resource\base\pipeline\" />
         <AvaloniaResource Remove="%(_MaaFrameworkRuntime.DestinationFolder)AnyCPU\**" />
@@ -154,6 +155,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <EmbeddedResource Include="Assets\cn_larc_custom_races_v1.json" LogicalName="cn_larc_custom_races_v1.json" />
         <EmbeddedResource Update="Assets\Localization\Strings*.resx">
             <Generator>PublicResXFileCodeGenerator</Generator>
             <LastGenOutput>Strings.Designer.cs</LastGenOutput>

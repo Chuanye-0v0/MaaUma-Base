@@ -127,6 +127,11 @@ public sealed class UmaKnowledgeToolsLauncher
     public static Task<HubState> ProbeLocalHub()=>ProbeLocalHub(LocalBrowserUrl);
     private static async Task<HubState> ProbeLocalHub(Uri origin)
     {
+        // On Windows a closed loopback connection may take longer than the
+        // HTTP probe timeout to report ConnectionRefused.
+        if (OperatingSystem.IsWindows() && CanBindLoopback(origin.Port))
+            return HubState.Absent;
+
         using var handler = new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false };
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromMilliseconds(650) };
         try
@@ -155,6 +160,18 @@ public sealed class UmaKnowledgeToolsLauncher
         catch (IOException) { return HubState.Occupied; }
     }
 
+    private static bool CanBindLoopback(int port)
+    {
+        using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
+            { ExclusiveAddressUse = true };
+        try
+        {
+            socket.Bind(new IPEndPoint(IPAddress.Loopback, port));
+            return true;
+        }
+        catch (SocketException) { return false; }
+    }
+
     private static bool StartProcess(ProcessStartInfo info)
     {
         using var process = Process.Start(info);
@@ -165,7 +182,6 @@ public sealed class UmaKnowledgeToolsLauncher
         if (url.Scheme!="http"||url.Host!="127.0.0.1"||url.Port is not (18765 or 18766)||url.AbsolutePath!="/"||url.Query.Length>0)
             throw new InvalidOperationException("只允许打开本地资料工具箱。");
         using var process = Process.Start(new ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
-        if (process == null) throw new InvalidOperationException("浏览器未能打开，请手动访问 http://127.0.0.1:18765/ 。");
         return Task.CompletedTask;
     }
 }

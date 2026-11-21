@@ -1,0 +1,16 @@
+{
+  "standard": "E:\\uma\\.worktrees\\account-cycle-card-desktop-e\\runs\\maauma-base-preview-0.4.3-20261015\\gui\\standard\\MFAAvalonia",
+  "pacer": "E:\\uma\\.worktrees\\account-cycle-card-desktop-e\\runs\\maauma-public-update-gui-20261015\\enhanced\\MFAAvalonia",
+  "portable_files": [
+    "UmaPacerView.cs",
+    "UmaTraineePicker.cs",
+    "UmaSupportPicker.cs",
+    "UmaDecisionPreferences.cs",
+    "UmaScoreEditor.cs",
+    "UmaContinuationOptions.cs",
+    "UmaAiOptions.cs"
+  ],
+  "ordinary_runtime_preserved": true,
+  "private_account_manager": false,
+  "device_actions": 0
+}

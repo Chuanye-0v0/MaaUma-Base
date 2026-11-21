@@ -20,8 +20,8 @@ namespace MFAAvalonia.Helper;
 public sealed class MaaUmaActivationView : UserControl
 {
     public const string UpdateNotice="基础更新无需激活，请使用“系统设置 → 更新 / 反馈”。";
-    public const string DefaultServiceUrl="https://maauma-private.2234198378.workers.dev";
-    public const string FeedbackUrl="https://github.com/Chuanye-0v0/MaaUma-Base/issues/new/choose";
+    public const string DefaultServiceUrl="https://api.maauma.top";
+    public const string FeedbackUrl="https://api.maauma.top/feedback";
     public static Func<Task<bool>>? AdditionalIdleCheck { get; set; }
     public static bool PrivateEventsAvailable { get; private set; }
     public static event Action? CapabilitiesChanged;
@@ -54,7 +54,16 @@ public sealed class MaaUmaActivationView : UserControl
     private readonly TextBlock cacheCleanupStatus = new() { Name="MaaUmaCacheCleanupStatus", TextWrapping=TextWrapping.Wrap, FontSize=13, IsVisible=false };
     private readonly TextBlock pacerCleanupStatus = new() { Name="MaaUmaPacerCleanupStatus", TextWrapping=TextWrapping.Wrap, FontSize=13, IsVisible=false };
     private readonly TextBlock startupMaintenanceStatus = new() { Name="MaaUmaStartupMaintenanceStatus", TextWrapping=TextWrapping.Wrap, FontSize=13, IsVisible=false };
+    private readonly ComboBox storageRetention = new() { Name="MaaUmaStorageRetention", ItemsSource=new[]{"2 小时（默认）","30 分钟"}, SelectedIndex=0 };
+    private readonly Button saveStorageRetention = new() { Name="MaaUmaSaveStorageRetention", Content="保存保留时限", IsEnabled=false };
+    private readonly TextBlock storagePolicyStatus = new() { Name="MaaUmaStoragePolicyStatus", Text="正在读取旧育成记录保留设置…", TextWrapping=TextWrapping.Wrap, FontSize=13 };
+    private bool storagePolicyAvailable,storagePolicyDirty,applyingStoragePolicy;
     private Task? startupMaintenanceTask;
+    private readonly object startupMaintenanceGate=new();
+    private bool hasStartupMaintenance;
+    private CancellationToken startupMaintenanceStopped;
+    private Action<string>? startupMaintenanceNotice;
+    private Func<TimeSpan,CancellationToken,Task>? startupMaintenanceWait;
     private readonly ProgressBar progress = new() { Name="MaaUmaDownloadProgress", IsIndeterminate=true, IsVisible=false, Height=8 };
     private readonly DispatcherTimer timer = new() { Interval=TimeSpan.FromSeconds(2) };
     private bool busy, autoPrepared, pacerAuthorized, pacerInstalled, previewAllowed, currentIdle;
@@ -81,6 +90,10 @@ public sealed class MaaUmaActivationView : UserControl
         announcement.Click += (_, _) => MaaUmaUpdateAnnouncement.ShowCurrent(TopLevel.GetTopLevel(this) as Window, root);
         foreach(var button in new[]{refresh,prepare,install,feedback,announcement,networkCheck}){button.Margin=new Thickness(0,0,12,8);actions.Children.Add(button);}
         body.Children.Add(actions);body.Children.Add(progress);body.Children.Add(downloadProgress);body.Children.Add(message);body.Children.Add(startupMaintenanceStatus);body.Children.Add(cacheCleanupStatus);body.Children.Add(pacerCleanupStatus);
+        body.Children.Add(new TextBlock {Text="旧育成记录保留",FontWeight=FontWeight.SemiBold});
+        body.Children.Add(new WrapPanel {Children={storageRetention,saveStorageRetention}});
+        body.Children.Add(storagePolicyStatus);
+        body.Children.Add(new TextBlock {Text="到期回收已结束局的截图、JSON 和临时日志；当前局、明确待续局、账号配置、技能清单和导出复盘保留。",TextWrapping=TextWrapping.Wrap,FontSize=13});
         var serviceFields=new StackPanel {Spacing=10,Children={
             new TextBlock {Text="服务地址"},address,new TextBlock {Text="更新频道"},channel,
             new TextBlock {Text="下载渠道"},downloadSource,
@@ -94,6 +107,8 @@ public sealed class MaaUmaActivationView : UserControl
         configure.Click+=async(_,_)=>await Configure();activate.Click+=async(_,_)=>await Activate();
         refresh.Click+=async(_,_)=>await RefreshInfo();prepare.Click+=async(_,_)=>await PrepareUpdate();
         networkCheck.Click+=async(_,_)=>await CheckConnectivity();
+        saveStorageRetention.Click+=async(_,_)=>await SaveStoragePolicy();
+        storageRetention.SelectionChanged+=(_,_)=>{if(!applyingStoragePolicy)storagePolicyDirty=true;};
         install.Click+=async(_,_)=>await Install();channel.SelectionChanged+=(_,_)=>Buttons();
         downloadSource.SelectionChanged+=(_,_)=>Buttons();
         feedback.Click+=(_,_)=>{
@@ -114,6 +129,7 @@ public sealed class MaaUmaActivationView : UserControl
         activate.IsEnabled=!busy && SettingsSaved;
         prepare.IsEnabled=activate.IsEnabled && SelectedChannel==savedChannel;
         code.IsEnabled=address.IsEnabled=channel.IsEnabled=downloadSource.IsEnabled=!busy;
+        saveStorageRetention.IsEnabled=storageRetention.IsEnabled=!busy&&storagePolicyAvailable;
         install.IsEnabled=!busy && ticket!=null && currentIdle && SettingsSaved;
         progress.IsVisible=busy&&!downloadProgress.IsActive;
         prepare.Content=downloadProgress.HasFailed?"重新尝试下载":"检查并准备更新";
@@ -246,9 +262,125 @@ public sealed class MaaUmaActivationView : UserControl
     private static bool MaintenanceBudget(JToken? value)=>value is JObject result && result["budget_exhausted"]?.Type==JTokenType.Boolean && (bool)result["budget_exhausted"]!;
     private static bool MaintenanceRetry(JToken? value)=>value is JObject result && CleanupCode(result["status"])=="cleanup_busy"
         && result["retry_pending"]?.Type==JTokenType.Boolean && (bool)result["retry_pending"]!;
+    private static bool JsonCompressionPending(JToken? value)=>value is JObject result
+        && (CleanupCode(result["status"]) is "started" or "busy" || MaintenanceBudget(result));
+    private static bool JsonCompressionIssue(JToken? value)
+    {
+        if(value is not JObject result)return true;
+        var status=CleanupCode(result["status"]);
+        if(status is not ("started" or "busy" or "recent_sweep" or "completed" or "no_runs"))return true;
+        if(result.Property("errors")!=null && CleanupCount(result["errors"])==null)return true;
+        if(CleanupCount(result["errors"])>0)return true;
+        return (status is "completed" or "recent_sweep") &&
+            (CleanupCount(result["compressed_files_total"])==null || CleanupCount(result["allocated_bytes_saved_total"])==null
+                || CleanupCount(result["logical_bytes_total"])==null);
+    }
+    private static string JsonCompressionSummary(JToken? value)
+    {
+        if(value is not JObject result)return " 日志压缩：未取得整理结果，是否完成尚未确认。";
+        var status=CleanupCode(result["status"]);
+        if(status=="no_runs")return " 日志压缩：当前没有可整理的日志。";
+        if(status is not ("started" or "busy" or "recent_sweep" or "completed"))return status switch {
+            "launch_failed" or "worker_failed"=>" 日志后台整理未完成，文件已保留。",
+            "unsupported" or "module_unavailable"=>" 日志压缩暂不可用，文件已保留。",
+            "invalid_path"=>" 日志目录范围暂时无法确认，文件已保留。",
+            _=>" 日志压缩状态尚未确认，文件已保留。"
+        };
+        var text=status is "started" or "busy" ? " 日志正在后台整理。" : "";
+        if(result.Property("errors")!=null && CleanupCount(result["errors"])==null)
+            return text+" 日志整理结果尚未确认，文件已保留。";
+        if(CleanupCount(result["errors"]) is long errors && errors>0)
+            return text+$" 日志有 {errors} 项整理未完成，文件已保留。";
+        var count=CleanupCount(result["compressed_files_total"]);
+        var allocated=CleanupCount(result["allocated_bytes_saved_total"]);
+        var logical=CleanupCount(result["logical_bytes_total"]);
+        if(count is long files && allocated is long bytes && logical is not null) {
+            var mib=((decimal)bytes/1048576m).ToString("0.######",System.Globalization.CultureInfo.InvariantCulture);
+            text+=$" 日志累计压缩 {files} 项，实际磁盘占用减少 {mib} MiB；JSON 内容与逻辑大小保持不变，原路径可读。";
+        }
+        else text+=" 日志累计压缩数量或实际磁盘占用变化尚未确认。";
+        if(MaintenanceBudget(result))text+=" 本轮日志整理已达到时间预算，稍后继续。";
+        return text;
+    }
     private static long AddMaintenanceCount(long total,JToken? value)
     {
         var next=CleanupCount(value);return next is long count && count<=long.MaxValue-total ? total+count : total;
+    }
+    private static string RetentionLabel(long minutes)=>minutes==30 ? "30 分钟" : "2 小时";
+    private static bool ValidStoragePolicy(JToken? value)=>value is JObject policy
+        && CleanupCode(policy["schema_version"])=="maauma.pacer_storage_policy.v1"
+        && CleanupCount(policy["retention_minutes"]) is 30 or 120
+        && CleanupCode(policy["status"]) is "default" or "saved";
+    private void ApplyStoragePolicy(JToken? value,bool saved=false)
+    {
+        storagePolicyAvailable=ValidStoragePolicy(value);
+        if(!storagePolicyAvailable) {
+            storagePolicyStatus.Text=value==null ? "当前基础组件未返回保留设置，请更新基础组件后再保存。" : "保留设置未能读取，未改写本地配置。";
+            Buttons();return;
+        }
+        var minutes=CleanupCount(value!["retention_minutes"])!.Value;
+        if(saved||!storagePolicyDirty) {
+            applyingStoragePolicy=true;storageRetention.SelectedIndex=minutes==30 ? 1 : 0;applyingStoragePolicy=false;
+            storagePolicyDirty=false;
+        }
+        storagePolicyStatus.Text=saved ? $"已保存并生效：旧育成记录保留 {RetentionLabel(minutes)}。"
+            : CleanupCode(value["status"])=="default" ? "当前使用默认保留时限：2 小时。"
+            : $"当前已保存保留时限：{RetentionLabel(minutes)}。";
+        Buttons();
+    }
+    public async Task SaveStoragePolicy()
+    {
+        if(busy||!storagePolicyAvailable)return;
+        Busy(true);
+        try {
+            var result=await request(new JObject {["action"]="pacer_storage_policy",["retention_minutes"]=storageRetention.SelectedIndex==1 ? 30 : 120});
+            if((bool?)result["ok"]!=true||!ValidStoragePolicy(result["pacer_storage_policy"])) {
+                storagePolicyStatus.Text=CleanupCode(result["code"])=="invalid_retention_minutes"
+                    ? "未保存：请选择 2 小时或 30 分钟。" : "保留设置未保存，请检查配置目录是否可写后重试。";
+                return;
+            }
+            ApplyStoragePolicy(result["pacer_storage_policy"],saved:true);
+            try {
+                var maintained=await request(new JObject {["action"]="info",["maintenance"]=true});
+                ApplyMaintenanceResult(maintained,true);
+                if(ValidStoragePolicy(maintained["pacer_storage_policy"]))ApplyStoragePolicy(maintained["pacer_storage_policy"],saved:true);
+                else storagePolicyStatus.Text+=" 后续维护结果尚未确认，可刷新状态重试。";
+            }catch {storagePolicyStatus.Text+=" 本轮整理未完成，可刷新状态继续。";}
+            RestartStartupMaintenanceAfterSave();
+        }catch {storagePolicyStatus.Text="保留设置保存结果尚未确认，请刷新状态后重试。";}
+        finally {Busy(false);}
+    }
+    private static string? RetentionReason(JObject result)
+    {
+        var value=CleanupCode(result["cause"])??CleanupCode(result["reason"]);
+        return value is not null&&System.Text.RegularExpressions.Regex.IsMatch(value,@"\A[a-z][a-z0-9_:-]{0,63}\z") ? value : null;
+    }
+    private static string RunRetentionSummary(JObject result)
+    {
+        var runs=CleanupCount(result["removed_runs"]);var files=CleanupCount(result["removed_files"]);
+        var bytes=CleanupCount(result["removed_bytes"]);
+        var text=runs is long count&&files is long fileCount ? $"旧育成记录：本次回收 {count} 局、{fileCount} 个临时文件（截图、JSON、日志）。"
+            : "旧育成记录：回收数量未确认，文件已保留。";
+        text+=CleanupCode(result["status"]) switch {
+            "completed"=>" 本轮检查完成。",
+            "partial"=>" 本轮尚有内容待整理。",
+            "busy"=>" 正被其他维护使用，本轮暂未完成。",
+            "unavailable"=>" 本轮自动清理不可用，文件已保留。",
+            "no_runs"=>" 当前没有可回收的旧育成记录。",
+            "dry_run"=>" 本次仅检查，未执行回收。",
+            _=>" 本轮状态未确认，不能确认已完成。"
+        };
+        if(RetentionReason(result)is string reason)text+=$" 原因：{reason}。";
+        if(bytes is long logicalBytes)text+=$" 文件逻辑大小合计 {((decimal)logicalBytes/1048576m).ToString("0.##",System.Globalization.CultureInfo.InvariantCulture)} MiB。";
+        if(CleanupCount(result["retention_minutes"]) is 30 or 120)text+=$" 保留时限：{RetentionLabel(CleanupCount(result["retention_minutes"])!.Value)}。";
+        if(CleanupCount(result["protected_current_runs"]) is long current&&current>0)text+=$" {current} 局当前运行现场保留。";
+        if(CleanupCount(result["protected_manual_runs"]) is long manual&&manual>0)text+=$" {manual} 局明确待手动续跑的现场保留。";
+        if(CleanupCount(result["protected_busy_runs"]) is long active&&active>0)text+=$" {active} 局仍被任务使用，暂时保留。";
+        text+=" 账号配置、技能清单和导出复盘保留。";
+        if(CleanupCount(result["errors"]) is long errors&&errors>0)text+=$" 有 {errors} 项整理未完成。";
+        if(MaintenanceBudget(result))text+=" 本轮已达到时间预算，稍后继续。";
+        if(RunRetentionWatch(result))text+=" 自动清理已开启，约一分钟后检查。";
+        return text;
     }
     private static string PacerCleanupSummary(JToken? value)
     {
@@ -256,6 +388,7 @@ public sealed class MaaUmaActivationView : UserControl
         var skipped=CleanupCode(result["skipped"]);
         if(skipped=="not_installed")return "过程图：未安装 Pacer，无需整理。";
         if(result["dry_run"]?.Type==JTokenType.Boolean && (bool)result["dry_run"]!)return "过程图：本次仅检查，未执行删除。";
+        if(result["run_retention"] is JObject retention)return RunRetentionSummary(retention);
         var removed=CleanupCount(result["removed"]);
         var text=removed>0 ? $"过程图：已删除 {removed} 张确认过期的过程图。"
             : removed==0 ? "过程图：本次未删除过程图。" : "过程图：未返回有效的维护数量，是否完成尚未确认。";
@@ -278,10 +411,12 @@ public sealed class MaaUmaActivationView : UserControl
             text+=" 过去选择详细留图的记录也适用该时限。";
         if(CleanupCount(result["errors"]) is long errors && errors>0)text+=$" 有 {errors} 项整理未完成。";
         if(MaintenanceBudget(result))text+=" 本轮整理已达到时间预算，仍有内容待检查。";
+        if(result.Property("json_compression")!=null)text+=JsonCompressionSummary(result["json_compression"]);
         return text;
     }
     private void ApplyMaintenanceResult(JObject result,bool infoResult)
     {
+        if(result.Property("pacer_storage_policy")!=null||infoResult)ApplyStoragePolicy(result["pacer_storage_policy"]);
         if(result.Property("cache_cleanup")!=null) { cacheCleanupStatus.Text=CacheCleanupSummary(result["cache_cleanup"]);cacheCleanupStatus.IsVisible=true; }
         else if(infoResult) { cacheCleanupStatus.Text="更新缓存：当前后台未返回清理结果，是否完成尚未确认。";cacheCleanupStatus.IsVisible=true; }
         if(result.Property("pacer_cleanup")!=null) { pacerCleanupStatus.Text=PacerCleanupSummary(result["pacer_cleanup"]);pacerCleanupStatus.IsVisible=true; }
@@ -293,20 +428,37 @@ public sealed class MaaUmaActivationView : UserControl
         if(CleanupCount(cache["removed_stages"])==null || !string.IsNullOrEmpty(CleanupCode(cache["status"])))return true;
         if(cache["protected"] is JArray entries && entries.OfType<JObject>().Any(item=>CleanupCode(item["reason"]) is not ("current_rollback" or "current_or_future_prepared_update")))return true;
         var skipped=CleanupCode(pacer["skipped"]);
-        return skipped is not (null or "" or "not_installed" or "recent_sweep") || CleanupCount(pacer["errors"])>0;
+        return skipped is not (null or "" or "not_installed" or "recent_sweep") || CleanupCount(pacer["errors"])>0
+            || pacer["run_retention"]is JObject retention&&CleanupCode(retention["status"])is not("completed"or"partial"or"busy"or"no_runs"or"dry_run")
+            || pacer["run_retention"]is JObject failed&&CleanupCount(failed["errors"])>0
+            || pacer.Property("json_compression")!=null && JsonCompressionIssue(pacer["json_compression"]);
     }
     private static void MaintenanceNotice(Action<string>? notice,string text)
     {
         try { notice?.Invoke(text); }catch { /* A notification cannot stop normal startup. */ }
     }
+    private static bool RunRetentionWatch(JToken? value)=>value is JObject result
+        && result["watch_enabled"]?.Type==JTokenType.Boolean&&(bool)result["watch_enabled"]!;
+    private void RestartStartupMaintenanceAfterSave()
+    {
+        if(!hasStartupMaintenance||startupMaintenanceStopped.IsCancellationRequested)return;
+        _=RunStartupMaintenanceOnceAsync(startupMaintenanceStopped,startupMaintenanceNotice,startupMaintenanceWait,restartCompleted:true);
+    }
     public Task RunStartupMaintenanceOnceAsync(CancellationToken stopped=default,Action<string>? notice=null,
-        Func<TimeSpan,CancellationToken,Task>? wait=null)
-        =>startupMaintenanceTask ??= RunStartupMaintenanceAsync(stopped,notice,wait??((duration,token)=>Task.Delay(duration,token)));
+        Func<TimeSpan,CancellationToken,Task>? wait=null,bool restartCompleted=false)
+    {
+        lock(startupMaintenanceGate) {
+            if(startupMaintenanceTask is not null&&(!restartCompleted||!startupMaintenanceTask.IsCompleted))return startupMaintenanceTask;
+            hasStartupMaintenance=true;startupMaintenanceStopped=stopped;startupMaintenanceNotice=notice;
+            startupMaintenanceWait=wait??((duration,token)=>Task.Delay(duration,token));
+            return startupMaintenanceTask=RunStartupMaintenanceAsync(stopped,notice,startupMaintenanceWait);
+        }
+    }
     private async Task RunStartupMaintenanceAsync(CancellationToken stopped,Action<string>? notice,Func<TimeSpan,CancellationToken,Task> wait)
     {
-        long cacheTotal=0,imagesTotal=0;bool notified=false;
+        long cacheTotal=0,imagesTotal=0,runsTotal=0,filesTotal=0;bool notified=false,hasRunRetention=false;
         while(!stopped.IsCancellationRequested) {
-            startupMaintenanceStatus.Text="本次启动自动整理：正在检查旧更新缓存和过期过程图…";startupMaintenanceStatus.IsVisible=true;
+            startupMaintenanceStatus.Text="本次启动自动整理：正在检查旧更新缓存和过期育成记录…";startupMaintenanceStatus.IsVisible=true;
             try {
                 // This is an independent suite-info request, never the Pacer control channel.
                 // Closing stops future passes, but does not kill an in-flight directory deletion.
@@ -315,13 +467,21 @@ public sealed class MaaUmaActivationView : UserControl
                 ApplyMaintenanceResult(result,true);
                 cacheTotal=AddMaintenanceCount(cacheTotal,result["cache_cleanup"]?["removed_stages"]);
                 imagesTotal=AddMaintenanceCount(imagesTotal,result["pacer_cleanup"]?["removed"]);
-                bool more=(bool?)result["ok"]==true && (MaintenanceBudget(result["cache_cleanup"]) || MaintenanceBudget(result["pacer_cleanup"]) || MaintenanceRetry(result["cache_cleanup"]));
+                if(result["pacer_cleanup"]?["run_retention"] is JObject retention) {
+                    hasRunRetention=true;runsTotal=AddMaintenanceCount(runsTotal,retention["removed_runs"]);
+                    filesTotal=AddMaintenanceCount(filesTotal,retention["removed_files"]);
+                }
+                bool more=(bool?)result["ok"]==true && (MaintenanceBudget(result["cache_cleanup"]) || MaintenanceBudget(result["pacer_cleanup"])
+                    || MaintenanceRetry(result["cache_cleanup"]) || JsonCompressionPending(result["pacer_cleanup"]?["json_compression"]));
+                bool watch=(bool?)result["ok"]==true&&RunRetentionWatch(result["pacer_cleanup"]?["run_retention"]);
                 bool issue=MaintenanceIssue(result);
-                startupMaintenanceStatus.Text=$"本次启动自动整理累计：{cacheTotal} 个旧更新暂存，{imagesTotal} 张过期过程图。"
-                    +(more?" 约一分钟后继续检查。":issue?" 部分结果未确认或内容已保留，请查看维护说明。":" 本轮检查已结束，保留项不受影响。");
+                startupMaintenanceStatus.Text=(hasRunRetention
+                    ? $"本次启动自动整理累计：{cacheTotal} 个旧更新暂存，{runsTotal} 局旧育成记录、{filesTotal} 个临时文件。"+(imagesTotal>0 ? $" 另有 {imagesTotal} 张过期过程图。" : "")
+                    : $"本次启动自动整理累计：{cacheTotal} 个旧更新暂存，{imagesTotal} 张过期过程图。")
+                    +(more?" 约一分钟后继续整理。":issue?" 部分结果未确认或内容已保留，请查看维护说明。":watch?" 自动清理已开启，约一分钟后检查。":" 本轮检查已结束，保留项不受影响。");
                 if(issue&&!notified){MaintenanceNotice(notice,"自动整理有未完成或保留内容，可在更新／反馈查看原因。");notified=true;}
-                if(!more) {
-                    if(!notified&&(cacheTotal>0||imagesTotal>0))MaintenanceNotice(notice,startupMaintenanceStatus.Text);
+                if(!more&&!watch) {
+                    if(!notified&&(cacheTotal>0||imagesTotal>0||runsTotal>0||filesTotal>0))MaintenanceNotice(notice,startupMaintenanceStatus.Text);
                     return;
                 }
                 await wait(TimeSpan.FromSeconds(65),stopped);
@@ -411,6 +571,7 @@ public sealed class MaaUmaActivationView : UserControl
             // Never display an activation response that could echo a personal code.
             message.Text=(bool?)result["ok"]==true ? ticket!=null ? "激活已完成，内容已准备；停止任务后可安装并重开。"
                 : (bool?)result["component"]?["ok"]==false ? "激活已完成，下载未完成；可用“检查并准备更新”重试。" : "激活已完成，状态已更新。"
+                : MaaUmaUpdateConnectivity.FailureText(result) is { Length:>0 } failure ? failure
                 : "激活未完成，请检查激活码或更新设置后重试。";
         }catch{message.Text="激活结果未确认，请先刷新状态；不会自动重复提交激活码。";}
         finally{input.Remove("invite_code");ActivationFlight.Release();Busy(false);await UpdateIdle();}

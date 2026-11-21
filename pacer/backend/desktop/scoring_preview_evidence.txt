@@ -1,0 +1,2 @@
+Synthetic sample evidence for the local score explanation only.
+This is not an image, a current game frame, or real account data.

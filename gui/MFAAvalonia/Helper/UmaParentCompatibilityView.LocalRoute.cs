@@ -27,7 +27,7 @@ public sealed partial class UmaParentCompatibilityView
             ["library_revision"]=libraryRevision is int libraryVersion?new JValue(libraryVersion):JValue.CreateNull(),
             ["include_unassigned"]=includeUnassigned.IsChecked==true},
             ()=>new string?[]{(parentA.SelectedItem as EntryChoice)?.Id,(parentB.SelectedItem as EntryChoice)?.Id},
-            async()=>await LoadCatalog());
+            async()=>await LoadCatalog(),externalGoals:GoalFields);
         localRouteEditor.SetTargetEditor(target);localRouteEditor.DraftChanged+=()=>{if(!applying&&!syncingLocalRoute)SyncLegacyFromRoute();};
         return localRouteEditor;
     }
@@ -37,7 +37,7 @@ public sealed partial class UmaParentCompatibilityView
         try{var route=localRouteEditor.ReadDraft();var specs=route["nodes"] as JArray??new();var a=specs.ElementAtOrDefault(0) as JObject;var b=specs.ElementAtOrDefault(3) as JObject;var aid=Text(a?["kind"])=="entry"?Text(a?["entry_id"]):null;var bid=Text(b?["kind"])=="entry"?Text(b?["entry_id"]):null;
             if(!preserveLibrary&&planLibraryId==null)planLibraryId=libraryId;var sameLibrary=planLibraryId==null||planLibraryId==libraryId;
             parentA.SelectedItem=sameLibrary?entries.FirstOrDefault(e=>e.Id==aid):null;parentB.SelectedItem=sameLibrary?entries.FirstOrDefault(e=>e.Id==bid):null;
-            manual=localRouteEditor.HasManualReferences||specs.OfType<JObject>().Any(s=>Text(s["kind"])=="planned");unresolvedParentIds=!manual&&((aid!=null&&parentA.SelectedItem==null)||(bid!=null&&parentB.SelectedItem==null))?new[]{aid,bid}:[];
+            manual=localRouteEditor.HasManualReferences||specs.OfType<JObject>().Any(s=>Text(s["kind"]) is "planned" or "external");unresolvedParentIds=!manual&&((aid!=null&&parentA.SelectedItem==null)||(bid!=null&&parentB.SelectedItem==null))?new[]{aid,bid}:[];
             var lineage=localRouteEditor.LegacyLineage();for(var i=0;i<6;i++)nodes[i].SetId(lineage[i]??(preserveLibrary?nodes[i].SelectedId:null));
         }finally{applying=was;syncingLocalRoute=false;}
         if(!applying)Invalidate();
@@ -60,7 +60,7 @@ public sealed partial class UmaParentCompatibilityView
     private async Task RefreshFamilyAvailability()
     {
         if(!UsesEntries||target.SelectedId is not int selectedTarget)return;var key=FamilyEvidenceContext;var version=revision;
-        try{var response=await request(new JObject{["action"]="parent_planning_route_evaluate",["target_character_id"]=selectedTarget,["library_id"]=libraryId==null?JValue.CreateNull():new JValue(libraryId),["account_id"]=AccountId==null?JValue.CreateNull():new JValue(AccountId),["include_unassigned"]=includeUnassigned.IsChecked==true,["local_route"]=new JObject{["aptitude_goal"]=new JObject{["factor_key"]="red:泥地",["baseline_rank"]=null,["target_rank"]="A",["target_variant_id"]=null},["nodes"]=new JArray(new JObject{["kind"]="entry",["entry_id"]=((EntryChoice)parentA.SelectedItem!).Id},null,null,new JObject{["kind"]="entry",["entry_id"]=((EntryChoice)parentB.SelectedItem!).Id},null,null)}});
+        try{var response=await request(new JObject{["action"]="parent_planning_route_evaluate",["target_character_id"]=selectedTarget,["library_id"]=libraryId==null?JValue.CreateNull():new JValue(libraryId),["account_id"]=AccountId==null?JValue.CreateNull():new JValue(AccountId),["include_unassigned"]=includeUnassigned.IsChecked==true,["local_route"]=new JObject{["target_variant_id"]=JValue.CreateNull(),["aptitude_goals"]=new JArray(),["aptitude_goal"]=new JObject{["factor_key"]="red:泥地",["baseline_rank"]=null,["target_rank"]="G",["target_variant_id"]=null},["nodes"]=new JArray(new JObject{["kind"]="entry",["entry_id"]=((EntryChoice)parentA.SelectedItem!).Id},null,null,new JObject{["kind"]="entry",["entry_id"]=((EntryChoice)parentB.SelectedItem!).Id},null,null)}});
             if(version!=revision||key!=FamilyEvidenceContext)return;familyRouteEvidence.Clear();foreach(var row in (response["route_nodes"] as JArray??new()).OfType<JObject>())if(Id(row["index"]) is int index&&index>=0&&index<6)familyRouteEvidence[index]=(JObject)row.DeepClone();familyEvidenceContext=key;familyEvidenceRevision=version;RefreshFamily();
         }catch{familyRouteEvidence.Clear();familyEvidenceContext="";RefreshFamily();}
     }
