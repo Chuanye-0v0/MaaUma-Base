@@ -2950,7 +2950,7 @@
       "private_screenshot_implementation_included": false
     },
     {
-      "version": "0.6.0",
+      "version": "0.6.1",
       "revision": "r1",
       "scope": "Open-source L'Arc Pacer (<= 2.3), Strategy Extension SPI, license decoupling, pure-source GUI auto-career catalog, and normalized Mei unlock gamble.",
       "ordinary_backend_baseline": "0.5.9",
@@ -3569,6 +3569,6 @@
       "private_strategy_packs_included": false
     }
   ],
-  "latest_ordinary_source_update": "0.6.0",
+  "latest_ordinary_source_update": "0.6.1",
   "latest_ordinary_source_revision": "r1"
 }

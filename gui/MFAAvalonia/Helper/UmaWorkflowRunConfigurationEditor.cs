@@ -190,7 +190,7 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
 
             var purifyBtn=new Button{
                 Name=prefix+"StrategyPurifyBtn",
-                Content=isPure?"✓ 当前已是官方纯净策略":stepReport.State==PurityState.EquivalentPure?"✦ 清理空壳恢复纯正":$"✦ 恢复 {stepReport.Revision??"官方"} 官方策略",
+                Content=isPure?"✓ 当前已是官方纯净策略":stepReport.State==PurityState.EquivalentPure?"✦ 清理空壳恢复纯正":(string.IsNullOrWhiteSpace(stepReport.Revision)?"✦ 恢复官方策略":$"✦ 恢复 {stepReport.Revision} 官方策略"),
                 IsEnabled=!isPure,
                 Height=30,
                 Padding=new Thickness(12,0),
@@ -209,7 +209,7 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
                     :latestReport.State==PurityState.Custom?new SolidColorBrush(Color.Parse("#D97706"))
                     :latestReport.IsPure?new SolidColorBrush(Color.Parse("#16A34A"))
                     :new SolidColorBrush(Color.Parse("#64748B"));
-                purifyBtn.Content=latestPure?"✓ 当前已是官方纯净策略":latestReport.State==PurityState.EquivalentPure?"✦ 清理空壳恢复纯正":$"✦ 恢复 {latestReport.Revision??"官方"} 官方策略";
+                purifyBtn.Content=latestPure?"✓ 当前已是官方纯净策略":latestReport.State==PurityState.EquivalentPure?"✦ 清理空壳恢复纯正":(string.IsNullOrWhiteSpace(latestReport.Revision)?"✦ 恢复官方策略":$"✦ 恢复 {latestReport.Revision} 官方策略");
                 purifyBtn.IsEnabled=!latestPure;
                 if(!latestPure){if(!purifyBtn.Classes.Contains("Accent"))purifyBtn.Classes.Add("Accent");}
                 else purifyBtn.Classes.Remove("Accent");

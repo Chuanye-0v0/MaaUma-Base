@@ -264,7 +264,7 @@ public sealed class PacerPurityDrawer : Grid
             var revSingle = reports.Select(r => r.Revision).FirstOrDefault(r => !string.IsNullOrWhiteSpace(r));
             purifyBtn.Content = agg == PurityState.EquivalentPure
                 ? "✦ 清理空壳恢复纯正默认"
-                : $"✦ 恢复 {(string.IsNullOrEmpty(revSingle) ? "官方" : revSingle)} 官方策略";
+                : (string.IsNullOrEmpty(revSingle) ? "✦ 恢复官方策略" : $"✦ 恢复 {revSingle} 官方策略");
             if (!purifyBtn.Classes.Contains("Accent"))
                 purifyBtn.Classes.Add("Accent");
         }
