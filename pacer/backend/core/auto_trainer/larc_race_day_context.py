@@ -63,7 +63,8 @@ def read_larc_race_day_context(path: str | Path, *, source_sha256: str, visible_
         result["period"]["reason"] = "date_ocr_failed"
 
     # Only this verified scenario hub has a fixed milestone but no calendar.
-    if re.sub(r"\s+", "", visible_text).startswith("凯旋门代表交流赛"):
+    compact_visible = re.sub(r"\s+", "", visible_text)
+    if "凯旋门代表交流赛" in compact_visible and "比赛日" not in compact_visible:
         result["period"].update(status="verified", value={
             "stage": "junior", "year_index": 1, "month": 12, "half": "second"},
             evidence={"date_reader": "verified_scenario_milestone",

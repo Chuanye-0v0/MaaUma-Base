@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import sys
 from types import SimpleNamespace
-from time import monotonic
+from time import monotonic, time_ns
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -673,6 +673,76 @@ def _locked_hope_final_race_ready(report):
         and len(levels) == 10 and all(type(value) is int for value in levels)
         and min(levels[:8]) >= 2 and levels[8] == 0
         and plan.get('deferred_slots') == [8])
+
+
+def _is_larc_exchange_hub(evidence):
+    if not isinstance(evidence, dict) or evidence.get("larc_race_day", {}).get("verified") is not True:
+        return False
+    compact = "".join(str(evidence.get("screen_text", {}).get("normalized_text", "")).split())
+    return "凯旋门代表交流赛" in compact and "比赛日" not in compact
+
+
+def _clear_stale_adaptations_for_year1_takeover(ctx, summary, save_summary, *, phases=None):
+    """Invalidate stale cached adaptation completions once after a Year-1 live takeover."""
+    target_phases = tuple(PHASE_SLOT_COUNTS if phases is None else phases)
+    session_dir = ctx.root / "session"
+    index_path = session_dir / "larc_adaptation_ready.json"
+    index = {}
+    if index_path.is_file():
+        try:
+            loaded = _read(index_path)
+            if isinstance(loaded, dict):
+                index = loaded
+        except (OSError, ValueError, TypeError):
+            index = {}
+    index_valid = (
+        isinstance(index, dict)
+        and index.get("run_session_id") == ctx.run_id
+        and index.get("device") == ctx.progress["device"]
+    )
+    index_changed = False
+    cleared = []
+    archived_files = False
+    archive_dir = session_dir / "live_takeover_history" / f"year1_recheck_{time_ns()}"
+    ready_cache = getattr(ctx, "ready_adaptations", None)
+    for phase in target_phases:
+        session_path = session_dir / f"larc_adaptation_{phase}.json"
+        if session_path.is_file():
+            try:
+                loaded_session = LarcAdaptationSession.load(session_path, ctx.run_id)
+                if loaded_session.stage in {"submission_pending", "awaiting_result"}:
+                    continue
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            session_path.replace(archive_dir / session_path.name)
+            archived_files = True
+            cleared.append(phase)
+        if isinstance(ready_cache, dict) and phase in ready_cache:
+            ready_cache.pop(phase, None)
+            cleared.append(phase)
+        if index_valid:
+            phases_map = index.get("phases")
+            if isinstance(phases_map, dict) and phase in phases_map:
+                phases_map.pop(phase, None)
+                index_changed = True
+                cleared.append(phase)
+            partial_map = index.get("partial_phases")
+            if isinstance(partial_map, dict) and phase in partial_map:
+                partial_map.pop(phase, None)
+                index_changed = True
+                cleared.append(phase)
+    if index_valid and index_changed:
+        _atomic_write_json(index_path, index)
+    ctx.live_takeover_year1_adapt_recheck = False
+    unique_cleared = sorted(set(cleared))
+    if unique_cleared:
+        summary["live_takeover_year1_adaptation_recheck"] = {
+            "cleared_phases": unique_cleared,
+            "archive": str(archive_dir) if archived_files else None,
+        }
+        save_summary()
+    return unique_cleared
 
 
 def _ensure_adaptation(ctx, phase, output, summary, save_summary):
@@ -1671,9 +1741,8 @@ def _route_to_menu(ctx, output, summary, save_summary, *, observe_only=False, po
                 return None, reason
             continue
         evidence = decision.get("evidence", {})
-        exchange_hub = (evidence.get("larc_race_day", {}).get("verified") is True
-            and "".join(str(evidence.get("screen_text", {}).get("normalized_text", "")).split())
-                .startswith("凯旋门代表交流赛"))
+        compact_race_text = "".join(str(evidence.get("screen_text", {}).get("normalized_text", "")).split())
+        exchange_hub = _is_larc_exchange_hub(evidence)
         race_context = {}  # Never reuse a previous page's identity in AI context.
         if reason == 'race_day_main_menu' and getattr(ctx,'cut_farming_hook',None) is not None:
             rows=report.get('step_reports',[])
@@ -1717,6 +1786,12 @@ def _route_to_menu(ctx, output, summary, save_summary, *, observe_only=False, po
                 save_summary()
         if reason == "race_day_main_menu" and ctx.allow_adaptations:
             if exchange_hub:
+                if getattr(ctx, "live_takeover_year1_adapt_recheck", False):
+                    if "白银级" not in compact_race_text and "黄金级" not in compact_race_text:
+                        _clear_stale_adaptations_for_year1_takeover(
+                            ctx, summary, save_summary, phases=("first_exchange",))
+                    else:
+                        ctx.live_takeover_year1_adapt_recheck = False
                 # Keep the normal two-essential preparation. A later exchange
                 # may list extra hazards; those are advice, not an entry ban.
                 phase = "first_exchange"
@@ -2175,6 +2250,7 @@ def _run(args):
     ctx.notify_manual_handoff = _notify_manual_handoff
     _attach_continuation_runtime(ctx, args)
     ctx.live_takeover = live_takeover
+    ctx.live_takeover_year1_adapt_recheck = bool(live_takeover)
     ctx.ss_sieve_player_takeover = getattr(args, '_player_live_takeover', False) is True
     output = ctx.root / ("autonomous_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
     output.mkdir()
@@ -2579,6 +2655,14 @@ def _run(args):
                 if startup.get("visited"):
                     continue # New skill Pt and actual training previews; no turn consumed.
             if ctx.allow_adaptations:
+                if getattr(ctx, "live_takeover_year1_adapt_recheck", False):
+                    observed_period = provider.get("larc_period") or {}
+                    observed_value = observed_period.get("value") or {}
+                    if observed_period.get("status") == "verified":
+                        if observed_value.get("year_index") == 1:
+                            _clear_stale_adaptations_for_year1_takeover(ctx, summary, save_summary)
+                        else:
+                            ctx.live_takeover_year1_adapt_recheck = False
                 phase = select_larc_adaptation_phase(provider["larc_period"],
                     goal=load_goal_config(ctx.root / "goal.json"))
                 if phase:

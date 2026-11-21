@@ -48,7 +48,11 @@ def select_larc_adaptation_phase(period, *, race_target_id=None, race_day=False,
             # Let the current-grid purchase planner compare spending on power
             # with Pt/friendship goals. Race-day essentials still run above.
             return None
-    return {(1, 12, "first"): "first_exchange", (2, 6, "second"): "first_expedition"}.get((year, month, half))
+    return {
+        (1, 12, "first"): "first_exchange",
+        (1, 12, "second"): "first_exchange",
+        (2, 6, "second"): "first_expedition",
+    }.get((year, month, half))
 
 
 def _home_observed_after_freeze(session, child, return_index):
