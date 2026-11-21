@@ -20,13 +20,13 @@ MaaUma 普通版客户端的开源代码，面向 Windows，包含桌面界面�
 各功能所需的识别图、数据库和模型等运行输入独立提供，详见[运行资源说明](docs/RESOURCES.md)。
 
 <!-- MAAUMA_OPEN_PACER_SECTION_START -->
-## 开源 L'Arc 育成后端与策略扩展槽位（Open Pacer & Strategy SPI）
+## 开源 L'Arc 育成后端（Open Pacer）
 
-本仓库除基础版日活 / 种马 / 公共界面外，现已公开 L'Arc 育成界面（`gui/MFAAvalonia`）与纯策略底座源码（`pacer/backend/`）：
+本仓库除基础版日活 / 种马 / 公共界面外，现已公开 L'Arc 育成界面（`gui/MFAAvalonia`）与策略底座源码（`pacer/backend/`）：
 
-- **公开策略基线（2.0 ~ 2.3）**：内置完整 L'Arc 日历、体力、采购、远征路径规划与 `2.0 ~ 2.3` 参数基线，默认展示「自动育成」，**开源运行无需授权码、邀请码或联网激活**（`LicensedRunControl` 为开源直通实现）。
-- **能力扩展包槽位（Strategy Extension SPI）**：通过 `pacer/backend/core/auto_trainer/larc_strategy_extension.py` 与 GUI 端的 `StrategyPackCatalog` 自动发现 `pacer/strategy_pack/`、`pacer/strategy_packs/*/` 或环境变量 `MAAUMA_STRATEGY_PACK_DIR` 中的 `maauma.strategy_pack.v1` 扩展包，支持按扩展包声明动态扩展**高阶策略列表、额外育成模式与推荐权重预设**，并与面板内自动更新通道对接（详见 [策略包接入说明](pacer/strategy_pack/README.md)）。
-- **不含私有高阶策略参数与运行资产**：高阶调参策略包以及游戏识别图、OCR 模型、独立运行环境均不包含在公开 Git 仓库中。
+- **公开策略基线（2.0 ~ 2.3）**：内置完整 L'Arc 日历、体力、采购、远征路径规划与 `2.0 ~ 2.3` 参数基线，默认支持「自动育成」，**开源运行无需激活或联网验证**，解压即用。
+- **本地自定义策略插件目录**：支持在 `pacer/strategy_pack/`、`pacer/strategy_packs/*/` 或 `MAAUMA_STRATEGY_PACK_DIR` 挂载本地自定义策略脚本（详见 [自定义策略接入说明](pacer/strategy_pack/README.md)）。
+- **运行资产边界**：游戏识别图、OCR 模型与预编译独立运行环境不包含在公开 Git 仓库中。
 <!-- MAAUMA_OPEN_PACER_SECTION_END -->
 
 ## 下载与使用
