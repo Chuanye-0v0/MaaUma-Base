@@ -7,6 +7,15 @@ using Newtonsoft.Json.Linq;
 
 namespace MFAAvalonia.Helper;
 
+public sealed record WeightPresetEntry(
+    string Id,
+    string Name,
+    string Summary,
+    string? RecommendedRevision,
+    string ProfileJson,
+    string PackId
+);
+
 public sealed record StrategyRevisionEntry(
     string Revision,
     string Label,
@@ -68,7 +77,11 @@ public static class StrategyPackCatalog
         string DefaultRevision,
         StrategyRevisionEntry[] OrderedChoices,
         string[] OrderedRevisions,
-        Dictionary<string, StrategyRevisionEntry> Lookup
+        Dictionary<string, StrategyRevisionEntry> Lookup,
+        string[] UnlockedWorkflowModeIds,
+        HashSet<string> UnlockedWorkflowModeSet,
+        bool AllowCustomWorkflowModes,
+        WeightPresetEntry[] WeightPresets
     );
 
     public static bool HasExternalPack { get { lock (SyncRoot) return _current.HasExternalPack; } }
@@ -76,6 +89,21 @@ public static class StrategyPackCatalog
     public static string DefaultRevision { get { lock (SyncRoot) return _current.DefaultRevision; } }
     public static StrategyRevisionEntry[] Choices { get { lock (SyncRoot) return _current.OrderedChoices; } }
     public static string[] Revisions { get { lock (SyncRoot) return _current.OrderedRevisions; } }
+    public static IReadOnlyList<string> UnlockedWorkflowModeIds { get { lock (SyncRoot) return _current.UnlockedWorkflowModeIds; } }
+    public static bool AllowCustomWorkflowModes { get { lock (SyncRoot) return _current.AllowCustomWorkflowModes; } }
+    public static WeightPresetEntry[] WeightPresets { get { lock (SyncRoot) return _current.WeightPresets; } }
+
+    public static bool IsWorkflowModeUnlocked(string? modeId)
+    {
+        if (string.Equals(modeId, "direct_career", StringComparison.Ordinal))
+            return true;
+        if (string.IsNullOrWhiteSpace(modeId))
+            return false;
+        lock (SyncRoot)
+        {
+            return _current.UnlockedWorkflowModeSet.Contains(modeId);
+        }
+    }
     public static int FactoryStrategyIndex
     {
         get
@@ -314,6 +342,11 @@ public static class StrategyPackCatalog
             byRevision[b.Revision] = b;
 
         var packNames = new List<string>();
+        var seenPackIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var unlockedModes = new HashSet<string>(StringComparer.Ordinal) { "direct_career" };
+        var allowCustomModes = false;
+        var weightPresets = new List<WeightPresetEntry>();
+        var seenPresetIds = new HashSet<string>(StringComparer.Ordinal);
         string? packDefaultRevision = null;
 
         foreach (var manifestPath in DiscoverManifestPaths())
@@ -323,55 +356,120 @@ public static class StrategyPackCatalog
                 var obj = JObject.Parse(File.ReadAllText(manifestPath));
                 if (!string.Equals((string?)obj["schema_version"], "maauma.strategy_pack.v1", StringComparison.Ordinal))
                     continue;
-                var packName = (string?)obj["display_name"] ?? (string?)obj["pack_id"] ?? Path.GetFileName(Path.GetDirectoryName(manifestPath) ?? "pack");
+                var packDir = Path.GetDirectoryName(manifestPath) ?? AppContext.BaseDirectory;
+                var packId = ((string?)obj["pack_id"])?.Trim();
+                var packKey = !string.IsNullOrEmpty(packId) ? packId : Path.GetFullPath(manifestPath);
+                if (!seenPackIds.Add(packKey))
+                    continue;
+
+                var packName = (string?)obj["display_name"] ?? packId ?? Path.GetFileName(packDir);
                 packNames.Add(packName);
 
                 var defRev = (string?)obj["default_revision"];
                 if (!string.IsNullOrWhiteSpace(defRev))
                     packDefaultRevision = defRev.Trim();
 
-                if (obj["ui_revisions"] is not JArray uiList)
-                    continue;
-
-                foreach (var item in uiList.OfType<JObject>())
+                if (obj["unlock_all_workflow_modes"]?.Value<bool?>() == true)
                 {
-                    var rev = ((string?)item["revision"] ?? "").Trim();
-                    if (string.IsNullOrEmpty(rev)) continue;
-                    var label = (string?)item["label"] ?? rev;
-                    var notice = (string?)item["notice"] ?? "";
-                    var limitToken = item["default_failure_limit"];
-                    var limitStr = limitToken != null
-                        ? Convert.ToInt32(Math.Round(limitToken.Value<double>()), CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture)
-                        : "25";
-                    var credit = item["after_target_credit"]?.Value<double?>() ?? 0.5;
-                    var wObj = item["attribute_weights"] as JObject;
-                    double ReadW(string k, double fallback) => wObj?[k]?.Value<double?>() ?? fallback;
-                    var autoRouted = item["auto_routed"]?.Value<bool?>() ?? false;
-                    var family = (string?)item["family"];
-                    if (string.IsNullOrWhiteSpace(family))
-                        family = TryParseRevisionTuple(rev, out var vt) ? $"{vt.Major}.{vt.Minor}" : "external";
-                    var aliases = (item["aliases"] as JArray)?
-                        .Select(t => t.Value<string>())
-                        .Where(s => !string.IsNullOrWhiteSpace(s))
-                        .Select(s => s!.Trim())
-                        .ToArray() ?? Array.Empty<string>();
+                    foreach (var mode in UmaWorkflowLibraryModel.BuiltinModes)
+                        unlockedModes.Add(mode.Id);
+                    allowCustomModes = true;
+                }
+                if (obj["allow_custom_workflows"]?.Value<bool?>() == true)
+                    allowCustomModes = true;
+                if (obj["workflow_modes"] is JArray modeList)
+                {
+                    foreach (var token in modeList)
+                    {
+                        var modeId = (token.Value<string>() ?? "").Trim();
+                        if (!string.IsNullOrEmpty(modeId) && UmaWorkflowLibraryModel.IsBuiltinMode(modeId))
+                            unlockedModes.Add(modeId);
+                    }
+                }
 
-                    byRevision[rev] = new StrategyRevisionEntry(
-                        rev,
-                        label,
-                        notice,
-                        limitStr,
-                        credit,
-                        ReadW("speed", 1.0),
-                        ReadW("stamina", 1.0),
-                        ReadW("power", 1.25),
-                        ReadW("guts", 0.85),
-                        ReadW("wisdom", 1.0),
-                        family!,
-                        autoRouted,
-                        true,
-                        aliases
-                    );
+                if (obj["weight_presets"] is JArray presetList)
+                {
+                    var packRootFull = Path.GetFullPath(packDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                    foreach (var pItem in presetList.OfType<JObject>())
+                    {
+                        var pid = ((string?)pItem["id"] ?? "").Trim();
+                        var pname = ((string?)pItem["name"] ?? "").Trim();
+                        if (string.IsNullOrEmpty(pid) || string.IsNullOrEmpty(pname) || seenPresetIds.Contains(pid))
+                            continue;
+                        string? profileJson = null;
+                        if (pItem["file"] is JValue { Type: JTokenType.String } fileTok)
+                        {
+                            var rel = (fileTok.Value<string>() ?? "").Trim();
+                            if (!string.IsNullOrEmpty(rel))
+                            {
+                                var targetFull = Path.GetFullPath(Path.Combine(packDir, rel));
+                                if (targetFull.StartsWith(packRootFull, StringComparison.OrdinalIgnoreCase) && File.Exists(targetFull))
+                                {
+                                    var parsedProfile = JObject.Parse(File.ReadAllText(targetFull));
+                                    profileJson = parsedProfile.ToString(Newtonsoft.Json.Formatting.None);
+                                }
+                            }
+                        }
+                        else if (pItem["profile"] is JObject inlineProfile)
+                        {
+                            profileJson = inlineProfile.ToString(Newtonsoft.Json.Formatting.None);
+                        }
+                        if (string.IsNullOrWhiteSpace(profileJson))
+                            continue;
+                        seenPresetIds.Add(pid);
+                        weightPresets.Add(new WeightPresetEntry(
+                            pid,
+                            pname,
+                            ((string?)pItem["summary"] ?? "").Trim(),
+                            string.IsNullOrWhiteSpace((string?)pItem["recommended_revision"]) ? null : ((string?)pItem["recommended_revision"])!.Trim(),
+                            profileJson,
+                            packId ?? packKey
+                        ));
+                    }
+                }
+
+                if (obj["ui_revisions"] is JArray uiList)
+                {
+                    foreach (var item in uiList.OfType<JObject>())
+                    {
+                        var rev = ((string?)item["revision"] ?? "").Trim();
+                        if (string.IsNullOrEmpty(rev)) continue;
+                        var label = (string?)item["label"] ?? rev;
+                        var notice = (string?)item["notice"] ?? "";
+                        var limitToken = item["default_failure_limit"];
+                        var limitStr = limitToken != null
+                            ? Convert.ToInt32(Math.Round(limitToken.Value<double>()), CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture)
+                            : "25";
+                        var credit = item["after_target_credit"]?.Value<double?>() ?? 0.5;
+                        var wObj = item["attribute_weights"] as JObject;
+                        double ReadW(string k, double fallback) => wObj?[k]?.Value<double?>() ?? fallback;
+                        var autoRouted = item["auto_routed"]?.Value<bool?>() ?? false;
+                        var family = (string?)item["family"];
+                        if (string.IsNullOrWhiteSpace(family))
+                            family = TryParseRevisionTuple(rev, out var vt) ? $"{vt.Major}.{vt.Minor}" : "external";
+                        var aliases = (item["aliases"] as JArray)?
+                            .Select(t => t.Value<string>())
+                            .Where(s => !string.IsNullOrWhiteSpace(s))
+                            .Select(s => s!.Trim())
+                            .ToArray() ?? Array.Empty<string>();
+
+                        byRevision[rev] = new StrategyRevisionEntry(
+                            rev,
+                            label,
+                            notice,
+                            limitStr,
+                            credit,
+                            ReadW("speed", 1.0),
+                            ReadW("stamina", 1.0),
+                            ReadW("power", 1.25),
+                            ReadW("guts", 0.85),
+                            ReadW("wisdom", 1.0),
+                            family!,
+                            autoRouted,
+                            true,
+                            aliases
+                        );
+                    }
                 }
             }
             catch
@@ -397,8 +495,23 @@ public static class StrategyPackCatalog
             ? packDefaultRevision
             : BaselineDefaultRevision;
 
+        var orderedUnlockedModeIds = UmaWorkflowLibraryModel.BuiltinModes
+            .Select(m => m.Id)
+            .Where(id => unlockedModes.Contains(id))
+            .ToArray();
         var summary = packNames.Count > 0 ? string.Join(" + ", packNames) : "";
-        return new Snapshot(packNames.Count > 0, summary, effectiveDefault, ordered, orderedRevs, lookup);
+        return new Snapshot(
+            packNames.Count > 0,
+            summary,
+            effectiveDefault,
+            ordered,
+            orderedRevs,
+            lookup,
+            orderedUnlockedModeIds,
+            unlockedModes,
+            allowCustomModes,
+            weightPresets.ToArray()
+        );
     }
 
     private static (int Major, int Minor, int Build, int Revision) RevisionSortKey(string revision, bool autoRouted)

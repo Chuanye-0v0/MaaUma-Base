@@ -46,6 +46,11 @@ public sealed class UmaDecisionPreferences : StackPanel
     private readonly Button generated = new() { Name = "PacerGeneratedWeightCode", Content = "查看完整策略文件" };
     private readonly TextBox generatedCode = new() { Name = "PacerGeneratedWeightJson", IsReadOnly = true, AcceptsReturn = true, MinHeight = 260, MaxHeight = 400, FontFamily = new FontFamily("Cascadia Mono, Consolas"), TextWrapping = TextWrapping.NoWrap };
     private readonly Expander generatedSection;
+    private readonly ComboBox packWeightPresetPicker = new() { Name = "PacerPackWeightPresetPicker", MinWidth = 240 };
+    private readonly Button applyPackWeightPreset = new() { Name = "PacerApplyPackWeightPreset", Content = "套用所选权重" };
+    private readonly TextBlock packWeightPresetSummary = Note("");
+    private readonly Border packWeightPresetPanel;
+    internal static WeightPresetEntry[] AvailablePackWeightPresets => StrategyPackCatalog.WeightPresets;
     private readonly TextBlock status = Note("策略随当前运行配置保存，新一轮生效。暂停继续沿用本轮设置。");
     private JObject basis = new();
     private string? strategyRevision;
@@ -120,6 +125,35 @@ public sealed class UmaDecisionPreferences : StackPanel
             baseActions.Children.Add(btn);
         }
         baseWeights.Children.Add(legacy); baseWeights.Children.Add(baseActions);
+        var packPresetRow = new WrapPanel { Orientation = Orientation.Horizontal };
+        packWeightPresetPicker.Margin = new Thickness(0, 0, 8, 4);
+        applyPackWeightPreset.Margin = new Thickness(0, 0, 8, 4);
+        packPresetRow.Children.Add(packWeightPresetPicker);
+        packPresetRow.Children.Add(applyPackWeightPreset);
+        packWeightPresetPanel = new Border
+        {
+            Name = "PacerPackWeightPresetPanel",
+            IsVisible = false,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10, 8),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(72, 148, 163, 184)),
+            Background = new SolidColorBrush(Color.FromArgb(14, 100, 116, 139)),
+            Child = new StackPanel
+            {
+                Spacing = 6,
+                Children =
+                {
+                    new TextBlock { Text = "扩展包推荐权重预设", FontSize = 13, FontWeight = FontWeight.SemiBold },
+                    packPresetRow,
+                    packWeightPresetSummary
+                }
+            }
+        };
+        packWeightPresetPicker.SelectionChanged += (_, _) => UpdatePackWeightPresetSummary();
+        applyPackWeightPreset.Click += async (_, _) => await ApplySelectedPackWeightPresetAsync();
+        RefreshPackWeightPresets();
+        baseWeights.Children.Add(packWeightPresetPanel);
         baseWeights.Children.Add(Note("基础设置对全部阶段生效。分段策略启用时，独立评分和公式暂存；关闭分段策略后恢复。"));
         baseWeightsSection = new Expander { Name = "PacerLegacyPreferences", Header = "全年基础设置", Content = baseWeights, IsExpanded = false, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         advancedTools.Children.Add(baseWeightsSection);
@@ -198,7 +232,62 @@ public sealed class UmaDecisionPreferences : StackPanel
     {
         tuningSchema = schema; validator = validate; graph.Configure(schema); timeline.Configure(schema); scorePreview.Configure(preview);
         detailed.IsVisible = written.IsVisible = quickDetailed.IsVisible = quickFormula.IsVisible = schema != null;
-        import.IsEnabled = export.IsEnabled = check.IsEnabled = generated.IsEnabled = schema != null; UpdateStatus();
+        import.IsEnabled = export.IsEnabled = check.IsEnabled = generated.IsEnabled = schema != null;
+        RefreshPackWeightPresets();
+        UpdateStatus();
+    }
+
+    internal void RefreshPackWeightPresets()
+    {
+        var presets = StrategyPackCatalog.WeightPresets;
+        packWeightPresetPanel.IsVisible = presets.Length > 0;
+        packWeightPresetPicker.ItemsSource = presets.Select(p => p.Name).ToArray();
+        packWeightPresetPicker.SelectedIndex = presets.Length > 0 ? 0 : -1;
+        packWeightPresetPicker.IsEnabled = !busy && presets.Length > 0;
+        applyPackWeightPreset.IsEnabled = !busy && tuningSchema != null && presets.Length > 0;
+        UpdatePackWeightPresetSummary();
+    }
+
+    private WeightPresetEntry? SelectedPackWeightPreset()
+    {
+        var presets = StrategyPackCatalog.WeightPresets;
+        var idx = packWeightPresetPicker.SelectedIndex;
+        return idx >= 0 && idx < presets.Length ? presets[idx] : null;
+    }
+
+    private void UpdatePackWeightPresetSummary()
+    {
+        var selected = SelectedPackWeightPreset();
+        if (selected == null)
+        {
+            packWeightPresetSummary.Text = "";
+            return;
+        }
+        var rec = !string.IsNullOrWhiteSpace(selected.RecommendedRevision) ? $"（推荐搭配策略 {selected.RecommendedRevision}）" : "";
+        packWeightPresetSummary.Text = string.IsNullOrWhiteSpace(selected.Summary)
+            ? $"套用后需点顶栏“保存方案”生效{rec}。"
+            : selected.Summary + rec;
+    }
+
+    private async Task ApplySelectedPackWeightPresetAsync()
+    {
+        if (busy) return;
+        var selected = SelectedPackWeightPreset();
+        if (selected == null) return;
+        Busy(true);
+        try
+        {
+            await ImportJson(selected.ProfileJson);
+            status.Text = $"已套用扩展包权重预设「{selected.Name}」；请点击顶栏“保存配置”。";
+        }
+        catch (Exception error)
+        {
+            status.Text = error.Message;
+        }
+        finally
+        {
+            Busy(false);
+        }
     }
 
     /// <summary>Loads an editable demonstration without starting a task or changing other options.</summary>
@@ -359,6 +448,8 @@ public sealed class UmaDecisionPreferences : StackPanel
     private void Busy(bool value)
     {
         busy = value; graph.IsEnabled = timeline.IsEnabled = advancedEntry.IsEnabled = backToSheet.IsEnabled = !value; import.IsEnabled = export.IsEnabled = check.IsEnabled = generated.IsEnabled = !value && tuningSchema != null; detailed.IsEnabled = written.IsEnabled = quickDetailed.IsEnabled = quickFormula.IsEnabled = !value;
+        packWeightPresetPicker.IsEnabled = !value && StrategyPackCatalog.WeightPresets.Length > 0;
+        applyPackWeightPreset.IsEnabled = !value && tuningSchema != null && StrategyPackCatalog.WeightPresets.Length > 0;
     }
     private static ComboBox Multiplier(string name) => new() { Name = name, ItemsSource = new[] { "80% · 降低", "100% · 默认", "120% · 提高" }, SelectedIndex = 1 };
     private static NumericUpDown Bonus(string name, decimal value) => new() { Name = name, Minimum = 0, Maximum = 20, Increment = 1, Value = value, FormatString = "0.##" };

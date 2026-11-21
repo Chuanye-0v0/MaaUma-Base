@@ -270,6 +270,9 @@ public static class UmaWorkflowLibraryModel
         ("direct_career", "自动育成"),
     };
 
+    public static (string Id, string Name)[] VisibleModes() =>
+        BuiltinModes.Where(m => StrategyPackCatalog.IsWorkflowModeUnlocked(m.Id)).ToArray();
+
     private static readonly string[] SetupKeys =
     {
         "character_id",

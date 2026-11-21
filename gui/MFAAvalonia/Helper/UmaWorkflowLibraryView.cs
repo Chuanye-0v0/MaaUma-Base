@@ -529,14 +529,33 @@ public sealed class UmaWorkflowLibraryView : StackPanel
         if (isV2)
         {
             buildId = (string?)library["selected_build_id"] ?? (string?)Builds.FirstOrDefault()?["id"];
-            modeId = "direct_career";
-            library["selected_mode_id"] = "direct_career";
-            profileId = buildId;
+            var savedModeId = (string?)library["selected_mode_id"];
+            var canUseSaved = !string.IsNullOrWhiteSpace(savedModeId) && (
+                StrategyPackCatalog.IsWorkflowModeUnlocked(savedModeId)
+                || (StrategyPackCatalog.AllowCustomWorkflowModes
+                    && !UmaWorkflowLibraryModel.IsBuiltinMode(savedModeId)
+                    && Modes.Any(m => string.Equals((string?)m["id"], savedModeId, StringComparison.Ordinal))));
+            modeId = canUseSaved ? savedModeId! : "direct_career";
+            library["selected_mode_id"] = modeId;
+            if (!UmaWorkflowLibraryModel.IsBuiltinMode(modeId))
+                profileId = (string?)Mode()?["selected_profile_id"] ?? (string?)(Mode()?["profiles"] as JArray)?.OfType<JObject>().FirstOrDefault()?["id"];
+            else
+                profileId = buildId;
         }
         else
         {
-            var directMode = Modes.FirstOrDefault(m => string.Equals((string?)m["id"], "direct_career", StringComparison.Ordinal));
-            modeId = (string?)directMode?["id"] ?? (string?)library["selected_mode_id"] ?? (string?)Modes.FirstOrDefault()?["id"];
+            var visibleV1 = Modes.Where(m =>
+            {
+                var id = (string?)m["id"];
+                return StrategyPackCatalog.IsWorkflowModeUnlocked(id)
+                    || (StrategyPackCatalog.AllowCustomWorkflowModes && !UmaWorkflowLibraryModel.IsBuiltinMode(id));
+            }).ToList();
+            if (visibleV1.Count == 0) visibleV1 = Modes.ToList();
+            var savedModeId = (string?)library["selected_mode_id"];
+            var selectedMode = visibleV1.FirstOrDefault(m => string.Equals((string?)m["id"], savedModeId, StringComparison.Ordinal))
+                ?? visibleV1.FirstOrDefault(m => string.Equals((string?)m["id"], "direct_career", StringComparison.Ordinal))
+                ?? visibleV1.FirstOrDefault();
+            modeId = (string?)selectedMode?["id"];
             profileId = (string?)Mode()?["selected_profile_id"] ?? (string?)(Mode()?["profiles"] as JArray)?.OfType<JObject>().FirstOrDefault()?["id"];
             buildId = null;
         }
@@ -590,7 +609,10 @@ public sealed class UmaWorkflowLibraryView : StackPanel
         var previous=loading;loading=true;
         try {
             if(isV2) {
-                var modeChoices=UmaWorkflowLibraryModel.PublicVisibleModes.Select(m=>new LibraryChoice(m.Id,m.Name)).ToArray();
+                var visibleBuiltins = UmaWorkflowLibraryModel.VisibleModes().Select(m => new LibraryChoice(m.Id, m.Name));
+                var modeChoices = (StrategyPackCatalog.AllowCustomWorkflowModes
+                    ? visibleBuiltins.Concat(Modes.Select(m => new LibraryChoice((string)m["id"]!, (string?)m["name"] ?? "自定义流程")))
+                    : visibleBuiltins).ToArray();
                 modes.ItemsSource=modeChoices;
                 modes.SelectedItem=modeChoices.FirstOrDefault(x=>x.Id==modeId) ?? modeChoices.FirstOrDefault();
                 if(v2BuiltinMode) {
@@ -607,7 +629,12 @@ public sealed class UmaWorkflowLibraryView : StackPanel
                     modeName.Text=(string?)Mode()?["name"];
                 }
             } else {
-                var visibleV1=Modes.Where(m=>string.Equals((string?)m["id"],"direct_career",StringComparison.Ordinal)).ToList();
+                var visibleV1 = Modes.Where(m =>
+                {
+                    var id = (string?)m["id"];
+                    return StrategyPackCatalog.IsWorkflowModeUnlocked(id)
+                        || (StrategyPackCatalog.AllowCustomWorkflowModes && !UmaWorkflowLibraryModel.IsBuiltinMode(id));
+                }).ToList();
                 if(visibleV1.Count==0)visibleV1=Modes.ToList();
                 var ms=visibleV1.Select(m=>new LibraryChoice((string)m["id"]!,(string?)m["name"]??"模式")).ToArray();modes.ItemsSource=ms;modes.SelectedItem=ms.FirstOrDefault(x=>x.Id==modeId)??ms.FirstOrDefault();
                 var ps=(Mode()?["profiles"] as JArray??new()).OfType<JObject>().Select(p=>new LibraryChoice((string)p["id"]!,(string?)p["name"]??"配置")).ToArray();profiles.ItemsSource=ps;profiles.SelectedItem=ps.FirstOrDefault(x=>x.Id==profileId);

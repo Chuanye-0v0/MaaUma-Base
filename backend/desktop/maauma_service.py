@@ -22,6 +22,9 @@ AUTH='config/private-service-auth.json'
 RECEIPT='config/distribution-receipt.json'
 PRODUCTS={'umaa-public','uma-cut'}
 DOWNLOAD_SOURCES={'auto','cos','origin'}
+STORAGE_POLICY='config/pacer-storage-policy.json'
+STORAGE_POLICY_SCHEMA='maauma.pacer_storage_policy.v1'
+_POLICY_READ=object()
 
 
 class ServiceError(RuntimeError):
@@ -369,6 +372,65 @@ def info(root):
             'modules':read_json(state) if state.is_file() else {'components':{}},'authorization_root':str(Path(root).resolve())}
 
 
+def _storage_policy_path(root):
+    """Inspect only the local preference; never enter service authentication."""
+    import stat
+    root=Path(root).absolute()
+    path=root/STORAGE_POLICY
+    for item in (root,root/'config',path):
+        if item.is_symlink():raise UpdateError('linked_storage_policy')
+        if not item.exists():continue
+        details=item.lstat()
+        if getattr(details,'st_file_attributes',0)&0x400:
+            raise UpdateError('linked_storage_policy')
+        if item==path:
+            if not stat.S_ISREG(details.st_mode) or details.st_nlink!=1:
+                raise UpdateError('invalid_storage_policy_path')
+        elif not stat.S_ISDIR(details.st_mode):
+            raise UpdateError('invalid_storage_policy_path')
+    return contained(root,STORAGE_POLICY)
+
+
+def pacer_storage_policy(root,retention_minutes=_POLICY_READ):
+    """Read or save a standalone local cleanup preference, without device access."""
+    empty={'schema_version':STORAGE_POLICY_SCHEMA,'retention_minutes':None,'status':'unavailable'}
+    if retention_minutes is not _POLICY_READ and (
+            type(retention_minutes)is not int or retention_minutes not in {30,120}):
+        return {'ok':False,'status':'invalid_retention_minutes','code':'invalid_retention_minutes',
+                'pacer_storage_policy':empty}
+    temporary=None
+    try:
+        path=_storage_policy_path(root)
+        policy={'schema_version':STORAGE_POLICY_SCHEMA,'retention_minutes':120}
+        saved=path.exists()
+        if saved:
+            if path.stat().st_size>65536:raise UpdateError('invalid_storage_policy')
+            policy=read_json(path)
+            if (policy.get('schema_version')!=STORAGE_POLICY_SCHEMA
+                    or type(policy.get('retention_minutes'))is not int
+                    or policy['retention_minutes']not in {30,120}):
+                raise UpdateError('invalid_storage_policy')
+        if retention_minutes is not _POLICY_READ:
+            policy={'schema_version':STORAGE_POLICY_SCHEMA,'retention_minutes':retention_minutes}
+            path.parent.mkdir(parents=True,exist_ok=True)
+            path=_storage_policy_path(root)
+            temporary=path.with_name(path.name+'.'+uuid.uuid4().hex+'.tmp')
+            with temporary.open('x',encoding='utf8')as stream:
+                stream.write(json.dumps(policy,ensure_ascii=False,indent=2)+'\n')
+            _storage_policy_path(root)
+            os.replace(temporary,path)
+            saved=True
+        return {'ok':True,'status':'pacer_storage_policy_saved'if retention_minutes is not _POLICY_READ else'pacer_storage_policy',
+                'pacer_storage_policy':{**policy,'status':'saved'if saved else'default'}}
+    except (OSError,ValueError,UpdateError)as error:
+        code=str(error)if isinstance(error,UpdateError)else'storage_policy_unavailable'
+        return {'ok':False,'status':'pacer_storage_policy_unavailable','code':code,'pacer_storage_policy':empty}
+    finally:
+        if temporary is not None:
+            try:temporary.unlink(missing_ok=True)
+            except OSError:pass
+
+
 def _pacer_storage_cleanup(root,components,*,force=False):
     """Optional installed-component housekeeping; never import game runners."""
     empty={'removed':0,'budget_exhausted':False}
@@ -391,7 +453,10 @@ def _pacer_storage_cleanup(root,components,*,force=False):
         module=util.module_from_spec(spec)
         # Use the checked source itself, never a pre-existing bytecode cache.
         exec(compile(path.read_bytes(),str(path),'exec'),module.__dict__)
-        result=module.maintain(root/'pacer/backend',max_seconds=2.0,min_interval=0 if force else 3600)
+        options={'max_seconds':2.0,'min_interval':0 if force else 3600}
+        if getattr(module,'LOG_COMPRESSION_VERSION',0)==1:
+            options.update(background_json=True,shared_backend=root/'backend')
+        result=module.maintain(root/'pacer/backend',**options)
         if isinstance(result,dict):return result
     except Exception:
         pass
@@ -402,11 +467,14 @@ def dispatch(root,value,*,progress=None):
     root=Path(root).resolve(strict=True)
     if not isinstance(value,dict):raise ServiceError('invalid_request')
     action=value.get('action')
+    if action=='pacer_storage_policy':
+        return pacer_storage_policy(root,value['retention_minutes']if'retention_minutes'in value else _POLICY_READ)
     if action=='info':
         from desktop import maauma_components as components
         force_maintenance=value.get('maintenance') is True
         value=info(root);value['cache_cleanup']=components.cleanup_staged_updates(root,max_seconds=30.0)
         value['pacer_cleanup']=_pacer_storage_cleanup(root,components,force=force_maintenance)
+        value['pacer_storage_policy']=pacer_storage_policy(root)['pacer_storage_policy']
         return value
     if action=='check_update_connectivity':return diagnose(root)
     if action=='configure':return configure(root,value.get('base_url'),value.get('channel','preview'),value.get('download_source'),value.get('api_transport'))

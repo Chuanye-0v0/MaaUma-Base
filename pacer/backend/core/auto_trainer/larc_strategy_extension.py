@@ -292,6 +292,15 @@ class StrategyExtensionProvider:
         return False
 
 
+BUILTIN_WORKFLOW_MODE_IDS: tuple[str, ...] = (
+    "direct_career",
+    "cut_preserve",
+    "cut_then_career",
+    "ss_sieve_cycle",
+    "ace_career_cycle",
+)
+
+
 class StrategyExtensionRegistry:
     """Registry managing installed strategy packs and the active extension provider."""
 
@@ -307,7 +316,38 @@ class StrategyExtensionRegistry:
         self.head_bonuses: dict[str, dict[str, float]] = {}
         self.exports: dict[str, Any] = {}
         self.default_current_revision: str | None = None
+        self.unlocked_workflow_modes: list[str] = ["direct_career"]
+        self.allow_custom_workflows: bool = False
+        self.weight_presets: list[dict[str, Any]] = []
         self.loaded_packs: list[dict[str, Any]] = []
+
+    def register_workflow_modes(
+        self,
+        modes: Any = None,
+        *,
+        allow_custom: bool = False,
+        unlock_all: bool = False,
+    ) -> None:
+        unlocked = set(self.unlocked_workflow_modes) | {"direct_career"}
+        if unlock_all:
+            unlocked.update(BUILTIN_WORKFLOW_MODE_IDS)
+            self.allow_custom_workflows = True
+        if allow_custom:
+            self.allow_custom_workflows = True
+        if modes is not None:
+            for item in modes:
+                mid = str(item).strip()
+                if mid in BUILTIN_WORKFLOW_MODE_IDS:
+                    unlocked.add(mid)
+        self.unlocked_workflow_modes = [mid for mid in BUILTIN_WORKFLOW_MODE_IDS if mid in unlocked]
+
+    def register_weight_preset(self, preset: dict[str, Any]) -> None:
+        pid = str(preset.get("id") or "").strip()
+        if not pid:
+            return
+        if any(existing.get("id") == pid for existing in self.weight_presets):
+            return
+        self.weight_presets.append(dict(preset))
 
     def set_provider(self, provider: StrategyExtensionProvider) -> None:
         self.provider = provider
@@ -397,12 +437,55 @@ def _load_pack_dir(pack_dir: Path, registry: StrategyExtensionRegistry) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     if manifest.get("schema_version") != "maauma.strategy_pack.v1":
         raise ValueError(f"unsupported_strategy_pack_schema:{pack_dir}")
+    pack_id = str(manifest.get("pack_id") or pack_dir.name).strip() or pack_dir.name
+    if any(str(item.get("pack_id")) == pack_id for item in registry.loaded_packs):
+        return
     entry_rel = str(manifest.get("entry") or "pack.py")
     entry_path = (pack_dir / entry_rel).resolve()
     if not entry_path.is_relative_to(pack_dir.resolve()) or not entry_path.is_file():
         raise ValueError(f"missing_strategy_pack_entry:{entry_path}")
 
-    pkg_name = f"_maauma_ext_pack_{manifest.get('pack_id', pack_dir.name)}"
+    registry.register_workflow_modes(
+        manifest.get("workflow_modes"),
+        allow_custom=bool(manifest.get("allow_custom_workflows")),
+        unlock_all=bool(manifest.get("unlock_all_workflow_modes")),
+    )
+    pack_root = pack_dir.resolve()
+    raw_presets = manifest.get("weight_presets")
+    if isinstance(raw_presets, list):
+        for item in raw_presets:
+            if not isinstance(item, dict):
+                continue
+            pid = str(item.get("id") or "").strip()
+            pname = str(item.get("name") or "").strip()
+            if not pid or not pname:
+                continue
+            profile_obj = None
+            if isinstance(item.get("file"), str) and item["file"].strip():
+                candidate = (pack_dir / item["file"].strip()).resolve()
+                if candidate.is_relative_to(pack_root) and candidate.is_file():
+                    loaded_profile = json.loads(candidate.read_text(encoding="utf-8-sig"))
+                    if isinstance(loaded_profile, dict):
+                        profile_obj = loaded_profile
+            elif isinstance(item.get("profile"), dict):
+                profile_obj = dict(item["profile"])
+            if profile_obj is None:
+                continue
+            entry = {
+                "id": pid,
+                "name": pname,
+                "summary": str(item.get("summary") or "").strip(),
+                "recommended_revision": (
+                    str(item["recommended_revision"]).strip()
+                    if item.get("recommended_revision") is not None and str(item["recommended_revision"]).strip()
+                    else None
+                ),
+                "profile": profile_obj,
+                "pack_id": pack_id,
+            }
+            registry.register_weight_preset(entry)
+
+    pkg_name = f"_maauma_ext_pack_{pack_id}"
     spec = importlib.util.spec_from_file_location(
         pkg_name,
         entry_path,
@@ -416,7 +499,7 @@ def _load_pack_dir(pack_dir: Path, registry: StrategyExtensionRegistry) -> None:
     register_fn = getattr(module, "register_strategy_pack", None)
     if callable(register_fn):
         register_fn(registry, manifest=manifest, pack_dir=pack_dir)
-    registry.loaded_packs.append({"pack_id": manifest.get("pack_id", pack_dir.name), "dir": str(pack_dir), "version": manifest.get("version")})
+    registry.loaded_packs.append({"pack_id": pack_id, "dir": str(pack_dir), "version": manifest.get("version")})
 
 
 def ensure_bootstrapped() -> StrategyExtensionRegistry:
@@ -447,4 +530,15 @@ def strategy_pack_status() -> dict[str, Any]:
         "loaded_packs": list(reg.loaded_packs),
         "current_revision": CURRENT_REVISION,
         "available_revisions": list(REVISION_POLICY_VERSIONS.keys()),
+        "unlocked_workflow_modes": list(reg.unlocked_workflow_modes),
+        "allow_custom_workflows": bool(reg.allow_custom_workflows),
+        "weight_preset_count": len(reg.weight_presets),
+        "weight_presets": [
+            {
+                key: preset[key]
+                for key in ("id", "name", "summary", "recommended_revision", "pack_id")
+                if preset.get(key) is not None
+            }
+            for preset in reg.weight_presets
+        ],
     }

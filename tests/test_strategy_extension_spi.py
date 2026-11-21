@@ -63,6 +63,9 @@ class TestStrategyExtensionSPI(unittest.TestCase):
         status = strategy_pack_status()
         self.assertFalse(status["has_external_pack"])
         self.assertEqual(status["current_revision"], "2.3")
+        self.assertEqual(status["unlocked_workflow_modes"], ["direct_career"])
+        self.assertFalse(status["allow_custom_workflows"])
+        self.assertEqual(status["weight_preset_count"], 0)
 
         ctrl = LicensedRunControl(REPO_ROOT)
         snap = ctrl.snapshot()
@@ -80,7 +83,21 @@ class TestStrategyExtensionSPI(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             pack_dir = Path(tmp) / "synthetic_pack"
-            pack_dir.mkdir(parents=True, exist_ok=True)
+            weights_dir = pack_dir / "weights"
+            weights_dir.mkdir(parents=True, exist_ok=True)
+            sample_profile = {
+                "schema_version": "uma.scoring_profile.v2",
+                "scoring_semantics": {"model": "uma.larc.final_score", "version": 1},
+                "preferences": {
+                    "numeric": 1.0,
+                    "bond": 1.0,
+                    "charge": 1.2,
+                    "gold_ship_bonus": 0.0,
+                    "mei_bonus": 0.0,
+                    "tuning": {"mode": "default", "factors": {}, "formula": "base_score"},
+                },
+            }
+            (weights_dir / "sample_weight.json").write_text(json.dumps(sample_profile), encoding="utf-8")
             manifest = {
                 "schema_version": "maauma.strategy_pack.v1",
                 "pack_id": "synthetic_test_pack",
@@ -88,6 +105,22 @@ class TestStrategyExtensionSPI(unittest.TestCase):
                 "version": "9.9.0",
                 "entry": "pack.py",
                 "default_revision": "9.9",
+                "workflow_modes": ["direct_career", "cut_preserve", "cut_then_career"],
+                "allow_custom_workflows": True,
+                "weight_presets": [
+                    {
+                        "id": "synth_file_weight",
+                        "name": "Synthetic File Weight",
+                        "summary": "File-backed weight preset",
+                        "recommended_revision": "9.9",
+                        "file": "weights/sample_weight.json",
+                    },
+                    {
+                        "id": "synth_inline_weight",
+                        "name": "Synthetic Inline Weight",
+                        "profile": sample_profile,
+                    },
+                ],
                 "ui_revisions": [
                     {
                         "revision": "9.9",
@@ -129,12 +162,20 @@ class TestStrategyExtensionSPI(unittest.TestCase):
             self.assertIn("9.9", sp.PRESET_REGISTRY)
             self.assertTrue(sp.PRESET_REGISTRY["9.9"].synthetic_flag)
             self.assertEqual(sr.first_arc_win_ap_expectation(None).get("win_ap"), 99)
-            self.assertTrue(strategy_pack_status()["has_external_pack"])
+            st = strategy_pack_status()
+            self.assertTrue(st["has_external_pack"])
+            self.assertEqual(st["unlocked_workflow_modes"], ["direct_career", "cut_preserve", "cut_then_career"])
+            self.assertTrue(st["allow_custom_workflows"])
+            self.assertEqual(st["weight_preset_count"], 2)
 
             os.environ["MAAUMA_STRATEGY_PACK_DIR"] = "__NONE__"
             reload_extensions()
             self.assertEqual(sv.CURRENT_REVISION, "2.3")
             self.assertNotIn("9.9", sp.PRESET_REGISTRY)
+            st_reset = strategy_pack_status()
+            self.assertEqual(st_reset["unlocked_workflow_modes"], ["direct_career"])
+            self.assertFalse(st_reset["allow_custom_workflows"])
+            self.assertEqual(st_reset["weight_preset_count"], 0)
 
     def test_mei_unlock_gamble_enabled_in_ordinary_auto_career(self) -> None:
         from core.auto_trainer.larc_mei_unlock_policy import gamble_selection, select_mei_unlock
