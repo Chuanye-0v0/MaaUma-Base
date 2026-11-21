@@ -32,7 +32,7 @@ MaaUma 普通版客户端的开源代码，面向 Windows，包含桌面界面�
 ## 下载与使用
 
 - [GitHub 最新完整包](https://github.com/Chuanye-0v0/MaaUma-Base/releases/latest)
-- [国内下载：MaaUma 0.4.27 完整包](https://maauma-downloads-1508966578.cos.ap-guangzhou.myqcloud.com/public/0.4.27/maauma-base-0.4.27-windows-x64.zip)
+- [国内下载：MaaUma Base 0.6.0 开源完整包](https://maauma-downloads-1508966578.cos.ap-guangzhou.myqcloud.com/public/0.6.0/maauma-base-0.6.0-windows-x64.zip)
 
 首次使用可下载 Windows x64 完整包，解压后运行 `MFAAvalonia.exe`。已有安装可在“系统设置 → 更新 / 反馈”中检查更新，沿用当前配置。历史更新器修复工具保留在 Releases 中，首次安装请选择当前完整包。
 
