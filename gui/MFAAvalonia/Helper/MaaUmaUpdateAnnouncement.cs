@@ -18,9 +18,13 @@ namespace MFAAvalonia.Helper;
 public static class MaaUmaUpdateAnnouncement
 {
     public const string CurrentVersion = "0.5.9";
-    private const bool EnhancedBuild = false;
+    private const bool EnhancedBuild = true;
     private static readonly string[] CurrentNotes = {
-        "日活不再归档过程图或原生识别失败图；仅暂存当前事务续跑所需的工作图，完成后清理。",
+        "修复领奖页右侧“下一步”被识别区域截掉而反复等待的问题。",
+        "日活不再归档过程图或原生识别失败图；保留当前未完成事务必需的临时工作图，完成后清理。",
+        "新增可明确选择的1.8.2综合现金规划试用策略，继承1.8.1；输入覆盖不足时沿用同一候选集合的原估值。",
+        "保留1.8.1回退，默认仍为1.7.16.1；旧配置和当前育成不自动迁移。",
+        "策略估值不保证实战收益；未宣称所有口述卡死或完整实机现金模型均已验证。",
     };
     private const string SeenFile = "maauma-update-announcements.json";
     private static readonly Dictionary<string, Window> OpenWindows = new(StringComparer.OrdinalIgnoreCase);
@@ -82,7 +86,15 @@ public static class MaaUmaUpdateAnnouncement
     public static bool ShouldShowAutomatically(string packageRoot) =>
         IsSuccessfulUpgrade(packageRoot) && !WasSeen(packageRoot);
 
-    private static bool HasEnhancedComponent(string root) => false;
+    // Announcement edition detection begin.
+    private static bool HasEnhancedComponent(string root)
+    {
+        if (!EnhancedBuild) return false;
+        var modules = ReadObject(Path.Combine(root, "config", "maauma-modules.json"), 4 * 1024 * 1024);
+        return modules?["components"] is JObject components && components["pacer"] is JObject &&
+            Directory.Exists(Path.Combine(root, "pacer", "backend"));
+    }
+    // Announcement edition detection end.
 
     private static string SeenKey(string root) => RuntimeVersion(root) + (HasEnhancedComponent(root) ? ":enhanced" : ":standard");
 
@@ -123,6 +135,13 @@ public static class MaaUmaUpdateAnnouncement
         body.Children.Add(new TextBlock { Name = "MaaUmaAnnouncementStandardNotes", Text = standardNotes.Length > 0
             ? string.Join("\n\n", standardNotes) : afterUpdate ? $"已更新至 {version}，具体变更见发布说明。" : $"本版本为 {version}，具体变更见发布说明。",
             TextWrapping = TextWrapping.Wrap });
+        // Announcement enhanced presentation begin.
+        if (HasEnhancedComponent(root)) {
+            var enhancedNotes = ReadReleaseNotes(root, version, "enhanced");
+            if (enhancedNotes.Length > 0) body.Children.Add(new TextBlock { Name = "MaaUmaAnnouncementEnhancedNotes",
+                Text = string.Join("\n\n", enhancedNotes), TextWrapping = TextWrapping.Wrap });
+        }
+        // Announcement enhanced presentation end.
         body.Children.Add(new TextBlock { Text = "关闭后不再自动提示本版本；可在“系统设置 → 更新 / 反馈 → 更新公告”回看。",
             FontSize = 13, TextWrapping = TextWrapping.Wrap });
         var close = new Button { Name = "MaaUmaAnnouncementClose", Content = "知道了", HorizontalAlignment = HorizontalAlignment.Right };

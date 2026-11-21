@@ -41,7 +41,7 @@ public sealed partial class TeamPlanningView : UserControl
     private JObject? research,selectedMember;
     private JObject[] characters=[];
     private int generation,teamRevision;
-    private bool busy,loading,loaded,suppressRoute;
+    private bool busy,loading,loaded,suppressRoute,refreshingAccounts;
     private string researchContext="",displayedDescription="",displayedGuideUrls="";
     public TeamPlanningView(Func<JObject,Task<JObject>> request,UmaKnowledgeToolsClient? toolboxClient=null)
     {
@@ -56,11 +56,12 @@ public sealed partial class TeamPlanningView : UserControl
         save.Content="保存草稿 / 方案";top.Children.Add(account);top.Children.Add(teamName);top.Children.Add(save);
         var openDraft=new Button{Name="TeamOpenSavedDrafts",Content="打开已保存的草稿",Margin=new Thickness(0,0,8,5)};
         openDraft.Click+=(_,_)=>{draftPanel.IsVisible=!draftPanel.IsVisible;draftPanel.IsExpanded=true;};top.Children.Add(openDraft);
+        refresh.Content="刷新本地资料";refresh.Margin=new Thickness(0,0,8,5);top.Children.Add(refresh);
         restoreDraft.Click+=async(_,_)=>await RestorePlanningDraft();top.Children.Add(restoreDraft);toolbar.Children.Add(top);toolbar.Children.Add(BuildToolboxActions());
         var persisted=new WrapPanel();savedTeams.Width=280;
-        foreach(var control in new Control[]{savedTeams,load,refresh})control.Margin=new Thickness(0,0,8,5);
-        load.Content="打开所选草稿";refresh.Content="刷新本地资料";
-        persisted.Children.Add(savedTeams);persisted.Children.Add(load);persisted.Children.Add(refresh);
+        foreach(var control in new Control[]{savedTeams,load})control.Margin=new Thickness(0,0,8,5);
+        load.Content="打开所选草稿";
+        persisted.Children.Add(savedTeams);persisted.Children.Add(load);
         draftPanel.Content=persisted;draftPanel.IsVisible=false;toolbar.Children.Add(draftPanel);root.Children.Add(toolbar);
         var workflow=BuildPlanningWorkflow();Grid.SetRow(workflow,1);root.Children.Add(workflow);
         var requirementsBody=new StackPanel{Spacing=12,Margin=new Thickness(0,8,0,16)};
@@ -89,7 +90,7 @@ public sealed partial class TeamPlanningView : UserControl
         var memberBody=new StackPanel{Spacing=8};var memberBar=new WrapPanel();memberHeading.MaxWidth=500;memberHeading.Margin=new Thickness(0,0,12,5);
         memberBar.Children.Add(memberHeading);match.Content="为这个成员匹配种马";memberBar.Children.Add(match);memberBody.Children.Add(memberBar);
         memberBody.Children.Add(TeamPlanningUi.Note("选成员 → 匹配种马 → 查看已有／可借／待培养节点。点击节点可编辑，每位成员单独保留系谱。"));
-        memberBody.Children.Add(route);candidatePanel.Content=seedCandidates;memberBody.Children.Add(candidatePanel);memberBody.Children.Add(memberDetails);memberWorkspace.Child=memberBody;teamBody.Children.Add(memberWorkspace);teamScroll.Content=teamBody;
+        candidatePanel.Content=seedCandidates;memberBody.Children.Add(candidatePanel);memberBody.Children.Add(route);memberBody.Children.Add(memberDetails);memberWorkspace.Child=memberBody;teamBody.Children.Add(memberWorkspace);teamScroll.Content=teamBody;
         workspaces.ItemsSource=new[]{new TabItem{Header="目标与资料",Content=new ScrollViewer{Name="TeamRequirementsScroll",Content=requirementsBody,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled}},new TabItem{Header="团队与系谱",Content=teamScroll}};
         Grid.SetRow(workspaces,2);root.Children.Add(workspaces);
         contextStatus.FontSize=11;contextStatus.MaxLines=2;Grid.SetRow(contextStatus,3);root.Children.Add(contextStatus);Content=root;
@@ -120,6 +121,35 @@ public sealed partial class TeamPlanningView : UserControl
             contextStatus.Text="团队与各成员草稿独立于原配种方案；当前账号："+(account.SelectedItem as Choice)?.Label;generation++;seedCandidates.Children.Clear();researchContext="";
             await route.LoadCatalog();var catalog=await request(new JObject{["action"]="parent_planning_route_catalog"});characters=(catalog["characters"] as JArray??new()).OfType<JObject>().ToArray();RefreshRouteEntries();await inventory.Load();await ReadSavedTeams();loaded=true;status.Text="本地资料已刷新。可先生成参考方案，之后再补充持有角色与卡。";
         }catch(InvalidOperationException e){status.Text=e.Message;}catch{status.Text="部分本地资料暂不可用；已保留当前输入和草稿。";}finally{Lock(false);}
+    }
+    public async Task RefreshAccountsIfChangedAsync()
+    {
+        if(!loaded||busy||refreshingAccounts)return;
+        refreshingAccounts=true;
+        try
+        {
+            var oldAccount=AccountId;
+            var state=await request(new JObject{["action"]="parent_planning_state"});
+            var accountsChanged=!JToken.DeepEquals(state["accounts"],planningState["accounts"]);
+            var entriesChanged=!JToken.DeepEquals(state["entries"],planningState["entries"]);
+            var revChanged=!string.Equals(TeamPlanningUi.Str(state["library_revision"]),TeamPlanningUi.Str(planningState["library_revision"]),StringComparison.Ordinal);
+            if(!accountsChanged&&!entriesChanged&&!revChanged)return;
+            planningState=Clone(state);
+            loading=true;
+            try
+            {
+                var choices=new[]{new Choice("","所有资料（参考方案，持有状态未知）")}.Concat((state["accounts"] as JArray??new()).OfType<JObject>().Select(x=>new Choice(TeamPlanningUi.Str(x["id"]),TeamPlanningUi.Str(x["label"])))).ToArray();
+                account.ItemsSource=choices;
+                account.SelectedItem=choices.FirstOrDefault(x=>x.Id==oldAccount)??choices[0];
+            }
+            finally{loading=false;}
+            RefreshRouteEntries();
+            await inventory.Load();
+            await ReadSavedTeams();
+            status.Text="检测到账号或种马库资料更新，已自动同步账号与材料列表。";
+        }
+        catch{}
+        finally{refreshingAccounts=false;}
     }
     private void RefreshRouteEntries()
     {

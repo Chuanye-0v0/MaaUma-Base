@@ -41,7 +41,7 @@ public static class UmaTraineePicker
         var file=Path.Combine(appDirectory,"interface.json");
         if(File.Exists(file)) {
             if(repoDirectory==null && File.Exists(Path.Combine(appDirectory,"local_backend.json")))
-                repoDirectory=(string?)JObject.Parse(File.ReadAllText(Path.Combine(appDirectory,"local_backend.json")))["repo"];
+                repoDirectory=(string?)MaaUmaPortableCatalogConfig.Config(appDirectory)["repo"];
             var rosterPath=repoDirectory==null ? Path.Combine(appDirectory,"backend","core","autonomous_training","plant_roster.json") :
                 Path.Combine(repoDirectory,"core","autonomous_training","plant_roster.json");
             var roster=File.Exists(rosterPath) ?

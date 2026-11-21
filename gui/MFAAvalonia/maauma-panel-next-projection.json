@@ -1,0 +1,35 @@
+{
+  "schema": "maauma.panel_next_gui.v1",
+  "edition": "enhanced",
+  "introduced_in": "0.4.23",
+  "files": [
+    {
+      "path": "Helper/UmaPacerView.cs",
+      "sha256": "e8a58b424c227022d36d214b1c8124becf4eff5eb4499da0244944285a1190fe"
+    },
+    {
+      "path": "Helper/MaaUmaSharedConnection.cs",
+      "sha256": "14da17b667066a425fd05e597b45447f11293a1d1cfa5ce394d608cc2c96a0d2"
+    },
+    {
+      "path": "Helper/MaaUmaPacer/PacerCenterLayout.cs",
+      "sha256": "1d40e9e6ab5e9bf869815b338856790458c5f614ffc4f29fffb76162c2d21755"
+    },
+    {
+      "path": "Helper/MaaUmaPacer/MaaUmaAiStatusPanel.cs",
+      "sha256": "1aab5cb90000066880218aed6c4a3fc22af962b03482974459eb4a26593b6d73"
+    },
+    {
+      "path": "Helper/MaaUmaActivationView.cs",
+      "sha256": "f9004644f6310347b5fad6d2e2ac080078a1db10805e8fd77af93aeb1501cf9f"
+    },
+    {
+      "path": "Helper/MaaUmaUpdateProgressView.cs",
+      "sha256": "bff89bfbe4864a0da4d69cc0dcb55259817c274d7ef0cdfbd460dfef387ac16c"
+    },
+    {
+      "path": "Helper/MaaUmaUpdateConnectivity.cs",
+      "sha256": "d4a23eee1b2d294337dd5dd09767c14d537bd91a06492ae6aed8e39ebad14038"
+    }
+  ]
+}

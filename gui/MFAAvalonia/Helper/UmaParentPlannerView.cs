@@ -55,13 +55,12 @@ public sealed class UmaParentPlannerView : UserControl
         this.request=request;fakeBrowserFactory=browserFactory;fakeReadTargets=readWebTargets;
         this.Bind(TextElement.ForegroundProperty,new DynamicResourceExtension("SukiText"));
         var root=new Grid { RowDefinitions=new("Auto,*"),Margin=new Thickness(16),RowSpacing=7 };
-        var heading=new StackPanel { Spacing=3 };var headingLine=new WrapPanel{VerticalAlignment=VerticalAlignment.Center};headingLine.Children.Add(Label("种马规划",22));
-        var toolbox=new Button{Name="ParentPlannerKnowledgeTools",Content="资料工具箱",Margin=new Thickness(16,0,0,0),Padding=new Thickness(12,5)};
-        var toolboxNote=Label("",12);toolbox.Click+=async(_,_)=>{toolbox.IsEnabled=false;try{toolboxNote.Text=await new UmaKnowledgeToolsClient().OpenAsync();}catch(Exception error){toolboxNote.Text="本地资料工具箱暂未打开："+error.Message;}finally{toolbox.IsEnabled=true;}};headingLine.Children.Add(toolbox);heading.Children.Add(headingLine);heading.Children.Add(toolboxNote);
+        var heading=new StackPanel { Spacing=3 };heading.Children.Add(Label("种马规划",22));
         heading.Children.Add(Label("从比赛需求组建团队，再为每名成员匹配种马；也可独立查询素材、相性与技能。",12));root.Children.Add(heading);
         var toolbar=new StackPanel { Spacing=5 };var siteButtons=new WrapPanel { Orientation=Orientation.Horizontal };
         foreach(var site in Sites) { var button=new Button { Content=site.Label,Margin=new Thickness(0,0,6,3) };button.Click+=(_,_)=>OpenSite(site.Key,site.Url);siteButtons.Children.Add(button); }
         var external=new Button { Content="作者原站 ↗",Margin=new Thickness(0,0,6,3) };external.Click+=(_,_)=> { if(selectedUrl.Length>0)Process.Start(new ProcessStartInfo(selectedUrl){UseShellExecute=true}); };siteButtons.Children.Add(external);
+        var openMali=new Button { Name="ParentPlannerOpenMaliTool",Content="吗哩吗哩种马库（登录/一键入池）",Margin=new Thickness(0,0,6,3) };openMali.Click+=(_,_)=>MaliSeedSearchBridge.OpenOrActivate(TopLevel.GetTopLevel(this) as Window,request,CurrentPlanningGoals,null);siteButtons.Children.Add(openMali);
         ToolTip.SetTip(readTargets,"尝试读取umDNA主页已选技能；网页改版后未匹配的目标，可直接在本地规划搜索添加。攻略页和614可复制名称添加。");readTargets.Click+=async(_,_)=>await ReadWebTargets();siteButtons.Children.Add(readTargets);toolbar.Children.Add(siteButtons);toolbar.Children.Add(webStatus);webPane.Children.Add(toolbar);
         webStage.Children.Add(Label("请选择 umDNA 或 614 作者原站。网页只按你的操作联网；你可复制目标名称到“本地规划”添加。",14));Grid.SetRow(webStage,1);webPane.Children.Add(webStage);
         var editor=new StackPanel { Spacing=5 };editor.Children.Add(Label("本地目标清单",18));editor.Children.Add(input);
@@ -73,12 +72,14 @@ public sealed class UmaParentPlannerView : UserControl
         editor.Children.Add(evaluate);editor.Children.Add(status);localPane.Children.Add(editor);
         var resultScroll=new ScrollViewer { Name="ParentPlannerResultScroll",Content=results,Margin=new Thickness(0,8,0,0),HorizontalScrollBarVisibility=Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };Grid.SetRow(resultScroll,1);localPane.Children.Add(resultScroll);
         var footer=Label("素材信息只在本机读取。星数未知会单独标记，不算作没有。",11);footer.Margin=new Thickness(0,5,0,0);Grid.SetRow(footer,2);localPane.Children.Add(footer);
+        var teamView=new TeamPlanningView(request);
         plannerTabs.ItemsSource=new[] {
-            new TabItem {Header="比赛与团队",Content=new TeamPlanningView(request)},
+            new TabItem {Header="比赛与团队",Content=teamView},
             new TabItem {Header="种马素材",Content=localPane},
             new TabItem {Header="配种与相性",Content=new UmaParentCompatibilityView(request,CurrentPlanningGoals,RestorePlanningGoals)},
             new TabItem {Header="技能查询",Content=new UmaSkillReferenceView(request,AddMappedSkillTarget)},
             new TabItem {Header="作者工具",Content=webPane} };
+        plannerTabs.SelectionChanged+=(_,_)=>{if(plannerTabs.SelectedIndex==0)_=teamView.RefreshAccountsIfChangedAsync();};
         Grid.SetRow(plannerTabs,1);root.Children.Add(plannerTabs);Content=root;
         input.TextChanged+=(_,_)=>UpdateSuggestions();input.KeyDown+=(_,e)=> { if(e.Key==Avalonia.Input.Key.Enter){e.Handled=true;ConfirmNames();} };
         evaluate.Click+=async(_,_)=>await Evaluate();Loaded+=async(_,_)=>{if(!loaded)await LoadCatalog();};

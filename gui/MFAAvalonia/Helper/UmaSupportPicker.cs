@@ -26,7 +26,7 @@ public static class UmaSupportPicker
     {
         var choices=new List<UmaSupportChoice> { new(0,"沿用首局借卡（需已有记录）","↻","未指定卡片时沿用原有借卡资料。","沿用 首局 当前") };
         if(repoDirectory==null && File.Exists(Path.Combine(appDirectory,"local_backend.json")))
-            repoDirectory=(string?)JObject.Parse(File.ReadAllText(Path.Combine(appDirectory,"local_backend.json")))["repo"];
+            repoDirectory=(string?)MaaUmaPortableCatalogConfig.Config(appDirectory)["repo"];
         var path=repoDirectory==null ? Path.Combine(appDirectory,"backend","runs","support-card-library","catalog.json") :
             Path.Combine(repoDirectory,"runs","support-card-library","catalog.json");
         if(!File.Exists(path))return choices;

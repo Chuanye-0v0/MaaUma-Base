@@ -36,6 +36,18 @@ public static class MaaUmaUpdateConnectivity
     }
     public static string FailureText(JObject? result)
     {
+        var codeText=Text(result,"code") switch {
+            "invite_invalid"=>"激活码无效或输入有误，请核对后重试（注意不要漏字或多余空格）；当前安装未修改。",
+            "invite_exhausted"=>"该激活码已达到使用次数上限；当前安装未修改。",
+            "invite_already_used"=>"该激活码已被使用，不能重复激活；当前安装未修改。",
+            "invite_revoked"=>"该激活码已停用；当前安装未修改。",
+            "invite_expired"=>"该激活码已过期；当前安装未修改。",
+            "device_clock_skew"=>"本机系统时间与服务端偏差过大，请先开启 Windows 自动校准时间后再激活。",
+            "device_identity_unavailable"=>"未能读取本机设备硬件指纹，请确认系统 WMI / 加密服务正常后重试。",
+            "device_key_mismatch"=>"本机设备密钥与此前激活记录不一致；如重装或更换过环境，请联系维护者重新签发。",
+            "service_redirect_rejected" or "service_mismatch"=>"服务地址响应与当前维护入口不一致，请确认使用预设 HTTPS 服务地址并保存设置。",
+            _=>""};
+        if(codeText.Length>0)return codeText;
         if(result?["network"] is JObject network&&Text(network,"schema_version")=="maauma.update_connectivity.v1"
             &&Text(network,"phase") is {} phase&&Phases.Contains(phase)&&Text(network,"cause") is {} cause&&Causes.Contains(cause))
             return Phase(phase)+"失败："+Cause(cause)+"。可点击“检查网络”定位；当前安装未修改。";

@@ -416,7 +416,12 @@ public partial class App : Application
     {
         services.AddSingleton<UmaParentLibraryPage>();
         services.AddSingleton<MaaUmaActivationView>();
+        services.AddSingleton<MaaUmaPacerPage>();
         services.AddSingleton<UmaParentPlannerPage>();
+        services.AddSingleton<UmaKnowledgeToolsPage>();
+        services.AddSingleton<UmaParentWorkspacePage>(provider => new UmaParentWorkspacePage(
+            () => provider.GetRequiredService<UmaParentLibraryPage>(),
+            () => provider.GetRequiredService<UmaParentPlannerPage>()));
         services.AddSingleton<ISukiToastManager, SukiToastManager>();
         services.AddSingleton<ISukiDialogManager, SukiDialogManager>();
     }

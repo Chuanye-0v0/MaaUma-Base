@@ -42,29 +42,30 @@
                              Maximum="100" VerticalAlignment="Center"
                              Value="{Binding ConfigSwitchProgress}"
                              IsVisible="{Binding IsConfigSwitching}" />
-                <suki:SukiSideMenu IsVisible="{Binding '!IsConfigSwitching'}" IsMenuExpanded="False"
+                <suki:SukiSideMenu x:Name="MainSidebar" IsVisible="{Binding '!IsConfigSwitching'}" IsMenuExpanded="False"
                                    IsSearchEnabled="False" OpenPaneLength="150">
                     <suki:SukiSideMenu.Items>
                         <suki:SukiSideMenuItem IsContentMovable="False"
-                                               Header="{markup:I18n {x:Static helper:LangKeys.Home}}"
+                                               Header="日活" ToolTip.Tip="日活"
                                                Icon="{fluent:FluentIcon Icon=TasksApp,
                                                                 IconVariant=Regular}"
                                                PageContent="{extensions:ServiceProvider ServiceType={x:Type pages:InstanceContainerView}}" />
+                        <suki:SukiSideMenuItem Header="Pacer" IsContentMovable="False" ToolTip.Tip="Pacer"
+                            PageContent="{extensions:ServiceProvider ServiceType={x:Type helper:MaaUmaPacerPage}}">
+                            <suki:SukiSideMenuItem.Icon>
+                                <PathIcon Width="20" Height="20" Foreground="{DynamicResource SukiText}"
+                                          Data="M4,2 H6 V4 H13 L15,6 H22 V16 H14 L12,14 H6 V22 H4 Z M6,6 V12 H13 L15,14 H20 V8 H14 L12,6 Z" />
+                            </suki:SukiSideMenuItem.Icon>
+                        </suki:SukiSideMenuItem>
                         <suki:SukiSideMenuItem IsContentMovable="False"
-                                               Header="种马库"
-                                               Icon="{fluent:FluentIcon Icon=Library, IconVariant=Regular}"
-                                               PageContent="{extensions:ServiceProvider ServiceType={x:Type helper:UmaParentLibraryPage}}" />
-                        <suki:SukiSideMenuItem IsContentMovable="False"
-                                               Header="种马规划"
-                                               Icon="{fluent:FluentIcon Icon=Library, IconVariant=Regular}"
-                                               PageContent="{extensions:ServiceProvider ServiceType={x:Type helper:UmaParentPlannerPage}}" />
-                        <suki:SukiSideMenuItem IsContentMovable="False"
-                                               Header="{markup:I18n {x:Static helper:LangKeys.ResourceOption}}"
+                                               Header="资料工具箱" ToolTip.Tip="资料工具箱"
                                                Icon="{fluent:FluentIcon Icon=Apps,
                                                                IconVariant=Regular}"
-                                               IsVisible="False"
-                                               PageContent="{extensions:ServiceProvider ServiceType={x:Type pages:ResourcesView}}" />
-                        
+                                               PageContent="{extensions:ServiceProvider ServiceType={x:Type helper:UmaKnowledgeToolsPage}}" />
+                        <suki:SukiSideMenuItem IsContentMovable="False"
+                                               Header="种马库" ToolTip.Tip="种马库"
+                                               Icon="{fluent:FluentIcon Icon=Library, IconVariant=Regular}"
+                                               PageContent="{extensions:ServiceProvider ServiceType={x:Type helper:UmaParentWorkspacePage}}" />
                     </suki:SukiSideMenu.Items>
 
                     <suki:SukiSideMenu.HeaderContent>
