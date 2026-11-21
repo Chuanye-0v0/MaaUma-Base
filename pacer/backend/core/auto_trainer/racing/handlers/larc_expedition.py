@@ -57,6 +57,21 @@ from ..models import (
 )
 
 
+_LARC_OVERLAY_EXCLUDED_CAREER_TERMS = (
+    "体力",
+    "缩短版",
+    "记录",
+    "启发等级提升",
+    "适应性积分提升了",
+    "群星赛",
+    "还剩",
+    "主线事件",
+    "协助卡事件",
+    "养成优俊少女事件",
+    "剧本事件",
+)
+
+
 class LarcExpeditionHandlerMixin:
     """L'Arc representative exchange and overseas race handlers."""
 
@@ -147,8 +162,14 @@ class LarcExpeditionHandlerMixin:
         if width >= height or width * 16 != height * 9:
             return None
         text=''.join(str(visible_text).split())
-        if not visual_only and any(word in text for word in ('更改战术','前往赛事','查看结果','参赛条件','获得奖励',
-                '支付','消耗','萝卜','闹钟','购买','充值','宝石','钻石','预览')):
+        if not visual_only and any(
+            word in text
+            for word in (
+                '更改战术', '前往赛事', '查看结果', '参赛条件', '获得奖励',
+                '支付', '消耗', '萝卜', '闹钟', '购买', '充值', '宝石', '钻石', '预览',
+                *_LARC_OVERLAY_EXCLUDED_CAREER_TERMS,
+            )
+        ):
             return None
         point_text=re.sub(r'[^\S\r\n]', '', str(visible_text))
         points=re.findall(r'([0-9]{1,3}(?:[,，.][0-9]{3})+|[0-9]+)积分',point_text)

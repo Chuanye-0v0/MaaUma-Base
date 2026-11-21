@@ -18,7 +18,7 @@ from typing import Any, Callable, Mapping
 import cv2
 import numpy as np
 
-from core.frame_io import read_image_with_retry
+from core.frame_io import io_path, read_image_with_retry
 from core.auto_trainer.action_table import ActionTable
 from core.auto_trainer.career_start_perception import CareerStartPerceptor
 from core.auto_trainer.global_home_layout import is_global_home, global_home_portal_point
@@ -908,7 +908,7 @@ class SafeAdvancePlanner(
                 goal_observation = perceive_goal_page(
                     path,
                     visible_text=visible_text or "",
-                    source_frame_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                    source_frame_sha256=hashlib.sha256(io_path(path).read_bytes()).hexdigest(),
                     observed_turn=career_goal_observed_turn,
                     text_order_verified=career_goal_text_order_verified,
                 )
@@ -1398,7 +1398,7 @@ class SafeAdvancePlanner(
     ) -> dict[str, Any] | None:
         training_check = state.training_check
         atomic_main_menu = analyze_main_menu_state(
-            path.read_bytes(),
+            io_path(path).read_bytes(),
             scenario=scenario or "grand_masters",
         )
         atomic_screen = atomic_main_menu.get("fields", {}).get("screen", {})

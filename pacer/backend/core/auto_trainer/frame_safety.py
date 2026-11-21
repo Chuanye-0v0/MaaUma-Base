@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 import cv2
 
+from core.frame_io import io_path, read_image_compat
 from core.screen_text import analyze_screen_text
 from core.skill_acquisition_parser import resolve_tesseract_runtime
 
@@ -134,7 +135,7 @@ class LocalRapidOCRScreenTextReader:
         self._engine: Any | None = None
 
     def read(self, image_path: Path) -> str:
-        image = cv2.imread(str(image_path))
+        image = read_image_compat(image_path)
         if image is None:
             raise RapidOCRTextReaderError("rapidocr_inference_failed")
         return _join_high_confidence_rapidocr_text(self.read_regions(image))
@@ -245,7 +246,7 @@ class FrameSafetyAnalyzer:
         _decoded_frame: tuple[bytes, Any] | None = None,
     ) -> FrameSafetyPacket:
         path = Path(image_path)
-        frame_bytes = path.read_bytes()
+        frame_bytes = io_path(path).read_bytes()
         digest = hashlib.sha256(frame_bytes).hexdigest()
         if supplied_text is not None:
             visible_text = supplied_text

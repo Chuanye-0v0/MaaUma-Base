@@ -77,10 +77,10 @@ def _home_observed_after_freeze(session, child, return_index):
     try:
         # The CLI exports a top-level source only for the ordinary training home.
         source = child.get("source_screenshot_path")
-        if (not frame.is_file() or (source is None and home_reason == "ready_main_menu")
+        if (not _io(frame).is_file() or (source is None and home_reason == "ready_main_menu")
                 or (source is not None and Path(source).resolve() != frame.resolve())):
             return False
-        sha = hashlib.sha256(frame.read_bytes()).hexdigest()
+        sha = hashlib.sha256(_io(frame).read_bytes()).hexdigest()
     except OSError:
         return False
     return (result.get("frame_safety", {}).get("source_image_sha256") == sha
@@ -110,9 +110,9 @@ def _verified_ready_reason(session, child, *, allow_partial=False):
                 or detail.get("pending_cost") != 0 or actionable_errors):
             continue
         frame = Path(row.get("screenshot_path", ""))
-        if not frame.is_file():
+        if not _io(frame).is_file():
             continue
-        sha = hashlib.sha256(frame.read_bytes()).hexdigest()
+        sha = hashlib.sha256(_io(frame).read_bytes()).hexdigest()
         if result.get("frame_safety", {}).get("source_image_sha256") != sha:
             continue
         from core.auto_trainer.larc_adaptation import phase_required_levels
@@ -145,7 +145,7 @@ def _revalidate_returned_session(run_root, session, current_report):
         try:
             if not path.resolve().is_relative_to(run_root):
                 continue
-            previous = json.loads(path.read_text(encoding="utf-8"))
+            previous = json.loads(_io(path).read_text(encoding="utf-8"))
             if (previous.get("stop_reason") not in {"larc_adaptation_completion_unverified", "larc_adaptation_phase_incomplete"}
                     or previous.get("is_valid") is not False or previous.get("phase_complete") is not False
                     or previous.get("status") != "stopped" or previous.get("session") != session.to_dict()
@@ -157,7 +157,7 @@ def _revalidate_returned_session(run_root, session, current_report):
             if (Path(previous.get("safe_advance_report_path", "")).resolve() != child_path.resolve()
                     or not child_path.resolve().is_relative_to(path.parent.resolve())):
                 continue
-            child = json.loads(child_path.read_text(encoding="utf-8"))
+            child = json.loads(_io(child_path).read_text(encoding="utf-8"))
             if (child.get("is_valid") is not True or any(
                     not Path(row.get("screenshot_path", "")).resolve().is_relative_to(path.parent.resolve())
                     for row in child.get("step_reports", []))):
@@ -190,7 +190,7 @@ def run_larc_adaptation(*, run_root: Path, output_dir: Path, adb_port: int,
     if (phase not in PHASE_SLOT_COUNTS or type(max_steps) is not int or not 1 <= max_steps <= 48
             or not output_dir.is_relative_to(run_root) or output_dir == run_root):
         raise ValueError("larc_adaptation_phase_output_or_budget_invalid")
-    progress = json.loads((run_root / "progress.json").read_text(encoding="utf-8"))
+    progress = json.loads(_io(run_root / "progress.json").read_text(encoding="utf-8"))
     run_id = progress.get("run_session_id")
     if (run_id != run_root.name or type(adb_port) is not int or not 1 <= adb_port <= 65535
             or progress.get("device") != f"127.0.0.1:{adb_port}"
@@ -263,7 +263,7 @@ def run_larc_adaptation(*, run_root: Path, output_dir: Path, adb_port: int,
     child_path = output_dir / "safe_advance_report.json"
     _atomic_write_json(child_path, child)
     report.update(safe_advance_report_path=str(child_path), safe_advance_exit_code=code)
-    if not phase_path.exists():
+    if not _io(phase_path).exists():
         return finish("larc_adaptation_session_missing")
     session = LarcAdaptationSession.load(phase_path, run_id)
     if session.phase != phase or session.inspect_only:

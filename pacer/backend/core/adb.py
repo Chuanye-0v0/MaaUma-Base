@@ -15,6 +15,7 @@ from contextvars import ContextVar
 
 from config.settings import ADB_HOST, ADB_PATH, ADB_PORT, SWIPE_DELAY, TAP_DELAY
 from core.coordinates import CoordinateConfig, CoordinateScaler, DEFAULT_REFERENCE_SIZE
+from core.frame_io import io_path, read_image_compat
 from core.auto_trainer.runtime_control import capture_checkpoint, guarded_input, controlled_sleep, for_device
 
 
@@ -520,7 +521,8 @@ class ADB:
         if save_path.startswith("\\\\?\\") and len(save_path) - 4 < 260:
             save_path = save_path[4:]
         self._capture_stage = ('adb-shell-png', 'write')
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        write_save_path = io_path(save_path) if os.name == "nt" and len(save_path) >= 248 else save_path
+        os.makedirs(os.path.dirname(write_save_path), exist_ok=True)
 
         pull_timeout = remaining_timeout(10)
         if pull_timeout <= 0:
@@ -561,14 +563,14 @@ class ADB:
                 return None
             if staged_pull_path is not None:
                 self._capture_stage = ('adb-shell-png', 'write')
-                os.replace(staged_pull_path, save_path)
+                os.replace(staged_pull_path, write_save_path)
         finally:
             if staged_pull_path is not None and os.path.exists(staged_pull_path):
                 self._capture_stage = ('adb-shell-png', 'write')
                 os.unlink(staged_pull_path)
 
         self._capture_stage = ('adb-shell-png', 'decode')
-        img = cv2.imread(save_path)
+        img = read_image_compat(save_path)
         if img is None:
             self._capture_failed('adb-shell-png', 'decode', 'decode_failed')
             print(f"[ADB] cannot read screenshot: {save_path}")
@@ -588,8 +590,9 @@ class ADB:
         save_path = os.path.realpath(save_path or os.path.join("logs","screenshots","screen.png"))
         if save_path.startswith("\\\\?\\") and len(save_path) - 4 < 260:
             save_path = save_path[4:]
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        with open(save_path,"wb") as output:output.write(payload)
+        target_path = io_path(save_path) if os.name == "nt" and len(save_path) >= 248 else save_path
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with open(target_path,"wb") as output:output.write(payload)
         self._capture_succeeded()
         return image
 
@@ -925,8 +928,9 @@ class RawScreencapStream:
         save_path = os.path.realpath(save_path)
         if save_path.startswith("\\\\?\\") and len(save_path) - 4 < 260:
             save_path = save_path[4:]
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        with open(save_path, "wb") as output:
+        target_path = io_path(save_path) if os.name == "nt" and len(save_path) >= 248 else save_path
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with open(target_path, "wb") as output:
             output.write(png.tobytes())
         return image
 

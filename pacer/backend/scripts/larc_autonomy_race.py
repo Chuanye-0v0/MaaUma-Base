@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from time import monotonic
 
 from core.adb import ADB
+from core.frame_io import io_path
 from core.auto_trainer.runtime_control import guarded_input
 from core.auto_trainer.config import load_goal_config
 from core.auto_trainer.larc_adaptation import LarcAdaptationSession
@@ -32,7 +33,7 @@ from core.auto_trainer.route_handoff import is_route_handoff, is_route_handoff_r
 
 
 def _file_sha256(path: Path | str) -> str:
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return hashlib.sha256(io_path(path).read_bytes()).hexdigest()
 
 
 HANDOFF_STOPS = {"post_race_dialogue", "event_choice", "ready_main_menu", "ready_training_menu",
@@ -426,63 +427,122 @@ def _stopped_exchange_confirmation_resume(saved, run_root):
     return _restore_larc_exchange_pending(RaceRouteSession(), saved.get("steps", []), run_root) is not None
 
 
+def _goal_achievement_terminal_text(visible_text: str) -> bool:
+    compact = "".join(str(visible_text).split())
+    if "目标达成" in compact:
+        return True
+    # RapidOCR occasionally misreads stylized gold '目标达成' as '自标达成' / '日标达成'.
+    return ("标达成" in compact or "目标达" in compact) and any(
+        anchor in compact for anchor in ("继续", "协助者积分", "粉丝")
+    )
+
+
 def _completed_live_result_handoff(run_root, saved):
     """A cold result can finish without its earlier race entry in this log."""
-    if (saved.get('status')!='handed_off'
-            or saved.get('stop_reason') not in {'goal_achievement_loading','goal_achievement_result'}
+    stop_reason = saved.get('stop_reason')
+    if (saved.get('status') != 'handed_off'
+            or stop_reason not in HANDOFF_STOPS
             or saved.get('current_input_receipts')
-            or any(value for key,value in saved.get('session',{}).items()
-                   if key.startswith('pending_') or key.endswith('_pending'))):return None
-    rows=saved.get('steps') or [];confirmed_result=False
+            or any(value for key, value in saved.get('session', {}).items()
+                   if (key.startswith('pending_') or key.endswith('_pending'))
+                   and key != 'result_transition_pending')):
+        return None
+    result_pending = bool(saved.get('session', {}).get('result_transition_pending'))
+    rows = saved.get('steps') or []
+    if not rows:
+        return None
+    confirmed_result = False
     for row in rows:
-        result=row.get('result',{});decision=result.get('decision',{});receipts=result.get('input_receipts') or []
-        if (result.get('tap_outcome') in {'failed','unknown','pending'}
-                or result.get('frame_safety',{}).get('dangerous')
-                or result.get('frame_safety',{}).get('resource_terms')):return None
-        if decision.get('action')=='tap':
-            tap=decision.get('tap',{});sha=result.get('frame_safety',{}).get('source_image_sha256')
-            expected={'race_result_continue':'race_result.continue',
-                'larc_explanation_continue':'safe_advance.larc_explanation_continue'}.get(decision.get('reason'))
-            if (not expected or tap.get('coordinate_name')!=expected or not sha
+        result = row.get('result', {}); decision = result.get('decision', {}); receipts = result.get('input_receipts') or []
+        if (result.get('tap_outcome') in {'failed', 'unknown', 'pending'}
+                or result.get('frame_safety', {}).get('dangerous')
+                or result.get('frame_safety', {}).get('resource_terms')):
+            return None
+        if decision.get('action') == 'tap':
+            tap = decision.get('tap', {}); sha = result.get('frame_safety', {}).get('source_image_sha256')
+            expected = {'race_result_continue': 'race_result.continue',
+                'larc_explanation_continue': 'safe_advance.larc_explanation_continue'}.get(decision.get('reason'))
+            if (not expected or tap.get('coordinate_name') != expected or not sha
                     or result.get('performed') is not True or result.get('tap_performed') is not True
-                    or not receipts or any(receipt.get('outcome')!='confirmed'
-                        or receipt.get('source_sha256')!=sha
-                        or receipt.get('source_path')!=decision.get('evidence',{}).get('image')
-                        or any(receipt.get(key)!=tap.get(key) for key in ('x','y','scaled'))
-                        for receipt in receipts)):return None
-            confirmed_result|=decision['reason']=='race_result_continue'
-        elif (decision.get('action') not in {'wait','stop'}
-                or any(result.get(key) for key in ('tap_performed','input_may_have_occurred','input_receipts'))):return None
+                    or not receipts or any(receipt.get('outcome') != 'confirmed'
+                        or receipt.get('source_sha256') != sha
+                        or receipt.get('source_path') != decision.get('evidence', {}).get('image')
+                        or any(receipt.get(key) != tap.get(key) for key in ('x', 'y', 'scaled'))
+                        for receipt in receipts)):
+                return None
+            confirmed_result |= decision['reason'] == 'race_result_continue'
+        elif (decision.get('action') not in {'wait', 'stop', 'handoff'}
+                or any(result.get(key) for key in ('tap_performed', 'input_may_have_occurred', 'input_receipts'))):
+            return None
     try:
-        last=rows[-1]['result'];source=Path(last['decision']['evidence']['image']).resolve(strict=True)
-        if (not confirmed_result or not source.is_relative_to(run_root)
-                or last.get('performed') is not False or last['decision'].get('action')!='stop'
-                or last.get('reason')!=saved['stop_reason']
-                or '目标达成' not in ''.join(last.get('frame_safety',{}).get('visible_text','').split())):return None
-        report=json.loads((source.parent/'report.json').read_text(encoding='utf-8'))
-        handoff=json.loads((source.parent/'owner_handoff.json').read_text(encoding='utf-8'))
+        last = rows[-1]['result']; source = Path(last['decision']['evidence']['image']).resolve(strict=True)
+        is_goal_stop = stop_reason in {'goal_achievement_loading', 'goal_achievement_result'}
+        last_decision = last.get('decision', {})
+        terminal_ok = (
+            last_decision.get('action') == 'stop'
+            and _goal_achievement_terminal_text(last.get('frame_safety', {}).get('visible_text', ''))
+            if is_goal_stop
+            else (last_decision.get('action') == 'stop' or is_route_handoff(last_decision, reason=stop_reason))
+        )
+        if (not source.is_relative_to(run_root)
+                or last.get('performed') is not False or last.get('reason') != stop_reason
+                or not terminal_ok):
+            return None
+        report = json.loads(io_path(source.parent / 'report.json').read_text(encoding='utf-8'))
+        handoff = json.loads(io_path(source.parent / 'owner_handoff.json').read_text(encoding='utf-8'))
+        live_src = report.get('live_source') or {}
+        live_overlay_proof = (
+            live_src.get('owner') == 'race'
+            and live_src.get('state') == 'race_result'
+            and live_src.get('entered') is True
+            and live_src.get('race_reason') == 'race_result_continue'
+            and (live_src.get('current_result_proof') or {}).get('kind') == 'larc_rank_points_overlay'
+        )
+        if not live_overlay_proof:
+            if not is_goal_stop or not confirmed_result or result_pending:
+                return None
         if (report.get('is_valid') is not True or report.get('live_takeover') is not True
-                or report.get('live_source',{}).get('entered') is not True
-                or any(report.get(key)!=saved.get(key) for key in ('run_session_id','device','turn_index','stop_reason'))
-                or report.get('step_reports')!=rows or handoff.get('before')!=saved.get('owner_before')
-                or handoff.get('report_sha256')!=_canonical_sha256(report)
-                or handoff.get('terminal_source_sha256')!=last.get('frame_safety',{}).get('source_image_sha256')):return None
-        return {'basis':'completed_scene_first_result','report_path':str(source.parent/'report.json'),
-            'owner_handoff_path':str(source.parent/'owner_handoff.json')}
-    except (OSError,ValueError,KeyError,TypeError,IndexError):
+                or live_src.get('entered') is not True
+                or any(report.get(key) != saved.get(key) for key in ('run_session_id', 'device', 'turn_index', 'stop_reason'))
+                or report.get('step_reports') != rows or handoff.get('before') != saved.get('owner_before')
+                or handoff.get('report_sha256') != _canonical_sha256(report)
+                or handoff.get('terminal_source_sha256') != last.get('frame_safety', {}).get('source_image_sha256')):
+            return None
+        return {
+            'basis': 'completed_live_overlay_result' if live_overlay_proof else 'completed_scene_first_result',
+            'report_path': str(source.parent / 'report.json'),
+            'owner_handoff_path': str(source.parent / 'owner_handoff.json'),
+        }
+    except (OSError, ValueError, KeyError, TypeError, IndexError):
         return None
 
 
-def _fresh_exchange_preflight(preflight):
-    rows=preflight.get('step_reports') or []
-    if not rows or any(any(row.get('result',{}).get(key) for key in
-            ('tap_performed','input_may_have_occurred','input_receipts')) for row in rows):return False
-    last=rows[-1].get('result',{});decision=last.get('decision',{});packet=last.get('frame_safety',{})
-    return (last.get('performed') is False and last.get('reason')=='race_day_main_menu'
+def _fresh_race_day_preflight(preflight, *, required_text=None):
+    rows = preflight.get('step_reports') or []
+    if not rows or any(any(row.get('result', {}).get(key) for key in
+            ('tap_performed', 'input_may_have_occurred', 'input_receipts')) for row in rows):
+        return False
+    last = rows[-1].get('result', {}); decision = last.get('decision', {}); packet = last.get('frame_safety', {})
+    visible = ''.join(packet.get('visible_text', '').split())
+    return (last.get('performed') is False and last.get('reason') == 'race_day_main_menu'
         and is_route_handoff(decision, reason='race_day_main_menu')
-        and decision.get('evidence',{}).get('larc_race_day',{}).get('verified') is True
-        and packet.get('text_status')=='ok' and not packet.get('dangerous') and not packet.get('resource_terms')
-        and '凯旋门代表交流赛' in ''.join(packet.get('visible_text','').split()))
+        and decision.get('evidence', {}).get('larc_race_day', {}).get('verified') is True
+        and packet.get('text_status') == 'ok' and not packet.get('dangerous') and not packet.get('resource_terms')
+        and (required_text is None or required_text in visible))
+
+
+def _fresh_exchange_preflight(preflight):
+    return _fresh_race_day_preflight(preflight, required_text='凯旋门代表交流赛')
+
+
+def _fresh_entry_preflight_safe(preflight, expected_stops):
+    rows = preflight.get('step_reports') or []
+    if not rows or any(any(row.get('result', {}).get(key) for key in
+            ('tap_performed', 'input_may_have_occurred', 'input_receipts')) for row in rows):
+        return False
+    last = rows[-1].get('result', {}); packet = last.get('frame_safety', {})
+    return (last.get('performed') is False and last.get('reason') in expected_stops
+        and packet.get('text_status') == 'ok' and not packet.get('dangerous') and not packet.get('resource_terms'))
 
 
 def _dialogue_handoff_owner(run_root, saved):
@@ -1069,8 +1129,8 @@ def _run_larc_race_route(*, run_root: Path, output_dir: Path, adb_port: int,
     if saved and saved["status"] == "handed_off" and saved["turn_index"] != turn:
         saved = None
     cold_result_handoff = (_completed_live_result_handoff(run_root, saved)
-        if saved and new_exchange_after_race and not resume and fan_goal is None
-        and saved.get('turn_index') == turn and not _fixed_race_entry_confirmed(saved.get('steps', [])) else None)
+        if saved and not resume and saved.get('turn_index') == turn
+        and not _fixed_race_entry_confirmed(saved.get('steps', [])) else None)
     if (saved and new_exchange_after_race and not resume and fan_goal is None
             and saved["status"] == "handed_off" and saved["turn_index"] == turn
             and (_fixed_race_entry_confirmed(saved.get("steps", [])) or cold_result_handoff)):
@@ -1078,11 +1138,20 @@ def _run_larc_race_route(*, run_root: Path, output_dir: Path, adb_port: int,
         report["consecutive_exchange"] = {"prior_turn_index": turn}
         if cold_result_handoff:
             report['consecutive_exchange']['cold_result_handoff'] = cold_result_handoff
+    elif (saved and not resume and saved["status"] == "handed_off" and saved["turn_index"] == turn
+            and cold_result_handoff and cold_result_handoff.get("basis") == "completed_live_overlay_result"):
+        superseded, saved = saved, None
+        report["prior_live_result_handoff"] = {
+            "prior_turn_index": turn,
+            "cold_result_handoff": cold_result_handoff,
+        }
     if saved:
         if saved.get("consecutive_exchange"):
             report["consecutive_exchange"] = saved["consecutive_exchange"]
         if saved.get("adaptation_reentry"):
             report["adaptation_reentry"] = saved["adaptation_reentry"]
+        if saved.get("prior_live_result_handoff"):
+            report["prior_live_result_handoff"] = saved["prior_live_result_handoff"]
         if resume and saved.get("incomplete_first_arc_turn") != incomplete_first_arc_turn:
             # A first-Arc warning may be observed before the caller opts into
             # the single-turn exception. Bind that late choice to this exact
@@ -1225,18 +1294,32 @@ def _run_larc_race_route(*, run_root: Path, output_dir: Path, adb_port: int,
             {"ready_main_menu", "fan_goal_warning_handoff"} if fan_goal is not None else {"race_day_main_menu"})
         if code or preflight.get("is_valid") is not True or preflight.get("stop_reason") not in expected_stops:
             return finish("race_day_preflight_unverified")
-        if cold_result_handoff and not _fresh_exchange_preflight(preflight):
-            return finish('consecutive_exchange_preflight_unverified')
+        if cold_result_handoff:
+            if report.get("consecutive_exchange") and not _fresh_exchange_preflight(preflight):
+                return finish('consecutive_exchange_preflight_unverified')
+            if report.get("prior_live_result_handoff"):
+                preflight_ok = (
+                    _fresh_race_day_preflight(preflight)
+                    if (fan_goal is None and custom_race is None and not first_win_rescue)
+                    else _fresh_entry_preflight_safe(preflight, expected_stops)
+                )
+                if not preflight_ok:
+                    return finish('prior_live_result_preflight_unverified')
         if superseded is not None:
-            last = preflight.get("step_reports", [{}])[-1].get("result", {})
-            text = str(last.get("frame_safety", {}).get("visible_text", ""))
-            expected_race = report.get("adaptation_reentry", {}).get("race_title", "凯旋门代表交流赛")
-            if expected_race not in "".join(text.split()):
-                return finish("consecutive_exchange_wrong_race" if report.get("consecutive_exchange")
-                              else "race_adaptation_reentry_wrong_race")
+            if report.get("consecutive_exchange") or report.get("adaptation_reentry"):
+                last = preflight.get("step_reports", [{}])[-1].get("result", {})
+                text = str(last.get("frame_safety", {}).get("visible_text", ""))
+                expected_race = report.get("adaptation_reentry", {}).get("race_title", "凯旋门代表交流赛")
+                if expected_race not in "".join(text.split()):
+                    return finish("consecutive_exchange_wrong_race" if report.get("consecutive_exchange")
+                                  else "race_adaptation_reentry_wrong_race")
             archive = output_dir / "superseded_checkpoint.json"
             _atomic_write_json(archive, superseded)
-            history = report.get("consecutive_exchange", report.get("adaptation_reentry"))
+            history = (
+                report.get("consecutive_exchange")
+                or report.get("adaptation_reentry")
+                or report.get("prior_live_result_handoff")
+            )
             history.update(superseded_checkpoint_path=str(archive),
                 fresh_preflight_report_path=str(output_dir / "preflight_report.json"))
         if first_win_rescue:
@@ -1272,6 +1355,8 @@ def _run_larc_race_route(*, run_root: Path, output_dir: Path, adb_port: int,
             value["adaptation_reentry"] = report["adaptation_reentry"]
         if report.get("consecutive_exchange"):
             value["consecutive_exchange"] = report["consecutive_exchange"]
+        if report.get("prior_live_result_handoff"):
+            value["prior_live_result_handoff"] = report["prior_live_result_handoff"]
         if fan_goal is not None:
             value["fan_goal"] = fan_goal
         if custom_race is not None:
@@ -1621,6 +1706,8 @@ def _run_larc_race_route(*, run_root: Path, output_dir: Path, adb_port: int,
             report.pop("handoff_target", None)
             reason, status = f"race_owner_handoff:{exc}", "blocked"
         else:
+            if reason in {"goal_achievement_loading", "goal_achievement_result"}:
+                session.result_transition_pending = False
             save("handed_off", reason)
             return finish(reason, 0)
     save(status, reason)

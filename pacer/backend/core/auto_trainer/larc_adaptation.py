@@ -21,6 +21,7 @@ import cv2
 import numpy as np
 
 from core.auto_trainer.career_start_safety import TesseractTsvTokenReader
+from core.frame_io import io_path
 from core.main_menu_state import _load_assets, _normalize_binary_glyph, _rank_glyph_digits
 
 
@@ -528,16 +529,17 @@ class LarcAdaptationSession:
     def save(self):
         if self.path is None:
             raise ValueError("adaptation_session_path_required")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.path.parent,
+        target = io_path(self.path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent,
                                          suffix=".tmp", delete=False) as stream:
             json.dump(self.to_dict(), stream, ensure_ascii=False, indent=2)
             temporary = stream.name
-        os.replace(temporary, self.path)
+        os.replace(temporary, target)
 
     @classmethod
     def load(cls, path: Path, run_session_id: str):
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(io_path(path).read_text(encoding="utf-8"))
         if (value.get("schema_version") != "uma.larc_adaptation.v1"
                 or value.get("run_session_id") != run_session_id
                 or value.get("stage") not in {"selecting", "submission_pending", "awaiting_result", "complete"}):
@@ -856,7 +858,7 @@ def plan_larc_adaptation(image, evidence, *, session=None, reader=None):
         slot = state["selected_slot"]
         session.inspected_slots[str(slot)] = {
             "slot": slot, "level": state["levels"][slot], "points": state["points"],
-            "image": evidence["image"], "source_sha256": hashlib.sha256(Path(evidence["image"]).read_bytes()).hexdigest(),
+            "image": evidence["image"], "source_sha256": hashlib.sha256(io_path(evidence["image"]).read_bytes()).hexdigest(),
             "visible_text": str(evidence.get("screen_text", {}).get("normalized_text", "")),
         }
         detail["inspected_slots"] = sorted(int(key) for key in session.inspected_slots)
@@ -872,7 +874,7 @@ def plan_larc_adaptation(image, evidence, *, session=None, reader=None):
         except ValueError:
             return decision("baseline_invalid")
         session.plan = plan
-        session.source_sha256 = hashlib.sha256(Path(evidence["image"]).read_bytes()).hexdigest()
+        session.source_sha256 = hashlib.sha256(io_path(evidence["image"]).read_bytes()).hexdigest()
     detail["plan"] = plan
     if plan["cost"] == 0:
         return decision("deferred" if plan["deferred_slots"] else "already_ready")
@@ -917,7 +919,7 @@ def plan_larc_adaptation(image, evidence, *, session=None, reader=None):
                 "expected_after_points": plan["baseline_points"] - plan["cost"],
                 "point_reconciliation": "diagnostic_only",
                 "submitted_source_sha256": session.submitted_source_sha256,
-                "result_source_sha256": hashlib.sha256(Path(evidence["image"]).read_bytes()).hexdigest()}
+                "result_source_sha256": hashlib.sha256(io_path(evidence["image"]).read_bytes()).hexdigest()}
             detail["receipt"] = session.receipt
             return decision("verified")
         if target_ready and pending == plan["cost"]:

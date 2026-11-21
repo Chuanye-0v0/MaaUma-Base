@@ -13,6 +13,8 @@ from typing import Any
 import cv2
 import numpy as np
 
+from core.frame_io import read_image_compat
+
 
 @dataclass(frozen=True)
 class ButtonCandidate:
@@ -28,7 +30,7 @@ class Perception:
 
     def analyze_file(self, image_path: str | Path) -> dict[str, Any]:
         path = Path(image_path)
-        img = cv2.imread(str(path))
+        img = read_image_compat(path)
         if img is None:
             raise ValueError(f"Cannot read image: {path}")
 

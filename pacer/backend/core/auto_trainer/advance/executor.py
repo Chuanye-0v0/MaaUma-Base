@@ -18,7 +18,7 @@ from typing import Any, Callable, Mapping
 import cv2
 import numpy as np
 
-from core.frame_io import read_image_with_retry
+from core.frame_io import io_path, read_image_compat, read_image_with_retry
 from core.auto_trainer.action_table import ActionTable
 from core.auto_trainer.career_start_perception import CareerStartPerceptor
 from core.auto_trainer.global_home_layout import is_global_home, global_home_portal_point
@@ -195,7 +195,7 @@ class SafeAdvanceExecutor:
                 != CLINIC_CONFIRM_TEMPLATE_SHA256
             ):
                 return None
-            image = cv2.imread(str(screenshot_path))
+            image = read_image_compat(screenshot_path)
             if image is None:
                 return None
             point = CoordinateScaler(
@@ -250,10 +250,10 @@ class SafeAdvanceExecutor:
         ):
             return packet
         try:
-            image_bytes = screenshot_path.read_bytes()
+            image_bytes = io_path(screenshot_path).read_bytes()
             if hashlib.sha256(image_bytes).hexdigest() != packet.source_image_sha256:
                 return packet
-            image = cv2.imread(str(screenshot_path))
+            image = read_image_compat(screenshot_path)
             if image is None:
                 return packet
             perception = Perception().analyze_image(image)
@@ -276,7 +276,7 @@ class SafeAdvanceExecutor:
     ) -> tuple[RouteTransitionSession, dict[str, Any]]:
         """Amend one recorded wait contract, never execute or synthesize a wait."""
         error = "loading_wait_resume_evidence_invalid"
-        raw = Path(report_path).read_bytes()
+        raw = io_path(report_path).read_bytes()
         if hashlib.sha256(raw).hexdigest() != report_sha256:
             raise RouteTransitionError(error)
         wrapper = json.loads(raw)
@@ -298,7 +298,7 @@ class SafeAdvanceExecutor:
             or wait["decision"].get("reason") != "loading" or wait["decision"].get("tap") is not None
             or wait["frame_safety"].get("dangerous") or wait["frame_safety"].get("resource_terms")
             or wait["safety_verdict"] != {"action_id": None, "allowed": True, "reason": "wait", "source_image_sha256": source}
-            or hashlib.sha256(Path(steps[1]["screenshot_path"]).read_bytes()).hexdigest() != source
+            or hashlib.sha256(io_path(steps[1]["screenshot_path"]).read_bytes()).hexdigest() != source
             or denied.get("performed") is not False or denied.get("reason") != "route_state_out_of_scope"
             or fresh_sha256 == source):
             raise RouteTransitionError(error)
@@ -598,7 +598,7 @@ class SafeAdvanceExecutor:
                 return {"performed": False, "reason": f"unsupported_screen_size:{size}", "decision": {}}
             reader_timings['connection_size_seconds']=round(time.monotonic()-reader_started,4)
             reader_started=time.monotonic()
-            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+            io_path(screenshot_path.parent).mkdir(parents=True, exist_ok=True)
             if initial_frame is not None:
                 adb.save_frame(str(screenshot_path), initial_frame)
             else:
@@ -608,14 +608,14 @@ class SafeAdvanceExecutor:
 
         reader_timings['capture_seconds']=round(time.monotonic()-reader_started,4) if mode=='live' else 0.
         reader_started=time.monotonic()
-        settings_frame=cv2.imread(str(screenshot_path)) if scenario=="larc" and skip_session is not None else None
+        settings_frame=read_image_compat(screenshot_path) if scenario=="larc" and skip_session is not None else None
         settings_verified=settings_frame is not None and SafeAdvancePlanner._shortened_event_settings_action(settings_frame) is not None
         cache=getattr(self.safety_analyzer,"_larc_shorten_text_cache",None)
         settings_text=(cache[1] if settings_verified and cache and cache[0]==skip_session.run_session_id
             and transition_session is not None and transition_session.current_state=="modal"
             and transition_session.last_action_id in {"safe_advance.bottom_skip_toggle","safe_advance.shorten_all_events",
                 "safe_advance.shorten_unread_toggle","wait:shorten_settings_skip_loading"} else None)
-        movie_frame=cv2.imread(str(screenshot_path)) if scenario=="larc" and transition_session is not None else None
+        movie_frame=read_image_compat(screenshot_path) if scenario=="larc" and transition_session is not None else None
         movie_bound=(movie_frame is not None and SafeAdvancePlanner._career_opening_movie_skip_button(movie_frame) is not None
             and ((route_bootstrap_state=="career-opening")
                 or transition_session.last_action_id in {"safe_advance.larc_opening_movie_skip","wait:larc_opening_movie_pending"}))
@@ -624,7 +624,7 @@ class SafeAdvanceExecutor:
         ss_text_source=None
         if scenario=='larc' and mode=='live' and transition_session is not None and (allow_larc_ss or larc_ss_preview_only):
             from core.auto_trainer.larc_ss_text_cache import cached_text
-            ss_frame=movie_frame if movie_frame is not None else cv2.imread(str(screenshot_path))
+            ss_frame=movie_frame if movie_frame is not None else read_image_compat(screenshot_path)
             ss_text=cached_text(self.safety_analyzer,ss_frame,transition_session.run_session_id)
             if ss_text is not None:ss_text_source='larc_ss_unchanged_ui_cache'
             else:
@@ -644,7 +644,7 @@ class SafeAdvanceExecutor:
             if default_local_reader(self.safety_analyzer):
                 adapt_frame = ss_frame if ss_frame is not None else (
                     movie_frame if movie_frame is not None else (
-                        settings_frame if settings_frame is not None else cv2.imread(str(screenshot_path))))
+                        settings_frame if settings_frame is not None else read_image_compat(screenshot_path)))
                 adapt_text = adaptation_grid_text(adapt_frame)
                 if adapt_text is not None:
                     adapt_text_source = 'larc_adaptation_grid_regions'
@@ -672,7 +672,7 @@ class SafeAdvanceExecutor:
         reader_timings['text_source']=raw_packet.text_source
         skip_level: str | None = None
         if skip_session is not None:
-            skip_frame = cv2.imread(str(screenshot_path))
+            skip_frame = read_image_compat(screenshot_path)
             if skip_frame is None:
                 return {
                     "performed": False,
@@ -705,7 +705,7 @@ class SafeAdvanceExecutor:
             and expected_action_id == "safe_advance.scenario_continue"
         ):
             try:
-                image_bytes = screenshot_path.read_bytes()
+                image_bytes = io_path(screenshot_path).read_bytes()
                 destination, destination_safety = (
                     CareerStartPerceptor().analyze_destination(image_bytes)
                 )
@@ -824,7 +824,7 @@ class SafeAdvanceExecutor:
         planner_kwargs = _ctx.planner_kwargs
         goal_config_supplied = _ctx.goal_config_supplied
         goal_text_order_verified = _ctx.goal_text_order_verified
-        connection_conflict_frame = cv2.imread(str(screenshot_path))
+        connection_conflict_frame = read_image_compat(screenshot_path)
         connection_conflict_interrupt = bool(
             connection_conflict_frame is not None
             and SafeAdvancePlanner._connection_conflict_return_title_button(
@@ -883,7 +883,7 @@ class SafeAdvanceExecutor:
                         "decision": {}, "frame_safety": packet.to_dict()}
             try:
                 if (packet.text_status != "ok" or packet.errors or packet.dangerous or packet.resource_terms
-                    or hashlib.sha256(screenshot_path.read_bytes()).hexdigest() != packet.source_image_sha256
+                    or hashlib.sha256(io_path(screenshot_path).read_bytes()).hexdigest() != packet.source_image_sha256
                     or connection_conflict_frame is None or transition_session is None
                     or transition_session.run_session_id != career_goal_run_session_id):
                     raise CareerGoalLedgerError("all_goals_confirmation_source_invalid")
@@ -926,7 +926,7 @@ class SafeAdvanceExecutor:
             try:
                 animation_without_marker = len(completion_lines) == 2
                 if (packet.text_status != "ok" or packet.errors or packet.dangerous or packet.resource_terms
-                    or hashlib.sha256(screenshot_path.read_bytes()).hexdigest() != packet.source_image_sha256
+                    or hashlib.sha256(io_path(screenshot_path).read_bytes()).hexdigest() != packet.source_image_sha256
                     or not (animation_without_marker or (
                         len(completion_lines) == 3 and completion_lines[2] in {"完成!", "继续"}))
                     or connection_conflict_frame is None):
@@ -1182,7 +1182,7 @@ class SafeAdvanceExecutor:
                             ledger_path,
                             expected_run_session_id=career_goal_run_session_id,
                         )
-                        if ledger_path.exists()
+                        if io_path(ledger_path).exists()
                         else CareerGoalLedger.empty(
                             career_goal_run_session_id
                         )
@@ -1293,7 +1293,7 @@ class SafeAdvanceExecutor:
                     # live roster before the original safety/save boundary.
                     roster_view = copy.deepcopy(larc_member_roster)
                     bound = dict(preview, participants_observation=roster_view.observe_ss_preview(
-                        cv2.imread(str(screenshot_path)), preview["participants_observation"],
+                        read_image_compat(screenshot_path), preview["participants_observation"],
                         source={"run_session_id": roster_view.run_session_id,
                                 "turn_index": larc_observed_turn,
                                 "absolute_path": str(screenshot_path.resolve()),
@@ -1479,7 +1479,7 @@ class SafeAdvanceExecutor:
                 and not skip_session.may_toggle(str(skip_level or 'absent'))
                 or decision.get('reason')=='shorten_settings_skip_loading')):
             skip_session.defer(skip_session.deferred_reason or 'optional_control_unconfirmed')
-            frame=cv2.imread(str(screenshot_path));evidence=decision.get('evidence') or {}
+            frame=read_image_compat(screenshot_path);evidence=decision.get('evidence') or {}
             normal_settings=(self.planner._common_shorten_settings_decision(frame,evidence)
                 if decision.get('reason') in {'enable_shorten_settings_skip_toggle','shorten_settings_skip_loading'} else None)
             decision=normal_settings or SafeAdvancePlanner._ordinary_skip_fallback(evidence,frame)
@@ -1756,7 +1756,7 @@ class SafeAdvanceExecutor:
                 persist = mode == "live" and execute and confirm_token == ADVANCE_CONFIRM_TOKEN
                 roster_view = larc_member_roster if persist else copy.deepcopy(larc_member_roster)
                 ss_evidence["participants_observation"] = roster_view.observe_ss_preview(
-                    cv2.imread(str(screenshot_path)), ss_evidence["participants_observation"], source=source,
+                    read_image_compat(screenshot_path), ss_evidence["participants_observation"], source=source,
                 )
                 if persist:
                     roster_view.save(larc_member_roster_path)
@@ -2008,7 +2008,7 @@ class SafeAdvanceExecutor:
                 **safety_evidence,
             }
 
-        if hashlib.sha256(screenshot_path.read_bytes()).hexdigest() != packet.source_image_sha256:
+        if hashlib.sha256(io_path(screenshot_path).read_bytes()).hexdigest() != packet.source_image_sha256:
             return {
                 "performed": False,
                 "reason": "frame_safety_sha_mismatch",
@@ -2072,7 +2072,7 @@ class SafeAdvanceExecutor:
                     or tap.get("coordinate_name") != "safe_advance.training_menu_back"
                     or RouteTransitionSession.load(capture_observation_session_path,
                         expected_run_session_id=transition_session.run_session_id).to_dict() != capture_handoff["old_session"]
-                    or any(hashlib.sha256(Path(path).read_bytes()).hexdigest() != sha
+                    or any(hashlib.sha256(io_path(path).read_bytes()).hexdigest() != sha
                         for path, sha in capture_handoff["source_files"].items())):
                     raise RouteTransitionError("capture_handoff_preflight_changed")
                 attempt = Path(capture_observation_session_path).parent / (
@@ -2090,7 +2090,7 @@ class SafeAdvanceExecutor:
                 latest = RouteTransitionSession.load(loading_wait_resume_session_path,
                     expected_run_session_id=transition_session.run_session_id)
                 if (latest.to_dict() != transition_session.to_dict()
-                    or hashlib.sha256(Path(loading_wait_resume_report).read_bytes()).hexdigest() != loading_wait_resume_report_sha256):
+                    or hashlib.sha256(io_path(loading_wait_resume_report).read_bytes()).hexdigest() != loading_wait_resume_report_sha256):
                     raise RouteTransitionError("loading_wait_resume_source_changed")
             except (OSError, RouteTransitionError) as exc:
                 return {"performed": False, "reason": str(exc), "decision": decision, **safety_evidence}
@@ -2184,7 +2184,7 @@ class SafeAdvanceExecutor:
                 return
             if capture:
                 adb.screenshot(str(post_tap_screenshot_path))
-            post_bytes = post_tap_screenshot_path.read_bytes()
+            post_bytes = io_path(post_tap_screenshot_path).read_bytes()
             if not post_bytes:
                 raise RuntimeError("safe_advance_post_frame_empty")
             control_driver.after_fresh_frame(FreshFrameEvidence(
@@ -2196,7 +2196,7 @@ class SafeAdvanceExecutor:
 
         def post_tap_frame_evidence() -> dict[str, str] | None:
             try:
-                post_bytes = post_tap_screenshot_path.read_bytes()
+                post_bytes = io_path(post_tap_screenshot_path).read_bytes()
             except OSError:
                 return None
             if not post_bytes:
@@ -2225,7 +2225,7 @@ class SafeAdvanceExecutor:
         adaptation_ready = None
         if adaptation_tap and getattr(adb, "supports_in_memory_capture", False) is True:
             from core.auto_trainer.larc_control_wait import adaptation_controls, controls_changed
-            before_adaptation = cv2.imread(str(screenshot_path))
+            before_adaptation = read_image_compat(screenshot_path)
             adaptation_ready = lambda image: controls_changed(before_adaptation, image) and adaptation_controls(
                 image, allow_home=tap["coordinate_name"] == "safe_advance.larc_adaptation_return")
             sleep_seconds = 0
@@ -2249,7 +2249,7 @@ class SafeAdvanceExecutor:
             sleep_seconds = 0
         elif (scenario == "larc" and decision.get("reason") in {"select_shorten_all_events","uncheck_do_not_shorten_unread"}
                 and getattr(adb,"supports_in_memory_capture",False) is True):
-            before_settings=SafeAdvancePlanner._shortened_event_settings_action(cv2.imread(str(screenshot_path)))
+            before_settings=SafeAdvancePlanner._shortened_event_settings_action(read_image_compat(screenshot_path))
             def settings_ready(image):
                 after=SafeAdvancePlanner._shortened_event_settings_action(image)
                 return after is not None and after[0]!=before_settings[0]
@@ -2300,9 +2300,9 @@ class SafeAdvanceExecutor:
             return result
         if skip_session is not None and is_skip_toggle:
             try:
-                post_tap_bytes = post_tap_screenshot_path.read_bytes()
+                post_tap_bytes = io_path(post_tap_screenshot_path).read_bytes()
                 post_tap_sha256 = hashlib.sha256(post_tap_bytes).hexdigest()
-                post_tap_img = cv2.imread(str(post_tap_screenshot_path))
+                post_tap_img = read_image_compat(post_tap_screenshot_path)
                 if post_tap_img is None:
                     raise SkipSessionError("post_tap_image_read")
                 post_tap_level = SpeedTogglePlanner._bottom_skip_level(post_tap_img)
@@ -2339,7 +2339,7 @@ class SafeAdvanceExecutor:
         post_tap_confirmation = decision.get("post_tap_confirmation")
         if post_tap_confirmation == "career_complete_global_home":
             adb.screenshot(str(post_tap_screenshot_path))
-            post_tap_image = cv2.imread(str(post_tap_screenshot_path))
+            post_tap_image = read_image_compat(post_tap_screenshot_path)
             reason = (
                 "career_complete"
                 if SafeAdvancePlanner.is_post_career_global_home(post_tap_image)
@@ -2487,13 +2487,13 @@ class SafeAdvanceExecutor:
                         adb, screenshot_path, deadline=deadline,
                         timeout_seconds=deadline - capture_started_at,
                     )
-                    current_frame = cv2.imread(str(screenshot_path), cv2.IMREAD_COLOR)
+                    current_frame = read_image_compat(screenshot_path, cv2.IMREAD_COLOR)
             else:
                 self._capture_screenshot(
                     adb, screenshot_path, deadline=deadline,
                     timeout_seconds=deadline - capture_started_at,
                 )
-                current_frame = cv2.imread(str(screenshot_path), cv2.IMREAD_COLOR)
+                current_frame = read_image_compat(screenshot_path, cv2.IMREAD_COLOR)
             poll_count += 1
             if use_memory and current_frame is not None:
                 latest_frame = current_frame
@@ -2839,7 +2839,7 @@ class SafeAdvanceExecutor:
             return decision
         if reason not in {"team_formation", "team_formation:confirm_not_allowed"} and route_state != "team_formation":
             return decision
-        img = cv2.imread(str(screenshot_path))
+        img = read_image_compat(screenshot_path)
         if img is None:
             return decision
         height, width = img.shape[:2]

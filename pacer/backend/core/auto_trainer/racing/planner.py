@@ -66,6 +66,7 @@ from .handlers import (
     LarcExpeditionHandlerMixin,
     SceneAndResultHandlerMixin,
 )
+from .handlers.larc_expedition import _LARC_OVERLAY_EXCLUDED_CAREER_TERMS
 
 
 @dataclass
@@ -518,9 +519,19 @@ class RaceRoutePlanner(
                 return self._continue_observed_result(policy, observed_free_control,
                     (round(img.shape[1]*.5),round(img.shape[0]*.83)), evidence)
             compact=''.join(career_text.split())
-            rank_points_text=(re.search(r'第[1-9][0-9]*名|(?<![0-9A-Za-z.+-])[1-9][0-9]*第名|(?<![0-9A-Za-z.+-])[1-9][0-9]*名第',compact)
-                and re.search(r'[0-9][0-9,，.]*积分',compact))
-            visual_candidate=self._larc_rank_points_overlay(img,'',visual_only=True)
+            career_dialogue_surface = any(
+                word in compact for word in _LARC_OVERLAY_EXCLUDED_CAREER_TERMS
+            )
+            rank_points_text=(
+                not career_dialogue_surface
+                and re.search(r'第[1-9][0-9]*名|(?<![0-9A-Za-z.+-])[1-9][0-9]*第名|(?<![0-9A-Za-z.+-])[1-9][0-9]*名第',compact)
+                and re.search(r'[0-9][0-9,，.]*积分',compact)
+            )
+            visual_candidate=(
+                None
+                if career_dialogue_surface
+                else self._larc_rank_points_overlay(img,'',visual_only=True)
+            )
             if ((rank_points_text or visual_candidate is not None)
                     and self._portrait_race_result_click_point(perception,img) is None):
                 # A rejected foreground award must not fall into a broader

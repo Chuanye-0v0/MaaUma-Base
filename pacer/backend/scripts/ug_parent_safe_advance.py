@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from core.frame_io import io_path
 from core.auto_trainer.route_handoff import is_route_handoff_result
 from core.auto_trainer.safe_advance import (
     post_wait_navigation_reobserve,
@@ -302,14 +303,14 @@ def run(
         or args.max_steps != 1 or args.input_image or args.transition_resync or args.route_bootstrap_state
         or loading_resume or not args.allow_return_main_menu_from_training
         or args.expected_action_id != "safe_advance.training_menu_back"
-        or not args.transition_session_json or not Path(args.transition_session_json).is_file()
-        or Path(args.screenshot_dir).exists()):
+        or not args.transition_session_json or not io_path(args.transition_session_json).is_file()
+        or io_path(args.screenshot_dir).exists()):
         raise ValueError("capture_observation_handoff_requires_new_single_exact_back_no_resync")
     if loading_resume and (
         not args.loading_wait_resume_report or not args.loading_wait_resume_report_sha256
         or args.mode != "live" or args.max_steps != 1 or args.input_image
         or args.transition_resync or args.route_bootstrap_state
-        or not args.transition_session_json or not Path(args.transition_session_json).is_file()
+        or not args.transition_session_json or not io_path(args.transition_session_json).is_file()
     ):
         raise ValueError("loading_wait_resume_requires_single_existing_session_no_resync")
     SafeAdvanceExecutor.validate_post_wait_freeze_options(
@@ -367,7 +368,7 @@ def run(
                 or (args.mode == "live" and not args.transition_session_json)):
             raise ValueError("larc_adaptation_context_invalid")
         path = Path(adaptation_path)
-        adaptation_session = (LarcAdaptationSession.load(path, args.run_session_id) if path.exists()
+        adaptation_session = (LarcAdaptationSession.load(path, args.run_session_id) if io_path(path).exists()
                               else LarcAdaptationSession(args.run_session_id, path=path,
                                                         inspect_only=bool(inspection_path), phase=phase))
         if adaptation_session.inspect_only != bool(inspection_path) or adaptation_session.phase != phase:
@@ -386,7 +387,7 @@ def run(
                 skip_session_path,
                 expected_run_session_id=args.run_session_id,
             )
-            if skip_session_path.exists()
+            if io_path(skip_session_path).exists()
             else RunSkipSession.new(args.run_session_id)
         )
     transition_session_path = (
@@ -401,7 +402,7 @@ def run(
                 transition_session_path,
                 expected_run_session_id=args.run_session_id,
             )
-            if transition_session_path.exists()
+            if io_path(transition_session_path).exists()
             else RouteTransitionSession.new(args.run_session_id)
         )
     step_reports: list[dict[str, Any]] = []
@@ -614,7 +615,7 @@ def run(
         report["transition_session_path"] = str(transition_session_path)
     if stop_reason == "ready_main_menu" and step_reports:
         source_path = Path(step_reports[-1]["screenshot_path"])
-        if source_path.is_file():
+        if io_path(source_path).is_file():
             report["source_screenshot_path"] = str(source_path)
         else:
             report["is_valid"] = False
