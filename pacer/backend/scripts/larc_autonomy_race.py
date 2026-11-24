@@ -36,6 +36,41 @@ def _file_sha256(path: Path | str) -> str:
     return hashlib.sha256(io_path(path).read_bytes()).hexdigest()
 
 
+def _race_tactic_state_path(run_root: Path) -> Path:
+    return Path(run_root) / "session" / "larc_race_tactic_state.json"
+
+
+def _load_race_tactic_state(run_root: Path, run_id: str) -> dict:
+    path = _race_tactic_state_path(run_root)
+    default = {
+        "schema_version": "uma.larc_race_tactic_state.v1",
+        "run_session_id": run_id,
+        "solo_leader_restore_style": None,
+        "front_aptitude_rejected": False,
+        "observed_front_aptitude": None,
+    }
+    if not path.is_file():
+        return default
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return default
+    if not isinstance(data, dict) or data.get("run_session_id") != run_id:
+        return default
+    return {
+        **default,
+        "solo_leader_restore_style": data.get("solo_leader_restore_style")
+        if data.get("solo_leader_restore_style") in {"leader"}
+        else None,
+        "front_aptitude_rejected": bool(data.get("front_aptitude_rejected")),
+        "observed_front_aptitude": data.get("observed_front_aptitude"),
+    }
+
+
+def _save_race_tactic_state(run_root: Path, state: dict) -> None:
+    _atomic_write_json(_race_tactic_state_path(run_root), state)
+
+
 HANDOFF_STOPS = {"post_race_dialogue", "event_choice", "ready_main_menu", "ready_training_menu",
                  "goal_achievement_loading", "goal_achievement_result"}
 
@@ -1459,11 +1494,24 @@ def _run_larc_race_route(*, run_root: Path, output_dir: Path, adb_port: int,
             return finish("race_tactic_style_invalid")
     report["desired_run_style"] = desired_style
     report["desired_run_style_source"] = style_source
+    tactic_state = _load_race_tactic_state(run_root, run_id)
+    solo_leader_enabled = bool(
+        not (isinstance(goal.larc_policy, dict) and goal.larc_policy.get("solo_leader_to_front") is False)
+        and not cut_debut
+        and configured_style not in {"front", "middle", "back"}
+        and not str(style_source or "").startswith(("race_running_styles:", "custom_race_inline:"))
+    )
+    report["solo_leader_to_front"] = solo_leader_enabled
     if debut_clock_retry is not None:
         report.update(cut_debut_race=cut_debut,debut_clock_retry=debut_clock_retry)
     else:
         report['ordinary_clock_retry'] = True
-    policy = RaceRoutePolicy(scenario="larc", desired_run_style=desired_style, allow_enter_race=not bool(report.get("entry_postcondition_revalidation")), allow_locked_race_entry=(fan_goal is None and custom_race is None),
+    policy = RaceRoutePolicy(scenario="larc", desired_run_style=desired_style,
+                             solo_leader_to_front=solo_leader_enabled,
+                             solo_leader_restore_style=tactic_state.get("solo_leader_restore_style"),
+                             solo_leader_front_aptitude_rejected=bool(tactic_state.get("front_aptitude_rejected")),
+                             is_debut_race=cut_debut,
+                             allow_enter_race=not bool(report.get("entry_postcondition_revalidation")), allow_locked_race_entry=(fan_goal is None and custom_race is None),
                              allow_enter_race_from_main_menu=(fan_goal is not None or custom_race is not None),
                              allow_fan_goal_recommended_race=fan_goal is not None,
                              allow_larc_custom_scheduled_race=custom_race is not None,
@@ -1489,13 +1537,15 @@ def _run_larc_race_route(*, run_root: Path, output_dir: Path, adb_port: int,
         # The player has already entered this race. Only finish its current UI;
         # never select another race, confirm another entry, or change tactics.
         policy = replace(policy, post_entry_only=True, allow_enter_race=False,
-            allow_locked_race_entry=True, allow_confirm_race=False, desired_run_style=None)
+            allow_locked_race_entry=True, allow_confirm_race=False,
+            desired_run_style=None, solo_leader_to_front=False)
     if report.get("goal_catalog_read_error_resume"):
         # Observe the real current page and hand off the existing completion;
         # this read-only failure cannot grant entry or clock-retry authority.
         policy = replace(policy, post_entry_only=True, allow_enter_race=False,
             allow_enter_race_from_main_menu=False, allow_confirm_race=False,
-            allow_clock_retry=False, allow_debut_retry_entry=False, desired_run_style=None)
+            allow_clock_retry=False, allow_debut_retry_entry=False,
+            desired_run_style=None, solo_leader_to_front=False)
     if goal.race_retry is not None:
         retry_enabled=goal.race_retry["enabled"]
         policy=replace(policy,allow_clock_retry=retry_enabled,
@@ -1650,8 +1700,10 @@ def _run_larc_race_route(*, run_root: Path, output_dir: Path, adb_port: int,
             save("stopped", result.get("reason", "loading"))
             if result_prompt_wait or result.get("reason") in {
                 "race_tactic_preview_loading",
+                "race_tactic_counts_loading",
                 "race_tactic_control_loading",
                 "race_tactic_selection_loading",
+                "race_tactic_aptitude_loading",
                 "race_result_controls_loading",
                 "larc_exchange_rank_table_loading",
                 "larc_race_day_controls_loading",
@@ -1704,6 +1756,24 @@ def _run_larc_race_route(*, run_root: Path, output_dir: Path, adb_port: int,
             reason, status = "repeated_tap_limit_reached", "blocked"
             save(status, reason)
             break
+        if result.get("performed") is True:
+            dec = result.get("decision") or {}
+            tactic_ev = (dec.get("evidence") or {}).get("race_tactic") if isinstance(dec.get("evidence"), dict) else None
+            if dec.get("reason") == "race_tactic_confirm" and isinstance(tactic_ev, dict):
+                if tactic_ev.get("solo_leader_fallback") is True and tactic_ev.get("target_style") == "front":
+                    tactic_state["solo_leader_restore_style"] = "leader"
+                    _save_race_tactic_state(run_root, tactic_state)
+                    policy = replace(policy, solo_leader_restore_style="leader")
+                elif tactic_ev.get("target_style") == "leader" and tactic_state.get("solo_leader_restore_style") is not None:
+                    tactic_state["solo_leader_restore_style"] = None
+                    _save_race_tactic_state(run_root, tactic_state)
+                    policy = replace(policy, solo_leader_restore_style=None)
+            elif (dec.get("reason") == "race_tactic_cancel" and isinstance(tactic_ev, dict)
+                    and tactic_ev.get("reason") == "solo_leader_front_aptitude_blocked"):
+                tactic_state["front_aptitude_rejected"] = True
+                tactic_state["observed_front_aptitude"] = tactic_ev.get("front_aptitude")
+                _save_race_tactic_state(run_root, tactic_state)
+                policy = replace(policy, solo_leader_front_aptitude_rejected=True)
         save("stopped", reason)
     report["career_clock_budget"]=clock_budget.snapshot()
     report.update(is_valid=status != "blocked", stop_reason=reason,

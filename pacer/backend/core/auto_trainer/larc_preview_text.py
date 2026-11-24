@@ -126,7 +126,7 @@ def race_preview_text(image,policy,*,reader=None):
             return None
         lines=[title,ability,result,enter]
         if caption is not None:lines.append(caption)
-        if policy.desired_run_style is not None:
+        if policy.desired_run_style is not None or policy.solo_leader_to_front:
             distance=_line(image,(505,479,622,515),read,minimum=.85)
             style=_line(image,(505,516,622,554),read)
             change=_line(image,(515,721,632,773),read)

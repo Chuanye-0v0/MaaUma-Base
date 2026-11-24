@@ -661,14 +661,32 @@ class RaceRoutePlanner(
             # After the confirmed entry, stat panels fade in before the two
             # preview controls. Wait for those controls; do not classify again.
             return {"action": "wait", "reason": "loading", "route_state": "loading", "evidence": evidence}
-        if (policy.scenario == "larc" and policy.desired_run_style is not None
+        if (policy.scenario == "larc"
+                and (policy.desired_run_style is not None or policy.solo_leader_to_front)
                 and not policy.count_reserved_only and not policy.wbc_only
                 and not policy.inspection_only and not policy.allow_leave_race_detail
                 and (policy.allow_quick_result or policy.allow_skip_race_scene)):
             from core.auto_trainer.larc_race_tactics import race_tactic_control
-            tactic = race_tactic_control(img, preview_text, policy.desired_run_style,
-                                        preview=early_preview_actions is not None
-                                        and ("前往赛事" in preview_text or "查看结果" in preview_text))
+            is_preview = (early_preview_actions is not None
+                          and ("前往赛事" in preview_text or "查看结果" in preview_text))
+            if is_preview:
+                tactic_desired = policy.desired_run_style
+                modal_solo_fallback = False
+            else:
+                tactic_desired = (session.pending_tactic_target
+                                  if session is not None and session.pending_tactic_target is not None
+                                  else policy.desired_run_style)
+                modal_solo_fallback = bool(session is not None and session.pending_tactic_solo_fallback)
+            front_rejected = bool(policy.solo_leader_front_aptitude_rejected
+                                  or (session is not None and session.solo_leader_front_aptitude_rejected))
+            tactic = race_tactic_control(
+                img, preview_text, tactic_desired, preview=is_preview,
+                solo_leader_to_front=policy.solo_leader_to_front,
+                solo_leader_fallback=modal_solo_fallback,
+                solo_leader_restore_style=policy.solo_leader_restore_style,
+                front_aptitude_rejected=front_rejected,
+                is_debut_race=policy.is_debut_race,
+            )
             if tactic is not None:
                 evidence["race_tactic"] = tactic
                 if tactic["kind"] == "wait":

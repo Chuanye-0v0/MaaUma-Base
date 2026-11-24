@@ -980,6 +980,19 @@ class RaceRouteExecutor:
             session.result_transition_pending = True
         elif session is not None and decision.get('reason')=='open_lost_race_retry':
             session.clock_retry_entry_pending = True
+        elif session is not None and decision.get("reason") in {"race_tactic_open", "race_tactic_confirm", "race_tactic_cancel"}:
+            tactic_ev = (decision.get("evidence") or {}).get("race_tactic") if isinstance(decision.get("evidence"), dict) else None
+            if decision.get("reason") == "race_tactic_open" and isinstance(tactic_ev, dict):
+                session.pending_tactic_target = tactic_ev.get("target_style")
+                session.pending_tactic_solo_fallback = bool(tactic_ev.get("solo_leader_fallback"))
+            elif decision.get("reason") == "race_tactic_confirm":
+                session.pending_tactic_target = None
+                session.pending_tactic_solo_fallback = False
+            elif decision.get("reason") == "race_tactic_cancel":
+                session.pending_tactic_target = None
+                session.pending_tactic_solo_fallback = False
+                if isinstance(tactic_ev, dict) and tactic_ev.get("reason") == "solo_leader_front_aptitude_blocked":
+                    session.solo_leader_front_aptitude_rejected = True
         if base_policy.count_reserved_only:
             session.count_phase = {"main_menu.race": "opened", "race_list.primary_entry": "entered",
                                    "race_confirm.primary": "confirmed"}.get(tap["coordinate_name"], session.count_phase)

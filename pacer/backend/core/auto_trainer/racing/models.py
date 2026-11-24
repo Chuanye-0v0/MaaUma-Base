@@ -125,6 +125,10 @@ class RaceRoutePolicy:
     allow_locked_race_entry: bool = False
     post_entry_only: bool = False
     desired_run_style: str | None = None
+    solo_leader_to_front: bool = False
+    solo_leader_restore_style: str | None = None
+    solo_leader_front_aptitude_rejected: bool = False
+    is_debut_race: bool = False
     allow_grand_masters_final_race_confirm: bool = False
     allow_cancel_unverified_grand_masters_final: bool = False
     visible_text: str | None = None
@@ -182,6 +186,9 @@ class RaceRouteSession:
     last_clock_retry_remaining: int | None = None
     clock_retry_entry_pending: bool = False
     clock_retry_declined: bool = False
+    pending_tactic_target: str | None = None
+    pending_tactic_solo_fallback: bool = False
+    solo_leader_front_aptitude_rejected: bool = False
 
     def __post_init__(self) -> None:
         has_ids = bool(self.planned_race_ids)
@@ -216,6 +223,12 @@ class RaceRouteSession:
             raise ValueError("clock_retry_entry_pending_invalid")
         if type(self.clock_retry_declined) is not bool:
             raise ValueError("clock_retry_declined_invalid")
+        if type(self.pending_tactic_solo_fallback) is not bool:
+            raise ValueError("pending_tactic_solo_fallback_invalid")
+        if type(self.solo_leader_front_aptitude_rejected) is not bool:
+            raise ValueError("solo_leader_front_aptitude_rejected_invalid")
+        if self.pending_tactic_target is not None and type(self.pending_tactic_target) is not str:
+            raise ValueError("pending_tactic_target_invalid")
         if self.last_clock_retry_remaining is not None and (
                 type(self.last_clock_retry_remaining) is not int or not 1 <= self.last_clock_retry_remaining <= 9):
             raise ValueError("last_clock_retry_remaining_invalid")
