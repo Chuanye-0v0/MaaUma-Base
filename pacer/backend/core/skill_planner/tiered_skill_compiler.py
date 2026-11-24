@@ -618,6 +618,21 @@ def compile_tiered_skill_profile(
             or (masters.get(sid) or {}).get("type") == "recovery"
         )
 
+    def _is_speed_green(sid: str) -> bool:
+        row = rows.get(sid, {})
+        master = masters.get(sid) or {}
+        kb = row.get("knowledge") if isinstance(row.get("knowledge"), dict) else {}
+        type_raw = str(kb.get("type_raw") or row.get("type_raw") or master.get("type_raw") or "")
+        if "被动（速度）" in type_raw:
+            return True
+        effs = master.get("effects") or kb.get("effects") or row.get("effects") or []
+        return any(
+            isinstance(ef, dict)
+            and ef.get("kind") in {"passive_speed", "speed", "target_speed"}
+            and float(ef.get("value") or 0) > 0
+            for ef in effs
+        )
+
     def _is_inherited_unique(sid: str) -> bool:
         return (
             re.fullmatch(r"cn-db:9\d{5}", str(sid or "")) is not None
@@ -792,20 +807,24 @@ def compile_tiered_skill_profile(
                 base_pt = cand_quotes[sid].get("cost_pt")
                 disc = _effective_discount_percent(learnable_clickable[sid], base_pt) or 0.0
                 t_rank = eff_tier.get(sid, fallback_tier_idx + 1)
+                is_spd_green = _is_speed_green(sid)
+                is_gold_spd = is_spd_green and (rows.get(sid, {}).get("rarity") == "gold" or (masters.get(sid) or {}).get("rarity") == "gold")
                 green_cands.append((
                     1 if in_lr else 0,
                     0 if t_rank == 0 else 1,
                     0 if in_gq else 1,
-                    gq_order.get(sid, 999),
+                    0 if is_spd_green else 1,
+                    0 if is_gold_spd else 1,
                     learnable_clickable[sid]["display_cost"],
                     -disc,
+                    gq_order.get(sid, 999),
                     sid,
                 ))
             green_cands.sort()
             need = max(0, gq["min_count"] - len(owned_green_families))
             used_families = set(owned_green_families)
             kept = 0
-            for _lr, _t0, _in_gq, _ord, _c, _d, sid in green_cands:
+            for _lr, _t0, _in_gq, _spd, _gspd, _c, _d, _ord, sid in green_cands:
                 if kept >= need:
                     break
                 fam = _family_id(sid, rows, masters)
@@ -938,6 +957,7 @@ def compile_tiered_skill_profile(
                     continue
                 is_green = (rows.get(sid, {}).get("type") or (masters.get(sid) or {}).get("type")) == "green"
                 green_bucket = (0 if sid in gq_order else 2 if sid in lr_set else 1) if is_green else 0
+                green_tier = (0 if _is_speed_green(sid) else 1) if is_green else 0
                 green_rank = gq_order.get(sid, 999) if is_green else 999
                 base_pt = cand_quotes[sid].get("cost_pt")
                 disc = _effective_discount_percent(learnable_clickable[sid], base_pt) or 0.0
@@ -945,16 +965,17 @@ def compile_tiered_skill_profile(
                     0 if sid in eligible else 1,
                     eff_tier.get(sid, fallback_tier_idx + 1),
                     green_bucket,
-                    green_rank,
+                    green_tier,
                     learnable_clickable[sid]["display_cost"],
                     -disc,
+                    green_rank,
                     sid,
                     fam,
                 ))
             avail_sources.sort()
             dedup_sources = []
             picked_fams = set(owned_source_fams)
-            for _el, _t, _gb, _gr, _c, _d, sid, fam in avail_sources:
+            for _el, _t, _gb, _gt, _c, _d, _gr, sid, fam in avail_sources:
                 if fam in picked_fams:
                     continue
                 picked_fams.add(fam)
