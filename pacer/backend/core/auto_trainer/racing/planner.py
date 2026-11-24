@@ -656,10 +656,22 @@ class RaceRoutePlanner(
     ) -> dict[str, Any] | None:
         early_preview_actions = self._race_preview_action_points(img)
         preview_text = "".join(str((screen_text or {}).get("normalized_text", "")).split())
-        if (policy.scenario == "larc" and policy.post_entry_only and early_preview_actions is None
-                and all(label in preview_text for label in ("基础能力", "速度", "耐力", "力量", "智力"))):
+        preview_stat_hits = sum(
+            1 for label in ("基础能力", "速度", "耐力", "力量", "毅力", "智力", "属性", "技能")
+            if label in preview_text
+        )
+        preview_fade_in = (
+            "赛事一览" not in preview_text
+            and "赛事详情" not in preview_text
+            and "取消" not in preview_text
+            and (
+                preview_stat_hits >= 4
+                or (preview_stat_hits >= 2 and any(cue in preview_text for cue in ("人气第", "实况", "参赛优俊少女")))
+            )
+        )
+        if policy.scenario == "larc" and policy.post_entry_only and early_preview_actions is None and preview_fade_in:
             # After the confirmed entry, stat panels fade in before the two
-            # preview controls. Wait for those controls; do not classify again.
+            # preview controls (partial OCR may miss translucent stat labels).
             return {"action": "wait", "reason": "loading", "route_state": "loading", "evidence": evidence}
         if (policy.scenario == "larc"
                 and (policy.desired_run_style is not None or policy.solo_leader_to_front)

@@ -203,6 +203,26 @@ class TacticModalClosingTests(unittest.TestCase):
             self.assertEqual(d["action"], "wait")
             self.assertEqual(d["reason"], "race_tactic_modal_closing")
 
+    def test_post_entry_translucent_preview_fade_in_waits_instead_of_no_goal_race_candidate(self):
+        frame = np.full((1280, 720, 3), 180, dtype=np.uint8)
+        with TemporaryDirectory() as tmp:
+            p = Path(tmp) / "fade_in.png"
+            cv2.imwrite(str(p), frame)
+            planner = RaceRoutePlanner()
+            d = planner.plan(
+                p,
+                policy=RaceRoutePolicy(
+                    scenario="larc",
+                    post_entry_only=True,
+                    allow_quick_result=True,
+                    allow_confirm_race=True,
+                    allow_enter_race=True,
+                    visible_text="GI 凯旋门奖 人气第1 技能 1630 耐力 1437 1165 智力 5号醒目飞鹰 实况：备受瞩目的人气第1—",
+                ),
+            )
+            self.assertEqual(d["action"], "wait")
+            self.assertEqual(d["reason"], "loading")
+
 
 if __name__ == "__main__":
     unittest.main()
