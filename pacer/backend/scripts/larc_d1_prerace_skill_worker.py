@@ -403,11 +403,12 @@ def bind_startup_transport(endpoint,modules=None):
 def apply_startup_preference(api,prepared,output,context,*,required,extra_owned=(),native_known=False,options=None,allowlist=None,mode="legacy_speed_startup"):
     policy=_startup_policy();inventory=_read(prepared["inventory_path"]);catalog=_read(context["planner_catalog"])
     manifest=prepared.get("capture_manifest") or _read(prepared["capture_manifest_path"])
-    observation=policy.owned_parser_observation(_read(prepared["planner_report_path"]),inventory,catalog)
+    observation=policy.owned_parser_observation(_read(prepared["planner_report_path"]),inventory,catalog,extra_owned=extra_owned)
     unknown=observation["unknown_owned"]
     native_known=native_known or observation["native_observation_covered"]
+    merged_extra_owned=list(extra_owned)+list(observation.get("resolved_owned_ids",[]))
     profile,diagnostic=policy.startup_preference(inventory,catalog,required=required,
-        race_profile=context["race_profile"],extra_owned=extra_owned,unknown_owned=unknown,native_known=native_known,options=options,allowlist=allowlist,mode=mode)
+        race_profile=context["race_profile"],extra_owned=merged_extra_owned,unknown_owned=unknown,native_known=native_known,options=options,allowlist=allowlist,mode=mode)
     output.mkdir(parents=True,exist_ok=False)
     (output/'capture_manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     profile_path=output/"startup_preference.json";profile_path.write_text(json.dumps(profile,ensure_ascii=False,indent=2),encoding="utf-8")

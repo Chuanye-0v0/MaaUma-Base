@@ -264,24 +264,68 @@ def held_speed_skills(owned_ids,catalog,*,unknown_owned=0,native_known=False):
         "unknown_skill_ids":unknown,"unknown_count":unresolved,"native_observation_covered":bool(native_seen),
         "possible_count":len(confirmed)+unresolved,"basis":"observed_owned/verified_learning; no race-condition filter"}
 
-def owned_parser_observation(report,inventory,catalog):
-    rows=catalog_rows(catalog);known=set(inventory.get("owned_skill_ids",[]))
+def _norm_skill_name(text):
+    if not isinstance(text, str):
+        return ""
+    return re.sub(r"[\s○◎◯×・·!！?？\.\-\*☆♪]+", "", text).casefold()
+
+
+def owned_parser_observation(report,inventory,catalog,*,extra_owned=()):
+    rows=catalog_rows(catalog);known=set(inventory.get("owned_skill_ids",[]))|set(extra_owned or ())
     owned_names={rows.get(sid,{}).get("name_zh_cn") for sid in known if rows.get(sid,{}).get("name_zh_cn")}
+    owned_norm={_norm_skill_name(name) for name in owned_names if _norm_skill_name(name)}
+    known_has_native=any(rows.get(sid,{}).get("rarity")=="unique" and rows.get(sid,{}).get("base_cost")==0 for sid in known)
+    catalog_by_norm={}
+    for sid,row in rows.items():
+        n=_norm_skill_name(row.get("name_zh_cn"))
+        if n:catalog_by_norm.setdefault(n,[]).append(sid)
     manifests=[report.get("parser_manifest",{})]
     for page in report.get("parsed_pages",[]):
         if isinstance(page,dict):manifests.append(page.get("manifest",page.get("parser_manifest",page)))
-    unknown=set();native_covered=False
+    unknown=set();native_covered=False;resolved_owned=set()
     for manifest in manifests:
         for row in manifest.get("skills",[]):
             if row.get("acquired") is not True:continue
             evidence=row.get("source_evidence",[])
             # First acquired row on first skill page covers the native slot;
             # this is coverage only, never a claim about its speed effect.
-            if any(e.get("page_index")==0 and e.get("row_index")==0 for e in evidence):native_covered=True
+            is_native_slot=any(isinstance(e,dict) and e.get("page_index")==0 and e.get("row_index")==0 for e in evidence)
+            if is_native_slot:native_covered=True
             if row.get("skill_id") in known or row.get("name") in owned_names:continue
-            key=row.get("row_fingerprint") or row.get("name") or str(evidence)
+            cand_texts=[row.get("name")]
+            for e in evidence:
+                if not isinstance(e,dict):continue
+                for cand in (e.get("name_ocr_candidates") or ()):
+                    if isinstance(cand,dict):cand_texts.append(cand.get("text"))
+            cand_norms=[]
+            for text in cand_texts:
+                n=_norm_skill_name(text)
+                if n and n not in cand_norms:cand_norms.append(n)
+            if any(n in owned_norm for n in cand_norms):continue
+            if is_native_slot and known_has_native:continue
+            matched_sids=next((catalog_by_norm[n] for n in cand_norms if n in catalog_by_norm),None)
+            if matched_sids:
+                if all(speed_effect(rows.get(sid)) is False for sid in matched_sids):continue
+                chosen_sid=None
+                if len(matched_sids)==1:
+                    chosen_sid=matched_sids[0]
+                elif all(speed_effect(rows.get(sid)) is True for sid in matched_sids) and all(
+                    any(other!=sid and (other in relations(rows.get(sid,{})) or sid in relations(rows.get(other,{}))) for other in matched_sids)
+                    for sid in matched_sids
+                ):
+                    chosen_sid=min(matched_sids,key=lambda sid:(rows.get(sid,{}).get("base_cost") or 0,sid))
+                if chosen_sid is not None:
+                    resolved_owned.add(chosen_sid);known.add(chosen_sid)
+                    cname=rows.get(chosen_sid,{}).get("name_zh_cn")
+                    if cname:
+                        owned_names.add(cname)
+                        cnorm=_norm_skill_name(cname)
+                        if cnorm:owned_norm.add(cnorm)
+                    continue
+            pos_key=tuple(sorted((e.get("page_index"),e.get("row_index")) for e in evidence if isinstance(e,dict)))
+            key=cand_norms[0] if cand_norms else (row.get("row_fingerprint") or pos_key or str(evidence))
             unknown.add(key)
-    return {"unknown_owned":len(unknown),"native_observation_covered":native_covered}
+    return {"unknown_owned":len(unknown),"native_observation_covered":native_covered,"resolved_owned_ids":sorted(resolved_owned)}
 
 
 def applicable(row,race):
