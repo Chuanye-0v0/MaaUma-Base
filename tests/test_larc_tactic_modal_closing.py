@@ -40,13 +40,30 @@ def _ensure_pacer_backend_path() -> None:
 
 _ensure_pacer_backend_path()
 
-from core.auto_trainer.larc_race_tactics import STYLE_CENTERS
+from core.auto_trainer.larc_race_tactics import STYLE_CENTERS, race_tactic_control
 from core.auto_trainer.racing.models import RaceRoutePolicy, RaceRouteSession
 from core.auto_trainer.racing.planner import RaceRoutePlanner
 
 
 _BGR_GREEN = (50, 210, 70)
 _BGR_WHITE = (240, 240, 240)
+_BGR_BROWN_TEXT = (60, 85, 130)
+_BGR_GRAY_BG = (195, 195, 200)
+
+
+def _synth_preview_image(*, solo_leader: bool = True) -> np.ndarray:
+    im = np.full((1280, 720, 3), _BGR_GRAY_BG, dtype=np.uint8)
+    im[724:765, 515:635] = _BGR_GREEN
+    im[690:723, 450:700] = _BGR_WHITE
+    for dx in (-94, -36, 23):
+        x0 = int(round(575 + dx - 16))
+        im[700:716, x0:x0 + 30] = _BGR_BROWN_TEXT
+    if not solo_leader:
+        x0 = int(round(575 + 84 - 16))
+        im[700:716, x0:x0 + 30] = _BGR_BROWN_TEXT
+    im[1120:1220, 130:355] = _BGR_WHITE
+    im[1120:1220, 365:590] = (40, 220, 80)
+    return im
 
 
 def _synth_modal_image(selected_style: str = "front") -> np.ndarray:
@@ -124,6 +141,33 @@ class TacticModalClosingTests(unittest.TestCase):
             )
             self.assertEqual(d_confetti["action"], "wait")
             self.assertEqual(d_confetti["reason"], "race_tactic_modal_closing")
+
+    def test_preview_tolerates_dropped_golden_s_aptitude_in_full_frame_ocr(self) -> None:
+        prev_multi = _synth_preview_image(solo_leader=False)
+        for text in (
+            "GI 凯旋门奖 人气第2 基础能力 适应性 草地 A 中距离 领跑A 干劲 极佳 战术 居中跟前 后追 领跑 10人4人 更改战术 查看结果 前往赛事",
+            "GI 凯旋门奖 人气第2 基础能力 适应性 草地 A 中距离 A 领跑 极佳 战术 后追居中跟前 领跑 4人 更改战术 查看结果 前往赛事",
+        ):
+            res = race_tactic_control(
+                prev_multi,
+                text,
+                "leader",
+                preview=True,
+                solo_leader_to_front=True,
+            )
+            self.assertEqual(res["kind"], "ready")
+            self.assertEqual(res["actual_style"], "leader")
+            self.assertEqual(res["target_style"], "leader")
+
+        still_loading = race_tactic_control(
+            prev_multi,
+            "GI 凯旋门奖 人气第2 基础能力 适应性 草地 A 中距离 干劲 极佳 战术 后追 居中 跟前 领跑 更改战术 查看结果 前往赛事",
+            "leader",
+            preview=True,
+            solo_leader_to_front=True,
+        )
+        self.assertEqual(still_loading["kind"], "wait")
+        self.assertEqual(still_loading["reason"], "race_tactic_preview_loading")
 
 
 if __name__ == "__main__":

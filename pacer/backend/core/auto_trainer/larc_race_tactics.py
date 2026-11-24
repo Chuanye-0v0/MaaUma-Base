@@ -125,7 +125,10 @@ def race_tactic_control(
                 "point": (518, 917) if actual == desired else (STYLE_CENTERS[desired], 777)}
     if not preview:
         return None
-    match = re.search(r"(?:短距离|英里|中距离|长距离)[SABCDEFG](后追|居中|跟前|领跑)[SABCDEFG]", compact)
+    match = re.search(
+        r"(?:短距离|英里|中距离|长距离)[SABCDEFG]?(后追|居中|跟前|领跑)(?:[SABCDEFG]|(?=干劲|极佳|良好|普通|不佳|极差))",
+        compact,
+    )
     if match is None:
         if desired is None and not solo_leader_to_front:
             return None
