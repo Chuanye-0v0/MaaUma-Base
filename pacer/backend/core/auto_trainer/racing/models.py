@@ -189,6 +189,7 @@ class RaceRouteSession:
     pending_tactic_target: str | None = None
     pending_tactic_solo_fallback: bool = False
     solo_leader_front_aptitude_rejected: bool = False
+    tactic_modal_closing: bool = False
 
     def __post_init__(self) -> None:
         has_ids = bool(self.planned_race_ids)
@@ -227,6 +228,8 @@ class RaceRouteSession:
             raise ValueError("pending_tactic_solo_fallback_invalid")
         if type(self.solo_leader_front_aptitude_rejected) is not bool:
             raise ValueError("solo_leader_front_aptitude_rejected_invalid")
+        if type(self.tactic_modal_closing) is not bool:
+            raise ValueError("tactic_modal_closing_invalid")
         if self.pending_tactic_target is not None and type(self.pending_tactic_target) is not str:
             raise ValueError("pending_tactic_target_invalid")
         if self.last_clock_retry_remaining is not None and (

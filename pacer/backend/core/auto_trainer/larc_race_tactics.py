@@ -68,6 +68,7 @@ def race_tactic_control(
     desired,
     *,
     preview=False,
+    modal_closing=False,
     solo_leader_to_front=False,
     solo_leader_fallback=False,
     solo_leader_restore_style=None,
@@ -87,10 +88,15 @@ def race_tactic_control(
     white = (hsv[:, :, 1] < 60) & (hsv[:, :, 2] > 190)
     target = STYLE_LABELS.get(desired)
     result = {"target_style": desired, "target_label": target}
-    if (desired in STYLE_LABELS and "战术" in compact and all(label in compact for label in STYLE_LABELS.values())
-            and green[310:348, 30:690].mean() > .7
-            and green[897:940, 400:635].mean() > .65
-            and all(white[753:800, x-42:x+42].mean() > .45 for x in STYLE_CENTERS.values())):
+    is_tactic_modal = (
+        "战术" in compact
+        and all(label in compact for label in STYLE_LABELS.values())
+        and green[310:348, 30:690].mean() > .7
+        and all(white[753:800, x-42:x+42].mean() > .45 for x in STYLE_CENTERS.values())
+    )
+    if is_tactic_modal:
+        if modal_closing or desired not in STYLE_LABELS or green[897:940, 400:635].mean() <= .65:
+            return {**result, "kind": "wait", "reason": "race_tactic_modal_closing"}
         selected = []
         for style, x in STYLE_CENTERS.items():
             corners = [green[y:y+10, left:left+12].mean()

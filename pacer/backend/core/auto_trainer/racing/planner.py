@@ -681,6 +681,7 @@ class RaceRoutePlanner(
                                   or (session is not None and session.solo_leader_front_aptitude_rejected))
             tactic = race_tactic_control(
                 img, preview_text, tactic_desired, preview=is_preview,
+                modal_closing=bool(not is_preview and session is not None and session.tactic_modal_closing),
                 solo_leader_to_front=policy.solo_leader_to_front,
                 solo_leader_fallback=modal_solo_fallback,
                 solo_leader_restore_style=policy.solo_leader_restore_style,

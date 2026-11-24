@@ -1019,14 +1019,19 @@ class RaceRouteExecutor:
             if decision.get("reason") == "race_tactic_open" and isinstance(tactic_ev, dict):
                 session.pending_tactic_target = tactic_ev.get("target_style")
                 session.pending_tactic_solo_fallback = bool(tactic_ev.get("solo_leader_fallback"))
+                session.tactic_modal_closing = False
             elif decision.get("reason") == "race_tactic_confirm":
                 session.pending_tactic_target = None
                 session.pending_tactic_solo_fallback = False
+                session.tactic_modal_closing = True
             elif decision.get("reason") == "race_tactic_cancel":
                 session.pending_tactic_target = None
                 session.pending_tactic_solo_fallback = False
+                session.tactic_modal_closing = True
                 if isinstance(tactic_ev, dict) and tactic_ev.get("reason") == "solo_leader_front_aptitude_blocked":
                     session.solo_leader_front_aptitude_rejected = True
+        elif session is not None and session.tactic_modal_closing and decision.get("reason") != "race_tactic_select":
+            session.tactic_modal_closing = False
         if base_policy.count_reserved_only:
             session.count_phase = {"main_menu.race": "opened", "race_list.primary_entry": "entered",
                                    "race_confirm.primary": "confirmed"}.get(tap["coordinate_name"], session.count_phase)
