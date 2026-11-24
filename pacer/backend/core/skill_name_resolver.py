@@ -121,10 +121,25 @@ def _best_name_score(skill: dict[str, Any], candidate: dict[str, Any]) -> float:
     expected = [candidate["name"]]
     expected.extend(candidate.get("aliases", []))
     expected.extend(candidate.get("ocr_aliases", []))
-    return max(
+    best = max(
         (_similarity(left, right) for left in observed for right in expected),
         default=0.0,
     )
+    cand_name = str(candidate.get("name") or "")
+    if cand_name.endswith("◎"):
+        stem_norm = _normalize_text(cand_name[:-1])
+        if stem_norm:
+            cand_sentinel = stem_norm + "圈"
+            for left in observed:
+                raw_left = str(left)
+                if any(sym in raw_left for sym in ("○", "◎", "×", "圈", "双圈")):
+                    continue
+                left_norm = _normalize_text(raw_left)
+                if left_norm:
+                    score = SequenceMatcher(None, left_norm, cand_sentinel).ratio()
+                    if score > best:
+                        best = score
+    return best
 
 
 def _description_score(skill: dict[str, Any], candidate: dict[str, Any]) -> float:
@@ -160,6 +175,9 @@ def _cost_score(skill: dict[str, Any], candidate: dict[str, Any]) -> float:
     discounted = _expected_discounted_cost(candidate, skill.get("discount_percent"))
     if discounted is not None:
         expected = {discounted}
+        discount = skill.get("discount_percent")
+        if candidate.get("base_cost") is not None and type(discount) is int:
+            expected.add(int(int(candidate["base_cost"]) * (100 - int(discount)) // 100))
         expected.update(
             candidate.get("display_costs_by_discount", {}).get(
                 str(skill["discount_percent"]),
@@ -521,10 +539,32 @@ def resolve_skill_manifest(
                 runner_up = ranked[1] if len(ranked) > 1 else {"score": 0.0}
                 margin = round(top["score"] - runner_up["score"], 4)
         current_run_multi_evidence_confirm = current_run_multi_evidence is not None
+        acquired_unique_twin_confirm = False
+        if (
+            not (standard_confirm or unique_fuzzy_confirm or current_run_multi_evidence_confirm)
+            and skill.get("acquired") is True
+            and len(ranked) >= 2
+        ):
+            top_id = str(top.get("skill_id") or "")
+            run_id = str(runner_up.get("skill_id") or "")
+            same_twin_name = _normalize_text(top.get("name")) == _normalize_text(runner_up.get("name"))
+            one_inherited = top_id.startswith("cn-db:9") != run_id.startswith("cn-db:9")
+            if (
+                same_twin_name
+                and one_inherited
+                and top["score"] >= AUTO_CONFIRM_SCORE
+                and not top["hard_conflicts"]
+                and top["evidence"].get("name", 0.0) >= 0.95
+                and top["evidence"].get("description", 0.0) >= 0.80
+                and top["evidence"].get("description", 0.0) > runner_up["evidence"].get("description", 0.0)
+                and margin >= 0.03
+            ):
+                acquired_unique_twin_confirm = True
         auto_confirm = (
             standard_confirm
             or unique_fuzzy_confirm
             or current_run_multi_evidence_confirm
+            or acquired_unique_twin_confirm
         )
         binding_policy = (
             "standard"
@@ -533,6 +573,8 @@ def resolve_skill_manifest(
             if unique_fuzzy_confirm
             else "current_run_multi_evidence"
             if current_run_multi_evidence_confirm
+            else "acquired_unique_twin"
+            if acquired_unique_twin_confirm
             else "abstain"
         )
 

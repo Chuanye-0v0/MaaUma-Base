@@ -4,7 +4,7 @@ This module consumes already accepted public facts. It never promotes a future
 offer to observed data, changes a wallet, or imports a simulator/environment.
 """
 
-from core.auto_trainer.larc_participant_evidence import training_rows
+from core.auto_trainer.larc_participant_evidence import effective_domestic_charge, training_rows
 from copy import deepcopy
 import math
 
@@ -57,9 +57,12 @@ def earned_qualification(state,candidate,valuation,*,calendar):
             return {**result,'reason':'conflicting_member_battery'}
         if mid in seen:continue
         seen[mid]=values
-        filled,delta,cap=values
-        if not(charge.get('status')=='accepted'and type(filled)is int and type(delta)is int
-            and type(cap)is int and cap==3 and 0<=filled<=3 and 0<=delta<=3-filled):continue
+        resolved = effective_domestic_charge(
+            person, state=state, tab_participants=people, candidate=candidate
+        )
+        if resolved is None:
+            continue
+        filled, delta, _ = resolved
         if filled==3:full.append(mid)
         elif filled+delta==3:new.append(mid)
     if len(full)>ready:

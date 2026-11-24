@@ -49,6 +49,24 @@ class OrdinaryTraineeSelection:
                                                '养成优俊少女选择','选择养成优俊少女')):
             return None
         observed=self.observer(source,tokens)
+        if (observed.get('selected_variant') != self.variant
+                and self.observer == self.observe
+                and image is not None and image.shape[:2] == (1280, 720)
+                and not any(0 <= t['bbox'][0] < 380 and 380 <= t['bbox'][1] < 415 for t in tokens)):
+            import cv2
+            from core.auto_trainer.cut_condition_probe import ocr_tokens
+            strip = image[382:422, 30:380]
+            if strip.size and float(strip.std()) >= 5.0:
+                strip_2x = cv2.resize(strip, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+                strip_tokens = [
+                    {**token, 'bbox': [
+                        30.0 + token['bbox'][0] / 2.0, 382.0 + token['bbox'][1] / 2.0,
+                        30.0 + token['bbox'][2] / 2.0, 382.0 + token['bbox'][3] / 2.0,
+                    ]}
+                    for token in ocr_tokens(strip_2x)
+                ]
+                if strip_tokens:
+                    observed = self.observer(source, [*strip_tokens, *tokens])
         common={'next_phase':'setup','trainee_action':True,'trainee_observation':observed}
         if observed.get('selected_variant')==self.variant:
             point=visible_control(tokens,button_boxes(image),{'继续','下一步'})

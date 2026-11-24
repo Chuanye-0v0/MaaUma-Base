@@ -1,7 +1,7 @@
 """Local full-run values: current gains, startup progress and energy opportunity cost."""
 from __future__ import annotations
 
-from core.auto_trainer.larc_participant_evidence import training_rows
+from core.auto_trainer.larc_participant_evidence import effective_domestic_charge, training_rows
 
 from statistics import median
 from copy import deepcopy
@@ -588,14 +588,13 @@ def score_training_progress(state, candidate, weights=None, *, goal=None):
             effective_bond += bond_units
         charge = person.get("charge")
         charge = charge if isinstance(charge, dict) else {}
-        net = full = None
-        if (charge.get("status") == "accepted" and type(charge.get("capacity")) is int
-                and charge["capacity"] == 3
-                and all(type(charge.get(key)) is int for key in ("filled_cells", "preview_cells"))
-                and 0 <= charge["filled_cells"] <= 3 and 0 <= charge["preview_cells"]
-                and charge["filled_cells"] + charge["preview_cells"] <= 3):
-            net = min(3 - charge["filled_cells"], charge["preview_cells"])
-            full = int(charge["filled_cells"] < 3 and charge["filled_cells"] + net == 3)
+        net = full = charge_basis = None
+        resolved = effective_domestic_charge(
+            person, state=state, tab_participants=people, candidate=candidate
+        )
+        if resolved is not None:
+            filled, net, charge_basis = resolved
+            full = int(filled < 3 and filled + net == 3)
             net_charge += net
             newly_full += full
         else:
@@ -626,6 +625,7 @@ def score_training_progress(state, candidate, weights=None, *, goal=None):
                        "training_hint_bond": hint_units,
                        "hint_bond_fill_ratio_estimate": bond.get("fill_ratio_estimate"),
                        "net_charge": net, "newly_full": full,
+                       "charge_preview_basis": charge_basis,
                        "current_reward": reward, "current_reward_source": reward_source,
                        **({'filled_cells': charge.get('filled_cells')} if revised_charming else {})})
     features = {"effective_support_bond": _feature(effective_bond, bond_unknown),

@@ -273,8 +273,13 @@ def plan_larc_ss_preview(
     deadline = deadline_larc_supporter_goal(larc_supporter_goal)
     raw_text = str(evidence.get("screen_text", {}).get("normalized_text", ""))
     text = "".join(raw_text.split())
+    header_lines = ["".join(line.split()) for line in raw_text.splitlines() if line.strip()]
+    has_ss_header = (
+        text.startswith(("群星赛", "超星赛"))
+        or any(line.startswith(("群星赛", "超星赛")) for line in header_lines[:4])
+    )
     count = re.search(r"(?<!\d)([1-5])\s*人", raw_text)
-    if (not text.startswith(("群星赛", "超星赛"))
+    if (not has_ss_header
             or (not deadline and "全胜时" not in text) or "协助" not in text):
         return None
     ready = int(count.group(1)) if count else None

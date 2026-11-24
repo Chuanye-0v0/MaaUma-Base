@@ -264,6 +264,13 @@ def run_larc_adaptation(*, run_root: Path, output_dir: Path, adb_port: int,
     _atomic_write_json(child_path, child)
     report.update(safe_advance_report_path=str(child_path), safe_advance_exit_code=code)
     if not _io(phase_path).exists():
+        child_reason = child.get("stop_reason")
+        if (
+            isinstance(child_reason, str)
+            and child_reason.strip()
+            and not child.get("performed_steps")
+        ):
+            return finish(child_reason.strip())
         return finish("larc_adaptation_session_missing")
     session = LarcAdaptationSession.load(phase_path, run_id)
     if session.phase != phase or session.inspect_only:

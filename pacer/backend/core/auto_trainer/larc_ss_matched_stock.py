@@ -6,7 +6,7 @@ from copy import deepcopy
 from math import isfinite
 from statistics import mean
 
-from core.auto_trainer.larc_participant_evidence import training_rows
+from core.auto_trainer.larc_participant_evidence import effective_domestic_charge, training_rows
 from core.auto_trainer.larc_strategy_params import params_for_goal, unified_larc_enabled
 from core.auto_trainer.rejection_policy import is_hard_rejected
 
@@ -330,22 +330,20 @@ def structural_status(state, goal, preview):
         positive, converted = {}, set()
         for person in people:
             ref = _reference(person, scope["run"])
-            charge = person.get("charge") or {}
-            filled, direct = charge.get("filled_cells"), charge.get("preview_cells")
+            resolved = effective_domestic_charge(
+                person, state=state, tab_participants=people, candidate=option
+            )
             if (
                 ref
                 and ref not in conflicts
                 and ref not in scope["full_members"]
-                and charge.get("status") == "accepted"
-                and charge.get("capacity") == 3
-                and type(filled) is int
-                and type(direct) is int
-                and 0 <= filled < 3
-                and 0 < direct <= 3 - filled
+                and resolved is not None
             ):
-                positive[ref] = direct
-                if filled + direct == 3:
-                    converted.add(ref)
+                filled, direct, _ = resolved
+                if 0 <= filled < 3 and 0 < direct <= 3 - filled:
+                    positive[ref] = direct
+                    if filled + direct == 3:
+                        converted.add(ref)
         new = len(converted)
         success = 1 - risk / 100
         if positive:

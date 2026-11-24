@@ -23,6 +23,7 @@ EXPLICIT_ESCAPE_ACTION_IDS = frozenset(
         "safe_advance.announcement_close",
         "safe_advance.trophy_reward_close",
         "safe_advance.training_pass_reset_close",
+        "safe_advance.exchange_points_expiry_close",
         "safe_advance.recruit_return_home",
         "global_hub.center_home",
         "race_list.back",

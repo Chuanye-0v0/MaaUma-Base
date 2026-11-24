@@ -1,6 +1,6 @@
 """Marginal future recovery value. Never adds future rewards to current energy."""
 
-from core.auto_trainer.larc_participant_evidence import training_rows
+from core.auto_trainer.larc_participant_evidence import effective_domestic_charge, training_rows
 from core.larc_reward_cycle import participant_cycle
 from core.auto_trainer.larc_recovery import (
     RECOVERY_KINDS, critical_window, points_to_percent, recovery_weight,
@@ -109,11 +109,13 @@ def training_cycle_value(state, candidate, source, weights, *, ready=None, newly
     view = training_rows(candidate, require_tab=True)
     if source and weights["net_charge"] > 0 and view is not None:
         for person in view[0]:
-            charge = person.get("charge", {})
-            filled, net = charge.get("filled_cells"), charge.get("preview_cells")
-            if (charge.get("status") != "accepted" or charge.get("capacity") != 3
-                    or type(filled) is not int or type(net) is not int
-                    or not 0 <= filled < 3 or not 0 < net <= 3 - filled):
+            resolved = effective_domestic_charge(
+                person, state=state, tab_participants=view[0], candidate=candidate
+            )
+            if resolved is None:
+                continue
+            filled, net, _ = resolved
+            if not (0 <= filled < 3 and 0 < net <= 3 - filled):
                 continue
             row = _progress(state, person, source, filled=filled, net=net)
             if row is not None:

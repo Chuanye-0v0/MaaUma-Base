@@ -105,6 +105,10 @@ public sealed class UmaWorkflowLibraryView : StackPanel
     private string? modeId, profileId;
     private bool loading, busy, initialized, customWeightsPage;
     private string selectedPage = "plan";
+    private string? lastInitError;
+    private DateTime lastInitAttemptUtc = DateTime.MinValue;
+    private int autoRetryCount;
+    private readonly Button retryInitButton;
     public bool LibraryReady => initialized;
     public Control SelectorBar { get; }
     public Control ConfigurationPage { get; }
@@ -337,7 +341,11 @@ public sealed class UmaWorkflowLibraryView : StackPanel
         discardChanges.Height = 32; discardChanges.Padding = new Thickness(10, 0); discardChanges.Margin = new Thickness(0, 2, 6, 2);
         discardChanges.IsVisible = false;
 
+        retryInitButton = new Button { Name = "WorkflowSelectorRetryInit", Content = "↻ 重试读取", Height = 32, Padding = new Thickness(10, 0), Margin = new Thickness(0, 2, 6, 2), IsVisible = false };
+        retryInitButton.Click += async (_, _) => { if (busy) return; autoRetryCount = 0; await InitializeAsync(); };
+
         var rightPicks = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        rightPicks.Children.Add(retryInitButton);
         rightPicks.Children.Add(purityBadge);
         rightPicks.Children.Add(saveStateBadge);
         rightPicks.Children.Add(discardChanges);
@@ -563,13 +571,31 @@ public sealed class UmaWorkflowLibraryView : StackPanel
 
     public async Task InitializeAsync()
     {
-        if(busy)return;SetBusy(true);
+        if(busy)return;
+        lastInitAttemptUtc = DateTime.UtcNow;
+        retryInitButton.IsVisible = false;
+        SetBusy(true);
         try {
             var schema=await request(new JObject{["action"]="workflow_schema"});ConfigureSchema(schema);
             var useV2=(bool?)schema["v2_supported"]==true;
             var payload=new JObject{["action"]=useV2?"workflow_library_v2":"workflow_library"};
-            if(seedPolicies!=null)payload["initial_policies"]=await seedPolicies();
-            var response=await request(payload);
+            JObject? seeded = null;
+            if(seedPolicies!=null)
+            {
+                try { seeded = await seedPolicies(); }
+                catch { seeded = null; }
+            }
+            if(seeded!=null)payload["initial_policies"]=seeded;
+            JObject response;
+            try
+            {
+                response=await request(payload);
+            }
+            catch when (seeded != null)
+            {
+                payload.Remove("initial_policies");
+                response=await request(payload);
+            }
             library=(JObject)(response["library"] as JObject??throw new InvalidOperationException("模式库未读完整，原配置未覆盖。")).DeepClone();
             if(response["builtin_templates"] is JObject btpls) builtinTemplates=(JObject)btpls.DeepClone();
             savedLibrary=(JObject)library.DeepClone();
@@ -580,10 +606,42 @@ public sealed class UmaWorkflowLibraryView : StackPanel
                     value=>request(new JObject{["action"]="validate_decision_preferences",["profile"]=value}),
                     value=>request(new JObject{["action"]="preview_decision_preferences",["profile"]=value["profile"],["scenario"]=value["scenario"]}));
             }catch(Exception){status.Text="配置已读入；高级评分服务暂未连接。";}
+            lastInitError = null;
+            autoRetryCount = 0;
+            retryInitButton.IsVisible = false;
             initialized=true;LoadSelection();
-            status.Text=isV2?"培养方案保管马娘、配卡与策略，切育成模式只切换对应要求与预算；旧配置文件已保留。":"模式决定流程，配置保存战马、配卡与分段策略。旧配置文件保留。";
-        }catch(Exception e){status.Text="本地配置尚未就绪："+e.Message;}
-        finally{SetBusy(false);}
+            if(response["warnings"] is JArray warnArr)
+            {
+                var warns = warnArr.Select(x => x?.ToString()).Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
+                if(warns.Length > 0)
+                {
+                    var warnText = string.Join(" ", warns!);
+                    status.Text = warnText;
+                    ToastRequested?.Invoke(warnText, false, "warn");
+                }
+                else
+                {
+                    status.Text=isV2?"培养方案保管马娘、配卡与策略，切育成模式只切换对应要求与预算；旧配置文件已保留。":"模式决定流程，配置保存战马、配卡与分段策略。旧配置文件保留。";
+                }
+            }
+            else
+            {
+                status.Text=isV2?"培养方案保管马娘、配卡与策略，切育成模式只切换对应要求与预算；旧配置文件已保留。":"模式决定流程，配置保存战马、配卡与分段策略。旧配置文件保留。";
+            }
+        }catch(Exception e){
+            lastInitError = e.Message;
+            status.Text="本地配置尚未就绪："+e.Message;
+            summary.Text="本地配置尚未就绪："+e.Message;
+            ToolTip.SetTip(summary, summary.Text);
+            retryInitButton.IsVisible = true;
+            foreach(var item in settingsPages) RefreshSettingsPage(item.Host, item.Section);
+            SelectionChanged?.Invoke();
+        }
+        finally{
+            SetBusy(false);
+            retryInitButton.IsEnabled = !busy;
+            retryInitButton.IsVisible = !initialized && !busy && !string.IsNullOrWhiteSpace(lastInitError);
+        }
     }
 
     public void LoadLibrary(JObject value,JObject schema)
@@ -745,6 +803,8 @@ public sealed class UmaWorkflowLibraryView : StackPanel
     public void RequestPurityDrawer()=>PurityDrawerRequested?.Invoke($"{SelectedModeLabel} · {SelectedConfigurationLabel}",EvaluateCurrentPurity());
     public (string ModeProfile, string EquipmentBatch, PurityState State, string PuritySummary, string TargetsText) ReadOverviewSummary()
     {
+        if (!initialized && !string.IsNullOrWhiteSpace(lastInitError))
+            return ("配置暂未就绪", "请点击顶栏「↻ 重试读取」或稍候自动恢复", PurityState.Unknown, "⚠ 配置待读取", "—");
         var doc=ResolveCurrentDocument();
         var node=(doc["run_graph"]?["nodes"] as JArray)?.OfType<JObject>().FirstOrDefault(row=>(string?)row["kind"] is "career" or "cut");
         var policy=doc["policies"]?[(string?)node?["policy"]??"default"];
@@ -1153,7 +1213,13 @@ public sealed class UmaWorkflowLibraryView : StackPanel
     public Control CreateConfigurationPage(string section)
     {
         var host=new ContentControl{HorizontalContentAlignment=HorizontalAlignment.Stretch};
-        settingsPages.Add((host,section));host.Loaded+=(_,_)=>RefreshSettingsPage(host,section);
+        settingsPages.Add((host,section));
+        host.Loaded += async (_, _) =>
+        {
+            RefreshSettingsPage(host, section);
+            if (!initialized && !busy && (DateTime.UtcNow - lastInitAttemptUtc).TotalSeconds >= 3)
+                await InitializeAsync();
+        };
         return host;
     }
     // The overview links to the single ordinary editor on the configuration page.
@@ -1202,7 +1268,27 @@ public sealed class UmaWorkflowLibraryView : StackPanel
     public void ShowOrdinarySettings() => OpenConfiguration();
     private void RefreshSettingsPage(ContentControl host,string section)
     {
-        if(!initialized){host.Content=Note("正在读取当前运行配置。");return;}
+        if(!initialized)
+        {
+            if (!busy && !string.IsNullOrWhiteSpace(lastInitError))
+            {
+                var retryBtn = new Button
+                {
+                    Name = "WorkflowRetryInitialize_" + section,
+                    Content = "↻ 重新读取配置",
+                    HorizontalAlignment = HorizontalAlignment.Left
+                };
+                retryBtn.Click += async (_, _) => { autoRetryCount = 0; await InitializeAsync(); };
+                host.Content = new StackPanel
+                {
+                    Spacing = 8,
+                    Children = { Note("当前运行配置尚未读取完成：" + lastInitError), retryBtn }
+                };
+                return;
+            }
+            host.Content=Note("正在读取当前运行配置…");
+            return;
+        }
         var prevSuppress=suppressDirty;suppressDirty=true;
         try {
             if(section is "deck" or "strategy_targets" or "cycle" or "custom_races") {
@@ -1873,10 +1959,21 @@ public sealed class UmaWorkflowLibraryView : StackPanel
         var response = await request(new JObject { ["action"] = "start_workflow", ["document"] = document });
         started(response);
     }
-    public void UpdateRuntime(JObject value)=>editor.UpdateRuntime(value);
+    public void UpdateRuntime(JObject value)
+    {
+        editor.UpdateRuntime(value);
+        if (!initialized && !busy && value != null && autoRetryCount < 6
+            && (DateTime.UtcNow - lastInitAttemptUtc).TotalSeconds >= 5)
+        {
+            autoRetryCount++;
+            _ = InitializeAsync();
+        }
+    }
     private void SetBusy(bool value)
     {
         busy=value;foreach(var action in actions)action.IsEnabled=!value;
+        retryInitButton.IsEnabled=!value;
+        if(initialized)retryInitButton.IsVisible=false;
         modes.IsEnabled=profiles.IsEnabled=profileName.IsEnabled=saveAsName.IsEnabled=saveAsPurify.IsEnabled=configurationEditor.IsEnabled=careerBatchCount.IsEnabled=!value;
         deleteProfile.IsEnabled=!value&&(v2BuiltinMode?Builds.Count()>1:((Mode()?["profiles"] as JArray)?.Count??0)>1);
         strategySteps.IsEnabled=!value&&strategySteps.ItemCount>1;

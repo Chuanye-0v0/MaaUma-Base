@@ -74,9 +74,9 @@ def run_larc_terminal_skills(*, run_root, output_dir, d1_root, external_skill_db
         if output == root or not output.is_relative_to(root) or output.is_relative_to(d1):
             raise ValueError("terminal_skill_output_outside_run")
         catalogs = d1 / "data/skills/cn-20260916"
-        from core.auto_trainer.larc_target_skills import policy_from_run
+        from core.auto_trainer.larc_target_skills import policy_from_run, summarize_run_skill_pt
         arc_policy = policy_from_run(root)
-        cm_spenddown = arc_policy["enabled"] and arc_policy["auto_cm"]
+        cm_spenddown = arc_policy["enabled"] and (arc_policy["auto_cm"] or arc_policy.get("mode") == "tiered_ladder")
         if arc_policy["enabled"]:
             catalogs = Path(__file__).resolve().parents[1] / "data/skills/cn_larc_end"
         resolver, planner = (catalogs / name for name in (
@@ -159,6 +159,8 @@ def run_larc_terminal_skills(*, run_root, output_dir, d1_root, external_skill_db
                               ready_reason=("no_purchase" if no_purchase else
                                   "zero_points" if after == 0 else "confirmed_learning_remainder_retained"
                                   if "points_reading_did_not_decrease" in diagnostics else "small_remainder_retained"))
+                _atomic_write_json(destination, report)
+                report["skill_pt_ledger"] = summarize_run_skill_pt(root, current_pt=after)
                 _atomic_write_json(destination, report)
                 _atomic_write_json(state_path, dict(state, status="ready"))
                 return report, 0

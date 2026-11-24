@@ -5,6 +5,8 @@ is not a CN mechanism claim; absent or unbound packets retain legacy values.
 """
 from math import comb, isfinite
 
+from core.auto_trainer.larc_participant_evidence import effective_domestic_charge
+
 KEYS = ('source_kind', 'run_session_id', 'turn_index', 'observation_id', 'step_count')
 MEMBERS = frozenset('sim_person_' + str(i) for i in range(15))
 
@@ -134,12 +136,14 @@ def _current_forecast(state, candidate, source, goal, probability):
             if charge.get('status') == 'accepted' and charge.get('applicable') is not False:
                 return None
             continue
+        resolved = effective_domestic_charge(
+            person, state=state, tab_participants=preview['participants'], candidate=candidate
+        )
         if (member in current or ref.get('status') != 'accepted' or ref.get('run_session_id') != source['run_session_id']
-                or charge.get('status') != 'accepted' or charge.get('capacity') != 3
-                or type(charge.get('filled_cells')) is not int or charge['filled_cells'] != batteries[member]
-                or type(charge.get('preview_cells')) is not int or not 0 <= charge['preview_cells'] <= 3 - batteries[member]):
+                or resolved is None or resolved[0] != batteries[member]
+                or not 0 <= resolved[1] <= 3 - batteries[member]):
             return None
-        current.add(member); after[member] += charge['preview_cells']
+        current.add(member); after[member] += resolved[1]
     forecast = forecast_branches(after, current, probability, 5)
     if forecast is not None:
         forecast.update(source=dict(bound), selection_rule=packet['selection_rule'])

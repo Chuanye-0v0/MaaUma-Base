@@ -9,6 +9,7 @@ import uuid
 from core.auto_trainer.ace_graduation import (
     evaluate_graduation, inspect_completed_career, normalize_ace_cycle,
 )
+from core.auto_trainer.config import load_goal_config
 from core.auto_trainer.cut_farming import CutFarmingConfig, CutSession, atomic_json
 from core.auto_trainer.runtime_control import RunStopped, bind, current_page_resume
 from core.career_workflow import ace_cycle_node, ss_sieve_node, validate_start_document
@@ -16,6 +17,15 @@ from scripts.career_workflow_runtime import (DOCUMENT, SS_SIEVE_FAILURE, Workflo
     authorized_continuation_restart, authorized_sieve_failure, load_for_run, read)
 
 CYCLE = 'ss_sieve_cycle'
+_ACTIVE_CAREER_TAKEOVER_STATES = frozenset({
+    'main_menu', 'training_menu', 'dialogue', 'event_choice', 'skill_acquisition',
+})
+
+
+def _is_active_career_scene(scene) -> bool:
+    if not isinstance(scene, dict):
+        return False
+    return scene.get('owner') == 'race' or scene.get('state') in _ACTIVE_CAREER_TAKEOVER_STATES
 
 
 def create_sieve_batch(root, endpoint, document):
@@ -127,13 +137,15 @@ def _ordinary_attempt(session, endpoint):
 
 
 class SieveCycle:
-    def __init__(self, session, control, *, runner=None, restart=None, opening=None, graduation_inspector=None):
+    def __init__(self, session, control, *, runner=None, restart=None, opening=None,
+                 graduation_inspector=None, takeover_observer=None):
         self.session = session
         self.control = control
         self.runner = runner
         self.restart = restart
         self.opening = opening
         self.graduation_inspector = graduation_inspector
+        self.takeover_observer = takeover_observer
         self.cycle = session.data[CYCLE]
         self.port = session.config.device_port
         self.endpoint = f'127.0.0.1:{self.port}'
@@ -183,10 +195,12 @@ class SieveCycle:
         return args
 
     def _open(self, root, args):
+        from scripts.larc_live_takeover import observe_current
         from scripts.larc_ordinary_setup import save_opening_support_observation
         from scripts.larc_ordinary_start import start_preselected_ordinary_career
 
         attempt = self.session.data['attempts'][-1]
+        is_first_attempt = len(self.session.data['attempts']) == 1
         self.control.checkpoint('ss_sieve_opening')
         setup = self.cycle['career_options']['setup']
         d1_root = args.d1_skill_root
@@ -196,8 +210,36 @@ class SieveCycle:
         for key in ('support_setup_observation', 'ordinary_start_submitted', 'legacy_borrow_target'):
             self.session.data.pop(key, None)
         self.session.save()
+        goal = load_goal_config(root / 'goal.json') if (root / 'goal.json').is_file() else SimpleNamespace(race_retry=None)
         ctx = SimpleNamespace(root=root, run_id=root.name, port=self.port,
-                              progress=read(root / 'progress.json'))
+                              progress=read(root / 'progress.json'), goal=goal,
+                              route=root / 'session/transition_session.json')
+        if is_first_attempt and (self.takeover_observer is not None or self.opening is None):
+            probe = None
+            try:
+                if self.takeover_observer is not None:
+                    probe = self.takeover_observer(ctx, root / 'ss_sieve_takeover_probe')
+                else:
+                    probe = observe_current(ctx, root / 'ss_sieve_takeover_probe', persist_route=False)
+            except Exception:
+                probe = None
+            if _is_active_career_scene(probe):
+                route = {
+                    'ok': True,
+                    'reason': 'existing_career_takeover_attempt1',
+                    'new_career_started': False,
+                    'scene': probe,
+                }
+                atomic_json(root / 'ss_sieve_opening_receipt.json', route)
+                attempt['ss_sieve_opening'] = {
+                    'confirmed': True,
+                    'reason': route['reason'],
+                    'new_career_started': False,
+                    'receipt': 'ss_sieve_opening_receipt.json',
+                }
+                self.cycle['phase'] = 'growing'
+                self.session.save()
+                return route
         opener = self.opening or start_preselected_ordinary_career
         if self.opening is None and (not d1_root or not (Path(d1_root) / 'core/autonomous_training/trainee.py').is_file()):
             route = {'ok': False, 'reason': 'ordinary_trainee_library_missing'}
@@ -206,8 +248,25 @@ class SieveCycle:
                            trainee_variant=setup['character_id'], setup=setup, d1_root=d1_root,
                            batch_session=self.session)
         atomic_json(root / 'ss_sieve_opening_receipt.json', route)
-        confirmed = (route.get('ok') is True and route.get('reason') == 'ordinary_start_confirmed'
-                     and not self.session.data.get('pending_action') and not self.session.data.get('tp_refill_pending'))
+        no_pending = not self.session.data.get('pending_action') and not self.session.data.get('tp_refill_pending')
+        takeover_handoff = (
+            is_first_attempt
+            and route.get('ok') is True
+            and route.get('reason') == 'existing_career_handoff'
+            and no_pending
+        )
+        confirmed = (route.get('ok') is True and route.get('reason') == 'ordinary_start_confirmed' and no_pending)
+        if takeover_handoff:
+            result_route = {**route, 'new_career_started': False}
+            attempt['ss_sieve_opening'] = {
+                'confirmed': True,
+                'reason': route.get('reason'),
+                'new_career_started': False,
+                'receipt': 'ss_sieve_opening_receipt.json',
+            }
+            self.cycle['phase'] = 'growing'
+            self.session.save()
+            return result_route
         attempt['ss_sieve_opening'] = {'confirmed': confirmed, 'reason': route.get('reason'),
                                      'receipt': 'ss_sieve_opening_receipt.json'}
         self.session.save()

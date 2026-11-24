@@ -441,7 +441,7 @@ def _shift_tolerant_current_run_review_enabled(skill: Mapping[str, Any], review:
         return len(suffix) >= 6 and suffix in _compact_text(description)
     if multi_evidence:
         contract = review.get('current_run_contract')
-        if review.get('name_resolution_evidence_dimensions') != 4 or not isinstance(contract, Mapping) or contract.get('version') != 'current_run_multi_evidence.v1' or (not isinstance(contract.get('local_db_id'), str)) or (not contract['local_db_id'].isdigit()) or (contract.get('identity_status') != 'exact_local_db_id_join') or (contract.get('metadata_status') != 'external_cross_checked'):
+        if review.get('name_resolution_evidence_dimensions') not in {4, 5} or not isinstance(contract, Mapping) or contract.get('version') != 'current_run_multi_evidence.v1' or (not isinstance(contract.get('local_db_id'), str)) or (not contract['local_db_id'].isdigit()) or (contract.get('identity_status') != 'exact_local_db_id_join') or (contract.get('metadata_status') != 'external_cross_checked'):
             return False
         if '|' in token:
             suffix = _compact_text(token.rsplit('|', 1)[1])
@@ -453,7 +453,7 @@ def _shift_tolerant_current_run_review_enabled(skill: Mapping[str, Any], review:
         actual = _compact_text(description)
         return min(len(expected), len(actual)) >= 10 and SequenceMatcher(None, expected, actual).ratio() >= 0.9
     dimensions = review.get('name_resolution_evidence_dimensions')
-    if type(dimensions) is not int or (dimensions < 4 if direct_parser else dimensions != 4):
+    if type(dimensions) is not int or (dimensions < 4 if direct_parser else dimensions not in {4, 5}):
         return False
     observed_description = review.get('observed_description')
     if not isinstance(observed_description, str):
@@ -603,7 +603,7 @@ def _current_run_multi_evidence_review_enabled(review: Mapping[str, Any]) -> boo
     evidence = review.get('name_resolution_evidence')
     contract = review.get('current_run_contract')
     local_db_id = contract.get('local_db_id') if isinstance(contract, Mapping) else None
-    return review.get('name_binding_source') == 'current_run_multi_evidence' and review.get('current_run_scope_only') is True and _valid_confidence(confidence) and (float(confidence) >= 0.7) and isinstance(dimensions, int) and (not isinstance(dimensions, bool)) and (dimensions in {3, 4}) and isinstance(evidence, Mapping) and (evidence.get('cost') == 1.0) and (evidence.get('rarity') == 1.0) and (evidence.get('icon_color') == 1.0) and isinstance(contract, Mapping) and (contract.get('version') == 'current_run_multi_evidence.v1') and isinstance(local_db_id, str) and local_db_id.isdigit() and (contract.get('identity_status') in {'manual_verified', 'exact_local_db_id_join'}) and (contract.get('metadata_status') in {'manual_verified', 'external_cross_checked'}) and (contract.get('description_anchor_exact') is True or contract.get('name_score_threshold_met') is True)
+    return review.get('name_binding_source') == 'current_run_multi_evidence' and review.get('current_run_scope_only') is True and _valid_confidence(confidence) and (float(confidence) >= 0.7) and isinstance(dimensions, int) and (not isinstance(dimensions, bool)) and (dimensions in {3, 4, 5}) and isinstance(evidence, Mapping) and (evidence.get('cost') == 1.0) and (evidence.get('rarity') == 1.0) and (evidence.get('icon_color') == 1.0) and isinstance(contract, Mapping) and (contract.get('version') == 'current_run_multi_evidence.v1') and isinstance(local_db_id, str) and local_db_id.isdigit() and (contract.get('identity_status') in {'manual_verified', 'exact_local_db_id_join'}) and (contract.get('metadata_status') in {'manual_verified', 'external_cross_checked'}) and (contract.get('description_anchor_exact') is True or contract.get('name_score_threshold_met') is True)
 
 def _strong_current_run_review_enabled(review: Mapping[str, Any]) -> bool:
     confidence = review.get('name_binding_confidence', review.get('name_resolution_confidence'))

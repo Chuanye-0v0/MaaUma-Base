@@ -40,9 +40,19 @@ def supporter_points(image, *, reader=None):
     return candidates[0] if len(candidates) == 1 else None
 
 
-def aptitude_tokens(tokens):
-    labels = {'short': {'短距离', '短距', '短距離'}, 'mile': {'英里'},
-              'medium': {'中距离', '中距', '中距離'}, 'long': {'长距离', '长距', '長距離', '長距'}}
+_DISTANCE_LABELS = {
+    'short': {'短距离', '短距', '短距離'},
+    'mile': {'英里'},
+    'medium': {'中距离', '中距', '中距離'},
+    'long': {'长距离', '长距', '長距離', '長距'},
+}
+SURFACE_LABELS = {
+    'turf': {'草地', '草场', '芝'},
+    'dirt': {'泥地', '沙地', 'ダート'},
+}
+
+
+def _extract_labeled_ranks(tokens, labels):
     result = {}
     for key, names in labels.items():
         for token in tokens:
@@ -63,11 +73,8 @@ def aptitude_tokens(tokens):
     return result
 
 
-def read_aptitudes(image, tokens, *, rank_reader=None):
-    """Recover missed rank letters beside an observed distance label only."""
-    result = aptitude_tokens(tokens)
-    labels = {'short': {'短距离', '短距', '短距離'}, 'mile': {'英里'},
-              'medium': {'中距离', '中距', '中距離'}, 'long': {'长距离', '长距', '長距離', '長距'}}
+def _read_labeled_ranks(image, tokens, labels, *, rank_reader=None):
+    result = _extract_labeled_ranks(tokens, labels)
     if rank_reader is None:
         from core.auto_trainer.main_menu_state_provider import _CALENDAR_REGION_READER
         rank_reader = _CALENDAR_REGION_READER
@@ -89,6 +96,24 @@ def read_aptitudes(image, tokens, *, rank_reader=None):
         if text in tuple('GFEDCBAS') and _confidence_is_valid(confidence) and confidence >= .95:
             result[key] = text
     return result
+
+
+def aptitude_tokens(tokens):
+    return _extract_labeled_ranks(tokens, _DISTANCE_LABELS)
+
+
+def read_aptitudes(image, tokens, *, rank_reader=None):
+    """Recover missed rank letters beside an observed distance label only."""
+    return _read_labeled_ranks(image, tokens, _DISTANCE_LABELS, rank_reader=rank_reader)
+
+
+def surface_aptitude_tokens(tokens):
+    return _extract_labeled_ranks(tokens, SURFACE_LABELS)
+
+
+def read_surface_aptitudes(image, tokens, *, rank_reader=None):
+    """Recover missed rank letters beside an observed surface label (turf/dirt)."""
+    return _read_labeled_ranks(image, tokens, SURFACE_LABELS, rank_reader=rank_reader)
 
 
 def inspect_aptitudes(ctx, output, *, frames=None, token_reader=None, sleeper=time.sleep):

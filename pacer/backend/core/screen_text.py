@@ -43,6 +43,18 @@ RESOURCE_TERMS = (
 )
 
 
+_RACE_PARTICIPANT_COMPOUND_EXCLUSIONS = (
+    "参赛条件",
+    "参赛计划",
+    "参赛确认",
+    "参赛资格",
+    "参赛人数",
+    "参赛限制",
+    "参赛要求",
+    "参赛马娘",
+    "参赛选手",
+)
+
 _SCREEN_PATTERNS: tuple[dict[str, Any], ...] = (
     {
         "screen": "race_detail_confirm",
@@ -136,12 +148,24 @@ def analyze_screen_text(value: Any) -> dict[str, Any]:
             or _matched_terms(outside_story, RESOURCE_TERMS)
         )
     loading_advice = advice_header and not (spend_buttons or retry_prompt or factor_redraw)
+    skill_spend_controls = (
+        bool(lines & {"购买", "购入", "充值", "支付", "使用", "取消"})
+        or any(term in compact for term in ("使用", "消耗", "花费", "补充", "是否恢复"))
+    )
+    skill_description_recovery = (
+        set(resource_terms) == {"恢复体力"}
+        and not (skill_spend_controls or retry_prompt or factor_redraw)
+        and any(term in compact for term in ("启发等级", "已获得", "当前技能点数"))
+        and any(term in compact for term in ("赛事", "弯道", "直道", "梯队", "%OFF", "跳过", "缩短版"))
+    )
     keyword_policy = ("disabled_in_career" if career_hud and not (retry_prompt or factor_redraw)
-                      else "disabled_in_loading_advice" if loading_advice else "enabled")
+                      else "disabled_in_loading_advice" if loading_advice
+                      else "disabled_in_skill_list" if skill_description_recovery
+                      else "enabled")
     # Story words are not spend controls. Career actions still require their
     # own page/layout contract; retry and factor-redraw prompts remain blocked.
     matched_resource_terms = list(resource_terms)
-    if keyword_policy in {"disabled_in_career", "disabled_in_loading_advice"}:
+    if keyword_policy in {"disabled_in_career", "disabled_in_loading_advice", "disabled_in_skill_list"}:
         resource_terms = []
 
     hints: list[dict[str, Any]] = []
@@ -186,7 +210,11 @@ def analyze_screen_text(value: Any) -> dict[str, Any]:
         )
 
     for pattern in _SCREEN_PATTERNS:
-        terms = _matched_terms(normalized, pattern["terms"])
+        match_text = normalized
+        if pattern.get("screen") == "race_participant_list":
+            for compound in _RACE_PARTICIPANT_COMPOUND_EXCLUSIONS:
+                match_text = match_text.replace(compound, " ")
+        terms = _matched_terms(match_text, pattern["terms"])
         if not terms:
             continue
         boost_terms = _matched_terms(normalized, pattern.get("boost_terms", ()))
@@ -323,7 +351,7 @@ def resource_terms_from_state(state: dict[str, Any]) -> list[str]:
 
     normalized = _normalize_text(_flatten_text(text_values))
     analysis = analyze_screen_text(normalized)
-    if analysis["resource_keyword_policy"] in {"disabled_in_career", "disabled_in_loading_advice"}:
+    if analysis["resource_keyword_policy"] in {"disabled_in_career", "disabled_in_loading_advice", "disabled_in_skill_list"}:
         return []
     terms = _matched_terms(normalized, RESOURCE_TERMS)
     return _unique([*terms, *explicit_terms, *analysis["resource_terms"]])

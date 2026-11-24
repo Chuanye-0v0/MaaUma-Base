@@ -227,7 +227,7 @@ def return_from_growth_inspection(ctx, session_path, output):
     child, code = advance(advance_args(argv))
     last = (child.get("step_reports") or [{}])[-1].get("result", {}).get("decision", {})
     if (native_instance_id(ctx.port) is not None and child.get("stop_reason") == "route_state_out_of_scope"
-            and last.get("reason") == "common_career_page_unrecognized"
+            and last.get("reason") in {"common_career_page_unrecognized", "larc_adaptation_return"}
             and LarcAdaptationSession.load(Path(session_path), ctx.run_id).returned):
         # The return tap already happened. Wait for home in memory, then hand
         # that frame to the reader; never send the return tap a second time.

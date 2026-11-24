@@ -36,19 +36,35 @@ def normalize_mid_skill_learning(value=None, *, legacy_enabled=False):
             raise ValueError("mid_skill_learning_percent_invalid:"+key)
     if not isinstance(result["dates"],list):raise ValueError("mid_skill_learning_dates_invalid")
     dates={}
+    _date_allowed={"year_index","month","half","min_discount","max_cost","spend_percent"}
     for value in result["dates"]:
-        date=game_date(value)
-        if date is None or set(value)-{"year_index","month","half"}:
+        if not isinstance(value,dict) or set(value)-_date_allowed:
             raise ValueError("mid_skill_learning_date_invalid")
-        dates[date_key(date)]=date
+        date=game_date(value)
+        if date is None:
+            raise ValueError("mid_skill_learning_date_invalid")
+        entry=dict(date)
+        if "max_cost" in value and value["max_cost"] is not None:
+            mc=value["max_cost"]
+            if type(mc) is not int or mc<0:
+                raise ValueError("mid_skill_learning_date_invalid")
+            entry["max_cost"]=mc
+        for pkey in ("min_discount","spend_percent"):
+            if pkey in value and value[pkey] is not None:
+                num=value[pkey]
+                if type(num) not in {int,float} or not math.isfinite(num) or not 0<=num<=100:
+                    raise ValueError("mid_skill_learning_date_invalid")
+                entry[pkey]=num
+        dates[date_key(entry)]=entry
     result["dates"]=sorted(dates.values(),key=lambda v:(v["year_index"],v["month"],v["half"]=="second"))
     return result
 
 
 def new_mid_skill_learning(value):
-    """Only new run/batch factories adopt general allowlist semantics."""
+    """Adopt general allowlist semantics for new runs unless caller explicitly chose a mode."""
     result=normalize_mid_skill_learning(value)
-    result["mode"]=GENERAL_MODE
+    if not (isinstance(value,dict) and value.get("mode") in {LEGACY_MODE,GENERAL_MODE}):
+        result["mode"]=GENERAL_MODE
     return result
 
 
@@ -132,13 +148,22 @@ def date_key(value):
     return f'{value["year_index"]}-{value["month"]:02d}-{value["half"]}'
 
 
-def execution_options(timing):
+def execution_options(timing,*,period=None):
     options=deepcopy(getattr(timing,"early_options",{}))
     configured=getattr(timing,"mid_skill_learning",None)
     if configured is not None:
         settings=normalize_mid_skill_learning(configured)
         options.update(max_cost=settings["max_cost"],min_discount=settings["min_discount"],
             spend_fraction=settings["spend_percent"]/100)
+        date=game_date(period)
+        if date is not None:
+            dkey=date_key(date)
+            for entry in settings["dates"]:
+                if date_key(entry)==dkey:
+                    if "max_cost" in entry:options["max_cost"]=entry["max_cost"]
+                    if "min_discount" in entry:options["min_discount"]=entry["min_discount"]
+                    if "spend_percent" in entry:options["spend_fraction"]=entry["spend_percent"]/100
+                    break
     return startup_options(options)
 
 def startup_options(options):
@@ -183,12 +208,37 @@ def startup_target(profile,run_id,timing):
 def speed_effect(row):
     if not isinstance(row,dict):return None
     if row.get("type")=="green":return False
-    effects=row.get("knowledge",{}).get("effects",row.get("effects"))
-    if isinstance(effects,list) and effects:
-        if any(isinstance(e,dict) and e.get("kind") in {"speed","instant_speed","current_speed","target_speed"} and "被动" not in str(e.get("type_raw", "")) and type(e.get("value")) in {int,float} and e["value"]>0 for e in effects):return True
-        if any(not isinstance(e,dict) or e.get("kind") in {None,"unknown"} for e in effects):return None
+    knowledge=row.get("knowledge")
+    if not isinstance(knowledge,dict):knowledge={}
+    all_effects=[]
+    effects=knowledge.get("effects",row.get("effects"))
+    if isinstance(effects,list):
+        all_effects.extend(effects)
+    branches=knowledge.get("activation_branches",row.get("activation_branches"))
+    if isinstance(branches,list):
+        for branch in branches:
+            if isinstance(branch,dict) and isinstance(branch.get("effects"),list):
+                all_effects.extend(branch["effects"])
+    if all_effects:
+        if any(
+            isinstance(e,dict)
+            and e.get("kind") in {"speed","instant_speed","current_speed","target_speed"}
+            and not any(bad in str(e.get("type_raw","")) for bad in ("被动","减速","降低","目标速度降低"))
+            and type(e.get("value")) in {int,float}
+            and e["value"]>0
+            for e in all_effects
+        ):
+            return True
+        if any(not isinstance(e,dict) or e.get("kind") in {None,"unknown"} for e in all_effects):
+            type_raw=str(knowledge.get("type_raw") or row.get("type_raw") or "")
+            if "速度" in type_raw and not any(bad in type_raw for bad in ("被动","减速","降低","目标速度降低")):
+                return True
+            return None
         return False # acceleration/green/debuff/lateral-only are not speed
     if row.get("type")=="speed":return True
+    type_raw=str(knowledge.get("type_raw") or row.get("type_raw") or "")
+    if "速度" in type_raw and not any(bad in type_raw for bad in ("被动","减速","降低","目标速度降低")):
+        return True
     if row.get("type") in {"acceleration","green","recovery","debuff"}:return False
     return None
 
@@ -324,7 +374,7 @@ def due_reasons(ledger,target,*,run_id,turn,points,timing,information_revision=N
         reasons=[]
         date=game_date(period)
         checked=ledger.get("checked_dates",[])
-        if date is not None and date in settings["dates"] and date_key(date) not in checked:
+        if date is not None and any(date_key(entry)==date_key(date) for entry in settings["dates"]) and date_key(date) not in checked:
             reasons.append("date:"+date_key(date))
         if settings["interval_enabled"] and (type(last) is not int or turn-last>=settings["interval_turns"]):
             reasons.append("interval")

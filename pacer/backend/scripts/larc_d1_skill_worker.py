@@ -395,7 +395,7 @@ def run_skill_batch(*, d1_root: Path, run_root: Path, output_dir: Path, turn_id:
                     not in ({None, "any", "leader", "front", "betweener", "chaser"} if arc_policy["enabled"] else {"leader", "front", "betweener", "chaser"})):
                 raise ValueError("terminal_race_policy_invalid")
             context["turn_id"] = turn_id
-            context.setdefault("policy", {})["max_purchase_count"] = 5
+            context.setdefault("policy", {})["max_purchase_count"] = 20
             preference = policy_dir / ("speed_ge1200.preference.json"
                 if type(current_speed) is int and current_speed >= 1200 else "speed_lt1200.preference.json")
             if not preference.is_file():
@@ -412,7 +412,7 @@ def run_skill_batch(*, d1_root: Path, run_root: Path, output_dir: Path, turn_id:
             context = target_helper.target_context(context, arc_policy)
             context["larc_year"] = 3
             context["terminal_build"] = True
-            context["policy"]["max_purchase_count"] = 5
+            context["policy"]["max_purchase_count"] = 20
             if arc_policy["auto_cm"]:
                 context["policy"].pop("reserve_skill_pt", None)
                 context["policy"].pop("trigger_budget", None)

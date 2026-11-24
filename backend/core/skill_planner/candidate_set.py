@@ -157,7 +157,7 @@ def _is_current_run_multi_evidence_binding(binding: dict[str, object]) -> bool:
     local_db_id = contract.get('local_db_id')
     identity_status = contract.get('identity_status')
     metadata_status = contract.get('metadata_status')
-    return binding.get('binding_policy') == 'current_run_multi_evidence' and float(binding.get('confidence', 0.0)) >= 0.7 and (binding.get('evidence_dimensions') in {3, 4}) and (evidence.get('cost') == 1.0) and (evidence.get('rarity') == 1.0) and (evidence.get('icon_color') == 1.0) and (contract.get('version') == 'current_run_multi_evidence.v1') and (type(local_db_id) is str) and local_db_id.isdigit() and (identity_status in {'manual_verified', 'exact_local_db_id_join'}) and (metadata_status in {'manual_verified', 'external_cross_checked'}) and (contract.get('description_anchor_exact') is True or contract.get('name_score_threshold_met') is True)
+    return binding.get('binding_policy') == 'current_run_multi_evidence' and float(binding.get('confidence', 0.0)) >= 0.7 and (binding.get('evidence_dimensions') in {3, 4, 5}) and (evidence.get('cost') == 1.0) and (evidence.get('rarity') == 1.0) and (evidence.get('icon_color') == 1.0) and (contract.get('version') == 'current_run_multi_evidence.v1') and (type(local_db_id) is str) and local_db_id.isdigit() and (identity_status in {'manual_verified', 'exact_local_db_id_join'}) and (metadata_status in {'manual_verified', 'external_cross_checked'}) and (contract.get('description_anchor_exact') is True or contract.get('name_score_threshold_met') is True)
 
 def _is_json_safe(value: object) -> bool:
     if value is None or type(value) in {str, bool, int}:

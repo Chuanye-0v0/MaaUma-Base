@@ -10,6 +10,7 @@ from core.career_workflow import normalize_ss_sieve
 ACE_CYCLE_MODE = 'ace_career_cycle'
 STATS = ('speed', 'stamina', 'power', 'guts', 'wisdom')
 DISTANCES = ('short', 'mile', 'medium', 'long')
+SURFACES = ('turf', 'dirt')
 RANKS = 'GFEDCBAS'
 MAX_TARGET_GRADUATES = 50
 
@@ -27,7 +28,7 @@ def normalize_ace_cycle(value=None):
     if value is None:
         return {
             'target_graduates': 1,
-            'graduation': {'enabled': False, 'min_stats': {}, 'min_stat_sum': None, 'distances': {}},
+            'graduation': {'enabled': False, 'min_stats': {}, 'min_stat_sum': None, 'distances': {}, 'surfaces': {}},
             'ss_sieve': None,
         }
     if not isinstance(value, dict) or set(value) - {'target_graduates', 'graduation', 'ss_sieve'}:
@@ -38,7 +39,7 @@ def normalize_ace_cycle(value=None):
     raw_grad = value.get('graduation')
     if raw_grad is None:
         raw_grad = {}
-    if not isinstance(raw_grad, dict) or set(raw_grad) - {'enabled', 'min_stats', 'min_stat_sum', 'distances'}:
+    if not isinstance(raw_grad, dict) or set(raw_grad) - {'enabled', 'min_stats', 'min_stat_sum', 'distances', 'surfaces'}:
         raise ValueError('成品毕业筛选配置包含未知参数。')
     enabled = raw_grad.get('enabled', False)
     if type(enabled) is not bool:
@@ -64,8 +65,16 @@ def normalize_ace_cycle(value=None):
         if not isinstance(rank, str) or len(rank) != 1 or rank not in RANKS:
             raise ValueError(f'成品毕业距离适性 {dist} 等级应为 G～S。')
         distances[dist] = rank
-    if enabled and not (min_stats or min_stat_sum is not None or distances):
-        raise ValueError('成品毕业筛选开启后请至少设置一项五维或距离适性门槛。')
+    raw_surfaces = raw_grad.get('surfaces') or {}
+    if not isinstance(raw_surfaces, dict) or set(raw_surfaces) - set(SURFACES):
+        raise ValueError('成品毕业场地适性门槛包含不支持的场地键。')
+    surfaces = {}
+    for surf, rank in raw_surfaces.items():
+        if not isinstance(rank, str) or len(rank) != 1 or rank not in RANKS:
+            raise ValueError(f'成品毕业场地适性 {surf} 等级应为 G～S。')
+        surfaces[surf] = rank
+    if enabled and not (min_stats or min_stat_sum is not None or distances or surfaces):
+        raise ValueError('成品毕业筛选开启后请至少设置一项五维、距离或场地适性门槛。')
     ss_sieve = normalize_ss_sieve(value['ss_sieve']) if value.get('ss_sieve') is not None else None
     return {
         'target_graduates': target_graduates,
@@ -74,6 +83,7 @@ def normalize_ace_cycle(value=None):
             'min_stats': min_stats,
             'min_stat_sum': min_stat_sum,
             'distances': distances,
+            'surfaces': surfaces,
         },
         'ss_sieve': ss_sieve,
     }
@@ -113,10 +123,11 @@ def _extract_stats_from_summary(summary: dict) -> dict | None:
 
 
 def inspect_completed_career(run_root, *, token_reader=None, rank_reader=None) -> dict:
-    """Extract final 5-stat and distance-aptitude facts from verified run artifacts."""
+    """Extract final 5-stat, distance-aptitude, and surface-aptitude facts from verified run artifacts."""
     root = Path(run_root).resolve()
     stats = {}
     distances = {}
+    surfaces = {}
     sources = {}
 
     injected_path = root / 'session/ace_final_facts.json'
@@ -139,6 +150,14 @@ def inspect_completed_career(run_root, *, token_reader=None, rank_reader=None) -
                 if valid_dist:
                     distances = valid_dist
                     sources['distances'] = str(injected_path)
+            if isinstance(injected.get('surfaces'), dict):
+                valid_surf = {
+                    k: v for k, v in injected['surfaces'].items()
+                    if k in SURFACES and isinstance(v, str) and len(v) == 1 and v in RANKS
+                }
+                if valid_surf:
+                    surfaces = valid_surf
+                    sources['surfaces'] = str(injected_path)
 
     if not stats:
         summaries = sorted(
@@ -167,7 +186,9 @@ def inspect_completed_career(run_root, *, token_reader=None, rank_reader=None) -
                 sources['stats'] = str(menu_path)
                 break
 
-    if not distances:
+    need_distances = not distances
+    need_surfaces = not surfaces
+    if need_distances or need_surfaces:
         settle_state_path = root / 'session/larc_terminal_settlement.json'
         settle_state = _read_json(settle_state_path) if settle_state_path.is_file() else {}
         if settle_state.get('status') == 'complete' and settle_state.get('report_path'):
@@ -193,27 +214,40 @@ def inspect_completed_career(run_root, *, token_reader=None, rank_reader=None) -
                         continue
                     import cv2
                     from core.auto_trainer.cut_condition_probe import ocr_tokens
-                    from scripts.larc_continuation_inspection import read_aptitudes
+                    from scripts.larc_continuation_inspection import read_aptitudes, read_surface_aptitudes
 
                     image = cv2.imread(str(frame_path))
                     if image is None or image.shape[1::-1] not in {(720, 1280), (1440, 2560)}:
                         continue
                     tokens = ocr_tokens(cv2.resize(image, (720, 1280)), token_reader)
-                    parsed_dist = read_aptitudes(image, tokens, rank_reader=rank_reader)
-                    valid_parsed = {
-                        k: v for k, v in (parsed_dist or {}).items()
-                        if k in DISTANCES and isinstance(v, str) and len(v) == 1 and v in RANKS
-                    }
-                    if valid_parsed:
-                        distances.update(valid_parsed)
-                        sources['distances'] = str(frame_path)
-                        if set(DISTANCES) <= set(distances):
-                            break
+                    if need_distances:
+                        parsed_dist = read_aptitudes(image, tokens, rank_reader=rank_reader)
+                        valid_parsed = {
+                            k: v for k, v in (parsed_dist or {}).items()
+                            if k in DISTANCES and isinstance(v, str) and len(v) == 1 and v in RANKS
+                        }
+                        if valid_parsed:
+                            distances.update(valid_parsed)
+                            sources['distances'] = str(frame_path)
+                    if need_surfaces:
+                        parsed_surf = read_surface_aptitudes(image, tokens, rank_reader=rank_reader)
+                        valid_surf = {
+                            k: v for k, v in (parsed_surf or {}).items()
+                            if k in SURFACES and isinstance(v, str) and len(v) == 1 and v in RANKS
+                        }
+                        if valid_surf:
+                            surfaces.update(valid_surf)
+                            sources['surfaces'] = str(frame_path)
+                    if (not need_distances or set(DISTANCES) <= set(distances)) and (
+                        not need_surfaces or set(SURFACES) <= set(surfaces)
+                    ):
+                        break
 
     return {
         'run_session_id': root.name,
         'stats': stats,
         'distances': distances,
+        'surfaces': surfaces,
         'sources': sources,
     }
 
@@ -251,6 +285,16 @@ def evaluate_graduation(ace_config, facts) -> dict:
             actual_rank = actual_rank if actual_rank in tuple(RANKS) else None
             passed = None
         checks.append({'kind': 'distance_min', 'distance': dist, 'expected': req_rank, 'actual': actual_rank, 'passed': passed})
+
+    surfaces = facts_copy.get('surfaces') or {}
+    for surf, req_rank in cfg['surfaces'].items():
+        actual_rank = surfaces.get(surf)
+        if isinstance(actual_rank, str) and len(actual_rank) == 1 and actual_rank in RANKS:
+            passed = RANKS.index(actual_rank) >= RANKS.index(req_rank)
+        else:
+            actual_rank = actual_rank if actual_rank in tuple(RANKS) else None
+            passed = None
+        checks.append({'kind': 'surface_min', 'surface': surf, 'expected': req_rank, 'actual': actual_rank, 'passed': passed})
 
     if any(row['passed'] is False for row in checks):
         status = 'unqualified'

@@ -181,6 +181,7 @@ class RaceRouteSession:
     clock_retries_used: int = 0
     last_clock_retry_remaining: int | None = None
     clock_retry_entry_pending: bool = False
+    clock_retry_declined: bool = False
 
     def __post_init__(self) -> None:
         has_ids = bool(self.planned_race_ids)
@@ -213,6 +214,8 @@ class RaceRouteSession:
             raise ValueError("clock_retries_used_invalid")
         if type(self.clock_retry_entry_pending) is not bool:
             raise ValueError("clock_retry_entry_pending_invalid")
+        if type(self.clock_retry_declined) is not bool:
+            raise ValueError("clock_retry_declined_invalid")
         if self.last_clock_retry_remaining is not None and (
                 type(self.last_clock_retry_remaining) is not int or not 1 <= self.last_clock_retry_remaining <= 9):
             raise ValueError("last_clock_retry_remaining_invalid")

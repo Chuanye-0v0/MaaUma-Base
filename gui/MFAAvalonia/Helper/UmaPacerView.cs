@@ -753,6 +753,7 @@ public sealed partial class UmaPacerView : UserControl
         }
         runtime.Children.Add(runtimeHeading);
         runtime.Children.Add(stateText);runtime.Children.Add(manualHandoffStatus);
+        if(pacerCenter)runtime.Children.Add(BuildCaptureLatencyBar());
         if(pacerCenter)runtime.Children.Add(BuildCurrentPausePlan());
         runtime.Children.Add(career);
         if(!pacerCenter)cutRuntime.Children.Add(cutProgress);
@@ -1843,6 +1844,7 @@ public sealed partial class UmaPacerView : UserControl
     private void Render(UmaPacerContext current)
     {
         if(pacerCenter)RenderRealtimeLuck(snapshot);
+        if(pacerCenter)RenderCaptureLatency(current, snapshot);
         if (snapshot == null) return;
         var learning=snapshot["mid_skill_learning_status"] as JObject
             ??(snapshot["record"] as JObject)?["mid_skill_learning_status"] as JObject;

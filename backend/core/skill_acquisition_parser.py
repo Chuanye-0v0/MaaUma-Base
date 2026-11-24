@@ -128,7 +128,8 @@ def _detect_skill_row_layout(image: np.ndarray) -> dict[str, Any]:
     normalized, _scale = _normalize_image(image)
     x1, viewport_top, x2, viewport_bottom = LIST_VIEWPORT
     gray = cv2.cvtColor(normalized, cv2.COLOR_BGR2GRAY)
-    horizontal_mean = gray[:, x1 + 10:x2 - 20].mean(axis=1)
+    # Skip x1..x1+130 (x=30..160) where protruding "达成进化条件" badges sit in the inter-row gap.
+    horizontal_mean = gray[:, x1 + 130:x2 - 20].mean(axis=1)
     gap_mask = horizontal_mean[viewport_top:viewport_bottom] > 254.5
     gaps = _contiguous_true_segments(gap_mask, min_length=10)
     if not gaps:
@@ -758,7 +759,12 @@ def _entry_field_value(entry: dict[str, Any], field: str) -> Any:
 def _partial_agrees_with_complete(partial: dict[str, Any], complete: dict[str, Any]) -> bool:
     for field in ('name', 'description', 'cost', 'hint_level', 'discount_percent'):
         partial_value = _entry_field_value(partial, field)
-        if partial_value is not None and partial_value != _entry_field_value(complete, field):
+        complete_value = _entry_field_value(complete, field)
+        if field == 'description' and isinstance(partial_value, str) and isinstance(complete_value, str):
+            # Tolerate dropped ASCII/CJK angle brackets like '<泥地>' vs '泥地>' between scrolls.
+            partial_value = re.sub('[^0-9A-Za-z\\u3400-\\u9fff]+', '', partial_value).lower()
+            complete_value = re.sub('[^0-9A-Za-z\\u3400-\\u9fff]+', '', complete_value).lower()
+        if partial_value is not None and partial_value != complete_value:
             return False
     return all((partial.get(field) == complete.get(field) for field in ('plus_available', 'minus_state', 'acquired')))
 
@@ -828,16 +834,27 @@ def build_skill_planner_observation(manifest: dict[str, Any], *, name_to_skill_i
         if not name:
             skipped.append({'name': None, 'reason': 'name_unknown', 'source_evidence': evidence})
             continue
-        skill_id = name_to_skill_id.get(str(name))
+        resolution = skill.get('name_resolution')
+        if (skill.get('acquired') is True and skill.get('skill_id')
+                and isinstance(resolution, dict) and resolution.get('status') == 'auto_confirmed'):
+            skill_id = str(skill['skill_id'])
+        else:
+            skill_id = name_to_skill_id.get(str(name))
         if not skill_id:
             skipped.append({'name': name, 'reason': 'skill_id_unmapped', 'source_evidence': evidence})
             continue
         field_confidence = dict(skill.get('field_confidence', {}))
         name_confidence = float(field_confidence.get('name', 0.0) or 0.0)
-        resolution = skill.get('name_resolution')
         strong_resolution = isinstance(resolution, dict) and resolution.get('status') == 'auto_confirmed' and (float(resolution.get('confidence', 0.0) or 0.0) >= min_confidence) and (float(resolution.get('margin', 0.0) or 0.0) >= 0.1) and (int(resolution.get('evidence_dimensions', 0) or 0) >= 3)
         current_run_resolution = _has_current_run_multi_evidence_binding(skill, resolution)
-        trusted_resolution = strong_resolution or current_run_resolution
+        acquired_twin_resolution = (
+            skill.get('acquired') is True
+            and isinstance(resolution, dict)
+            and resolution.get('status') == 'auto_confirmed'
+            and resolution.get('binding_policy') == 'acquired_unique_twin'
+            and float(resolution.get('confidence', 0.0) or 0.0) >= min_confidence
+        )
+        trusted_resolution = strong_resolution or current_run_resolution or acquired_twin_resolution
         if not trusted_resolution and name_confidence < min_confidence:
             skipped.append({'name': name, 'skill_id': skill_id, 'reason': 'name_confidence_low', 'source_evidence': evidence})
             continue

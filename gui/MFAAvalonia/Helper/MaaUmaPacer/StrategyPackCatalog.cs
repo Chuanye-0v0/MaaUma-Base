@@ -16,6 +16,14 @@ public sealed record WeightPresetEntry(
     string PackId
 );
 
+public sealed record SkillLadderPresetEntry(
+    string Id,
+    string Name,
+    string Summary,
+    string PolicyJson,
+    string PackId
+);
+
 public sealed record StrategyRevisionEntry(
     string Revision,
     string Label,
@@ -81,7 +89,8 @@ public static class StrategyPackCatalog
         string[] UnlockedWorkflowModeIds,
         HashSet<string> UnlockedWorkflowModeSet,
         bool AllowCustomWorkflowModes,
-        WeightPresetEntry[] WeightPresets
+        WeightPresetEntry[] WeightPresets,
+        SkillLadderPresetEntry[] SkillLadderPresets
     );
 
     public static bool HasExternalPack { get { lock (SyncRoot) return _current.HasExternalPack; } }
@@ -92,6 +101,7 @@ public static class StrategyPackCatalog
     public static IReadOnlyList<string> UnlockedWorkflowModeIds { get { lock (SyncRoot) return _current.UnlockedWorkflowModeIds; } }
     public static bool AllowCustomWorkflowModes { get { lock (SyncRoot) return _current.AllowCustomWorkflowModes; } }
     public static WeightPresetEntry[] WeightPresets { get { lock (SyncRoot) return _current.WeightPresets; } }
+    public static IReadOnlyList<SkillLadderPresetEntry> SkillLadderPresets { get { lock (SyncRoot) return _current.SkillLadderPresets; } }
 
     public static bool IsWorkflowModeUnlocked(string? modeId)
     {
@@ -347,6 +357,8 @@ public static class StrategyPackCatalog
         var allowCustomModes = false;
         var weightPresets = new List<WeightPresetEntry>();
         var seenPresetIds = new HashSet<string>(StringComparer.Ordinal);
+        var skillLadderPresets = new List<SkillLadderPresetEntry>();
+        var seenLadderPresetIds = new HashSet<string>(StringComparer.Ordinal);
         string? packDefaultRevision = null;
 
         foreach (var manifestPath in DiscoverManifestPaths())
@@ -423,6 +435,46 @@ public static class StrategyPackCatalog
                             ((string?)pItem["summary"] ?? "").Trim(),
                             string.IsNullOrWhiteSpace((string?)pItem["recommended_revision"]) ? null : ((string?)pItem["recommended_revision"])!.Trim(),
                             profileJson,
+                            packId ?? packKey
+                        ));
+                    }
+                }
+
+                if (obj["skill_ladder_presets"] is JArray ladderList)
+                {
+                    var packRootFull = Path.GetFullPath(packDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                    foreach (var lItem in ladderList.OfType<JObject>())
+                    {
+                        var lid = ((string?)lItem["id"] ?? "").Trim();
+                        var lname = ((string?)lItem["name"] ?? "").Trim();
+                        if (string.IsNullOrEmpty(lid) || string.IsNullOrEmpty(lname) || seenLadderPresetIds.Contains(lid))
+                            continue;
+                        string? policyJson = null;
+                        if (lItem["file"] is JValue { Type: JTokenType.String } lFileTok)
+                        {
+                            var rel = (lFileTok.Value<string>() ?? "").Trim();
+                            if (!string.IsNullOrEmpty(rel))
+                            {
+                                var targetFull = Path.GetFullPath(Path.Combine(packDir, rel));
+                                if (targetFull.StartsWith(packRootFull, StringComparison.OrdinalIgnoreCase) && File.Exists(targetFull))
+                                {
+                                    var parsedPolicy = JObject.Parse(File.ReadAllText(targetFull));
+                                    policyJson = parsedPolicy.ToString(Newtonsoft.Json.Formatting.None);
+                                }
+                            }
+                        }
+                        else if (lItem["policy"] is JObject inlinePolicy)
+                        {
+                            policyJson = inlinePolicy.ToString(Newtonsoft.Json.Formatting.None);
+                        }
+                        if (string.IsNullOrWhiteSpace(policyJson))
+                            continue;
+                        seenLadderPresetIds.Add(lid);
+                        skillLadderPresets.Add(new SkillLadderPresetEntry(
+                            lid,
+                            lname,
+                            ((string?)lItem["summary"] ?? "").Trim(),
+                            policyJson,
                             packId ?? packKey
                         ));
                     }
@@ -510,7 +562,8 @@ public static class StrategyPackCatalog
             orderedUnlockedModeIds,
             unlockedModes,
             allowCustomModes,
-            weightPresets.ToArray()
+            weightPresets.ToArray(),
+            skillLadderPresets.ToArray()
         );
     }
 

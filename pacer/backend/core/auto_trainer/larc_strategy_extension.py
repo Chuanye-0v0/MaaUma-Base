@@ -7,6 +7,7 @@ presets, policy revisions, and advanced valuation hooks at bootstrap time.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 import importlib.util
 import json
 import os
@@ -319,7 +320,9 @@ class StrategyExtensionRegistry:
         self.unlocked_workflow_modes: list[str] = ["direct_career"]
         self.allow_custom_workflows: bool = False
         self.weight_presets: list[dict[str, Any]] = []
+        self.skill_ladder_presets: list[dict[str, Any]] = []
         self.loaded_packs: list[dict[str, Any]] = []
+        self.load_errors: list[dict[str, str]] = []
 
     def register_workflow_modes(
         self,
@@ -348,6 +351,23 @@ class StrategyExtensionRegistry:
         if any(existing.get("id") == pid for existing in self.weight_presets):
             return
         self.weight_presets.append(dict(preset))
+
+    def register_skill_ladder_preset(self, preset: dict[str, Any]) -> None:
+        pid = str(preset.get("id") or "").strip()
+        if not pid:
+            return
+        if any(existing.get("id") == pid for existing in self.skill_ladder_presets):
+            return
+        self.skill_ladder_presets.append(deepcopy(preset))
+
+    def get_skill_ladder_preset(self, preset_id: str) -> dict[str, Any] | None:
+        pid = str(preset_id or "").strip()
+        if not pid:
+            return None
+        for existing in self.skill_ladder_presets:
+            if existing.get("id") == pid and isinstance(existing.get("policy"), dict):
+                return deepcopy(existing["policy"])
+        return None
 
     def set_provider(self, provider: StrategyExtensionProvider) -> None:
         self.provider = provider
@@ -485,6 +505,36 @@ def _load_pack_dir(pack_dir: Path, registry: StrategyExtensionRegistry) -> None:
             }
             registry.register_weight_preset(entry)
 
+    raw_ladders = manifest.get("skill_ladder_presets")
+    if isinstance(raw_ladders, list):
+        for item in raw_ladders:
+            if not isinstance(item, dict):
+                continue
+            lid = str(item.get("id") or "").strip()
+            lname = str(item.get("name") or "").strip()
+            if not lid or not lname:
+                continue
+            policy_obj = None
+            if isinstance(item.get("file"), str) and item["file"].strip():
+                candidate = (pack_dir / item["file"].strip()).resolve()
+                if candidate.is_relative_to(pack_root) and candidate.is_file():
+                    loaded_policy = json.loads(candidate.read_text(encoding="utf-8-sig"))
+                    if isinstance(loaded_policy, dict):
+                        policy_obj = loaded_policy
+            elif isinstance(item.get("policy"), dict):
+                policy_obj = deepcopy(item["policy"])
+            if policy_obj is None:
+                continue
+            registry.register_skill_ladder_preset(
+                {
+                    "id": lid,
+                    "name": lname,
+                    "summary": str(item.get("summary") or "").strip(),
+                    "policy": policy_obj,
+                    "pack_id": pack_id,
+                }
+            )
+
     pkg_name = f"_maauma_ext_pack_{pack_id}"
     spec = importlib.util.spec_from_file_location(
         pkg_name,
@@ -508,7 +558,10 @@ def ensure_bootstrapped() -> StrategyExtensionRegistry:
         return _REGISTRY
     _BOOTSTRAPPED = True
     for pack_dir in discover_pack_dirs():
-        _load_pack_dir(pack_dir, _REGISTRY)
+        try:
+            _load_pack_dir(pack_dir, _REGISTRY)
+        except Exception as exc:
+            _REGISTRY.load_errors.append({"pack_dir": str(pack_dir), "error": f"{type(exc).__name__}: {exc}"})
     _REGISTRY._notify_reload()
     return _REGISTRY
 
@@ -528,6 +581,7 @@ def strategy_pack_status() -> dict[str, Any]:
     return {
         "has_external_pack": bool(reg.loaded_packs),
         "loaded_packs": list(reg.loaded_packs),
+        "load_errors": list(reg.load_errors),
         "current_revision": CURRENT_REVISION,
         "available_revisions": list(REVISION_POLICY_VERSIONS.keys()),
         "unlocked_workflow_modes": list(reg.unlocked_workflow_modes),
@@ -540,5 +594,14 @@ def strategy_pack_status() -> dict[str, Any]:
                 if preset.get(key) is not None
             }
             for preset in reg.weight_presets
+        ],
+        "skill_ladder_preset_count": len(reg.skill_ladder_presets),
+        "skill_ladder_presets": [
+            {
+                key: preset[key]
+                for key in ("id", "name", "summary", "pack_id")
+                if preset.get(key) is not None
+            }
+            for preset in reg.skill_ladder_presets
         ],
     }

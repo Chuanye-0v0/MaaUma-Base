@@ -150,7 +150,7 @@ def _modal_controls(hsv):
     return False
 
 
-def adaptation_controls(image, *, allow_home=True):
+def adaptation_controls(image, *, allow_home=True, require_leave_grid=False):
     from core.auto_trainer.safe_advance import SafeAdvanceExecutor, SafeAdvancePlanner
     im = canonical(image)
     hsv = cv2.cvtColor(im, cv2.COLOR_BGR2HSV)
@@ -161,6 +161,8 @@ def adaptation_controls(image, *, allow_home=True):
         return allow_home
     if SafeAdvancePlanner._looks_like_confirm_modal_panel(im) or _modal_controls(hsv):
         return True
+    if require_leave_grid:
+        return False
     # Existing aptitude grid's opaque blue details header and panel.
     header = hsv[655:682, 50:670]
     blue = (header[:, :, 0] > 100) & (header[:, :, 0] < 130) & (header[:, :, 1] > 100)

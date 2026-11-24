@@ -903,6 +903,7 @@ class RaceRouteExecutor:
                 }
             if decision.get("reason") in {
                 "leave_selected_non_g1_race_list",
+                "leave_unverified_g1_race_list",
                 "leave_fan_goal_shortfall_race_list",
                 "leave_unavailable_custom_scheduled_race_list",
             } and session is not None:
@@ -971,9 +972,11 @@ class RaceRouteExecutor:
             session.clock_retries_used += 1
             session.last_clock_retry_remaining = decision["evidence"]["clock_retry"]["remaining"]
             session.clock_retry_entry_pending = False
+            session.clock_retry_declined = False
             session.result_transition_pending = False
         elif session is not None and decision.get('reason') == 'cancel_clock_retry':
             session.clock_retry_entry_pending = False
+            session.clock_retry_declined = True
             session.result_transition_pending = True
         elif session is not None and decision.get('reason')=='open_lost_race_retry':
             session.clock_retry_entry_pending = True

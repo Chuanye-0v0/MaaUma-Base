@@ -247,7 +247,7 @@ def _is_current_run_multi_evidence_binding(binding: dict[str, object]) -> bool:
     return (
         binding.get("binding_policy") == "current_run_multi_evidence"
         and float(binding.get("confidence", 0.0)) >= 0.70
-        and binding.get("evidence_dimensions") in {3, 4}
+        and binding.get("evidence_dimensions") in {3, 4, 5}
         and evidence.get("cost") == 1.0
         and evidence.get("rarity") == 1.0
         and evidence.get("icon_color") == 1.0

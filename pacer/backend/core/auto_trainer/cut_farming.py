@@ -11,6 +11,8 @@ import time
 from time import sleep
 
 
+from core.event_knowledge_lookup import PERSONAL_PATH
+
 CHARACTERS = {
     '101001': {'name': '原皮大树快车', 'events': {'501010515': 'TO THE NO.1！', '501010523': '交给牛仔女孩吧☆'}},
     '103102': {'name': '情人节风神', 'events': {'501031802': '尽管交给姐姐吧！', '501031523': '新的挑战！'}},
@@ -18,7 +20,7 @@ CHARACTERS = {
 }
 EVENT_OWNERS={'101001':'タイキシャトル（ワイルド・フロンティア）',
     '103102':'アイネスフウジン（MELTYGIFT）','106501':'ダイタクヘリオス（Fun☆Fun☆ぱりない）'}
-EVENT_CACHE = str(Path(__file__).resolve().parents[2]/'.cache/event_knowledge/umaassistant_personal_v1.json')
+EVENT_CACHE = str(PERSONAL_PATH)
 TERMINAL_STATES = {'found', 'unknown', 'stopped', 'limit_reached', 'route_failed', 'handoff'}
 CHARACTER_ROSTER = Path(__file__).resolve().parents[1]/'autonomous_training/plant_roster.json'
 

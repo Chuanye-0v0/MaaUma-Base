@@ -153,6 +153,9 @@ def _card_confirmed_wild(event_or_row,scope,*,library=None):
 
 _CN_SUPPORT_TITLE_ALIASES={
     title_key('将火焰般的爱意献给你'):title_key('将如火般的爱意献给你'),
+    title_key('你是速度精确的行板'):title_key('你是节奏恰到好处的行板'),
+    title_key('从高十五度恢复原位但是'):title_key('从十五度音程转回原位......但是'),
+    title_key('从高十五度恢复原位但是一'):title_key('从十五度音程转回原位......但是'),
 }
 
 

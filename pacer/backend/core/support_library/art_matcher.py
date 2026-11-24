@@ -67,6 +67,23 @@ class CardArtMatcher:
             references[card_id] = read_image(path.parent / card['image_path'])
         return cls(references, **kwargs)
 
+    def _score_band(self, patch: np.ndarray, center_y_ratio: float, half_h: int) -> list[tuple[int, float]]:
+        """Score a centered artwork band against all reference scales."""
+        scores = []
+        for card_id, variants in self.templates.items():
+            best = -1.0
+            for reference in variants:
+                # Restrict the search around the expected centre, not arbitrary patches.
+                x = (reference.shape[1] - 60) // 2
+                y = round(reference.shape[0] * center_y_ratio) - half_h
+                window = reference[max(0, y - 6):y + half_h * 2 + 6, max(0, x - 6):x + 66]
+                if window.shape[0] >= patch.shape[0] and window.shape[1] >= patch.shape[1]:
+                    score = float(cv2.matchTemplate(window, patch, cv2.TM_CCOEFF_NORMED).max())
+                    best = max(best, score)
+            scores.append((card_id, best))
+        scores.sort(key=lambda row: row[1], reverse=True)
+        return scores
+
     def match(self, crop: np.ndarray) -> CardArtMatch:
         if crop is None or crop.size == 0:
             return CardArtMatch('unknown', None, 'empty_crop')
@@ -78,22 +95,25 @@ class CardArtMatcher:
         artwork = normalized[36:98, 18:78]
         if float(artwork.std()) < 8:
             return CardArtMatch('unknown', None, 'no_artwork_detail')
-        scores = []
-        for card_id, variants in self.templates.items():
-            best = -1.0
-            for reference in variants:
-                # Restrict the search around the expected centre, not arbitrary patches.
-                x = (reference.shape[1] - 60) // 2
-                y = round(reference.shape[0] * (67 / 128)) - 31
-                window = reference[y - 6:y + 68, x - 6:x + 66]
-                score = float(cv2.matchTemplate(window, artwork, cv2.TM_CCOEFF_NORMED).max())
-                best = max(best, score)
-            scores.append((card_id, best))
-        scores.sort(key=lambda row: row[1], reverse=True)
+        scores = self._score_band(artwork, 67 / 128, 31)
         best_id, best_score = scores[0]
         margin = best_score - (scores[1][1] if len(scores) > 1 else 0.0)
         reason = ('low_similarity' if best_score < self.min_score else
                   'ambiguous_artwork' if margin < self.min_margin else 'matched_artwork')
+        if reason == 'low_similarity':
+            # Event bonus ribbons (e.g. "Pt↑ EP xx%") cover normalized rows 84..98;
+            # recover via the unoccluded upper-central band only when unambiguous.
+            upper = normalized[32:82, 18:78]
+            if float(upper.std()) >= 8:
+                upper_scores = self._score_band(upper, 57 / 128, 25)
+                upper_id, upper_score = upper_scores[0]
+                upper_margin = upper_score - (upper_scores[1][1] if len(upper_scores) > 1 else 0.0)
+                if (upper_id == best_id
+                        and upper_score >= max(self.min_score + 0.05, 0.85)
+                        and upper_margin >= max(self.min_margin + 0.05, 0.15)):
+                    return CardArtMatch('matched', upper_id, 'matched_artwork_upper_band',
+                                        round(upper_score, 4), round(upper_margin, 4),
+                                        tuple((cid, round(s, 4)) for cid, s in upper_scores[:3]))
         accepted = reason == 'matched_artwork'
         return CardArtMatch('matched' if accepted else 'unknown', best_id if accepted else None,
                             reason, round(best_score, 4), round(margin, 4),

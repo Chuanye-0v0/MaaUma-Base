@@ -25,9 +25,17 @@ REVIEWED_PATHS = (
     ROOT / "data/event_knowledge/staging/christmas_oguri_cn_observed_20260928_v1.json",
     ROOT / "data/event_knowledge/staging/current_run_support_cn_observed_20260928_v1.json",
 )
-PERSONAL_PATH = ROOT / ".cache/event_knowledge/umaassistant_personal_v1.json"
+PACKAGED_PERSONAL_PATH = ROOT / "data/event_knowledge/umaassistant_personal_v1.json"
+LEGACY_PERSONAL_PATH = ROOT / ".cache/event_knowledge/umaassistant_personal_v1.json"
+PERSONAL_PATH = PACKAGED_PERSONAL_PATH if PACKAGED_PERSONAL_PATH.is_file() else LEGACY_PERSONAL_PATH
 CHARACTER_CN_OVERLAY_PATH = ROOT / "data/event_knowledge/character_cn_title_overlay_v1.json"
-CN_TITLE_CATALOG_PATH = ROOT / ".cache/event_knowledge/bwiki_cn_titles_v1.json"
+PACKAGED_CN_TITLE_CATALOG_PATH = ROOT / "data/event_knowledge/bwiki_cn_titles_v1.json"
+LEGACY_CN_TITLE_CATALOG_PATH = ROOT / ".cache/event_knowledge/bwiki_cn_titles_v1.json"
+CN_TITLE_CATALOG_PATH = (
+    PACKAGED_CN_TITLE_CATALOG_PATH
+    if PACKAGED_CN_TITLE_CATALOG_PATH.is_file()
+    else LEGACY_CN_TITLE_CATALOG_PATH
+)
 _QUOTE_PAIRS = (("“", "”"), ("「", "」"), ("『", "』"), ('"', '"'))
 _STAGE = re.compile(r"^(support_chain_step|support_outing_step):(\d+)$")
 
@@ -203,7 +211,11 @@ def lookup_event(
             raise ValueError("personal candidate index format changed")
         overlay_events = (
             load_character_cn_overlay().get("events", {})
-            if p_path.resolve() == PERSONAL_PATH.resolve()
+            if p_path.resolve() in {
+                PERSONAL_PATH.resolve(),
+                PACKAGED_PERSONAL_PATH.resolve(),
+                LEGACY_PERSONAL_PATH.resolve(),
+            }
             else {}
         )
         matches = []
@@ -286,7 +298,13 @@ def personal_candidate_reference(
     lines = [normalize_text(line) for line in visible_text.splitlines() if line.strip()]
     overlay_ver = (
         _file_version(CHARACTER_CN_OVERLAY_PATH)
-        if path.is_file() and path.resolve() == PERSONAL_PATH.resolve() and CHARACTER_CN_OVERLAY_PATH.is_file()
+        if path.is_file()
+        and path.resolve() in {
+            PERSONAL_PATH.resolve(),
+            PACKAGED_PERSONAL_PATH.resolve(),
+            LEGACY_PERSONAL_PATH.resolve(),
+        }
+        and CHARACTER_CN_OVERLAY_PATH.is_file()
         else None
     )
     index = _personal_cn_title_index(_file_version(path), overlay_ver) if path.is_file() else {}

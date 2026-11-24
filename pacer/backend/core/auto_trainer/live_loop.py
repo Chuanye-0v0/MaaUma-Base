@@ -574,7 +574,8 @@ class UGParentTrainingLoop:
         candidates = decision.get("scored_candidates", [])
         if not isinstance(candidates, list):
             return None
-        for candidate in candidates:
+        best: tuple[float, int, dict[str, Any], float] | None = None
+        for index, candidate in enumerate(candidates):
             if not isinstance(candidate, dict):
                 continue
             training_type = candidate.get("training_type")
@@ -597,8 +598,19 @@ class UGParentTrainingLoop:
                 or not cls._selected_primary_gain_is_reliable(state, training_type)
             ):
                 continue
-            return candidate, source_confidence
-        return None
+            raw_score = candidate.get("score")
+            score = (
+                float(raw_score)
+                if isinstance(raw_score, (int, float))
+                and not isinstance(raw_score, bool)
+                and math.isfinite(float(raw_score))
+                else float("-inf")
+            )
+            if best is None or score > best[0]:
+                best = (score, index, candidate, source_confidence)
+        if best is None:
+            return None
+        return best[2], best[3]
 
     @staticmethod
     def _optional_candidate_boolean_is(

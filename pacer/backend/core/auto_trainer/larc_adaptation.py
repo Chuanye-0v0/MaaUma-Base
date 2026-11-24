@@ -553,7 +553,7 @@ class LarcAdaptationSession:
                 or type(value.get("pending_preview_frames", 0)) is not int
                 or not 0 <= value.get("pending_preview_frames", 0) <= 2
                 or not isinstance(value.get('control_waits', {}), dict)
-                or any(key not in {'review', 'upgrade', 'level_up', 'result_close', 'selection_cost'} or type(count) is not int
+                or any(key not in {'review', 'upgrade', 'level_up', 'result_close', 'selection_cost', 'untracked_change'} or type(count) is not int
                        or not 0 <= count <= 3 for key, count in value.get('control_waits', {}).items())
                 or value.get("stay_on_grid", False) and not value.get("inspect_grid_only", False)
                 or value.get("inspect_grid_only", False) and not value.get("inspect_only", False)):
@@ -929,7 +929,11 @@ def plan_larc_adaptation(image, evidence, *, session=None, reader=None):
     if ((pending == 0 and any(levels[i] != plan["baseline_levels"][i] for i in changed))
             or any(type(levels[i]) is not int or not plan["baseline_levels"][i] <= levels[i] <= plan["targets"][i]
                 for i in changed)):
-        return decision("untracked_change")
+        count = min(3, session.control_waits.get("untracked_change", 0) + 1)
+        session.control_waits["untracked_change"] = count
+        detail["untracked_change_wait"] = {"read_only_observations": count}
+        return decision("grid_loading", wait=True) if count <= 2 else decision("untracked_change")
+    session.control_waits.pop("untracked_change", None)
     if type(pending) is int:
         # The visible selected levels and pending total must describe this
         # plan. Ignore unrelated unreadable slots, never their unknown values.

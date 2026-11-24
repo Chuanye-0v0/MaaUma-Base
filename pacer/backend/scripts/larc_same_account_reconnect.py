@@ -15,7 +15,7 @@ from scripts.ug_parent_one_turn_pipeline import _atomic_write_json
 
 NAVIGATION = frozenset({"return_title_from_connection_conflict", "tap_title_start",
     "enter_training_from_home", "continue_training_modal", "skip_received_login_reward",
-    "close_announcement", "dismiss_global_home_greeting"})
+    "close_announcement", "close_exchange_points_expiry", "dismiss_global_home_greeting"})
 NAVIGATION = NAVIGATION | {"accept_authorized_bilibili_sdk_terms"}
 CAREER_READY = frozenset({"ready_main_menu", "ready_training_menu", "ready_larc_ss_preview",
     "race_day_main_menu",

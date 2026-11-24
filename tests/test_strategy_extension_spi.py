@@ -42,6 +42,7 @@ class TestStrategyExtensionSPI(unittest.TestCase):
         from core.auto_trainer import larc_strategy_versions as sv
         from core.auto_trainer.cut_runtime_license import LicensedRunControl
         from core.auto_trainer.larc_strategy_extension import strategy_pack_status
+        from core.skill_planner import tiered_ladder_presets
 
         self.assertEqual(sv.CURRENT_REVISION, "2.3")
         self.assertEqual(
@@ -66,6 +67,11 @@ class TestStrategyExtensionSPI(unittest.TestCase):
         self.assertEqual(status["unlocked_workflow_modes"], ["direct_career"])
         self.assertFalse(status["allow_custom_workflows"])
         self.assertEqual(status["weight_preset_count"], 0)
+        self.assertEqual(status["skill_ladder_preset_count"], 0)
+        self.assertEqual(status["skill_ladder_presets"], [])
+        self.assertEqual(tiered_ladder_presets.list_tiered_ladder_presets(), [])
+        with self.assertRaises(ValueError):
+            tiered_ladder_presets.resolve_tiered_ladder_preset("nonexistent")
 
         ctrl = LicensedRunControl(REPO_ROOT)
         snap = ctrl.snapshot()
@@ -80,11 +86,17 @@ class TestStrategyExtensionSPI(unittest.TestCase):
         from core.auto_trainer import larc_strategy_rules as sr
         from core.auto_trainer import larc_strategy_versions as sv
         from core.auto_trainer.larc_strategy_extension import reload_extensions, strategy_pack_status
+        from core.auto_trainer.larc_target_skills import normalize_arc_policy
+        from core.skill_planner import tiered_ladder_presets
 
         with TemporaryDirectory() as tmp:
+            outside_file = Path(tmp) / "outside.json"
+            outside_file.write_text(json.dumps({"preset_id": "longchamp_2400_turf", "mode": "tiered_ladder", "ladder": {"tiers": []}}), encoding="utf-8")
             pack_dir = Path(tmp) / "synthetic_pack"
             weights_dir = pack_dir / "weights"
+            ladders_dir = pack_dir / "skill_ladders"
             weights_dir.mkdir(parents=True, exist_ok=True)
+            ladders_dir.mkdir(parents=True, exist_ok=True)
             sample_profile = {
                 "schema_version": "uma.scoring_profile.v2",
                 "scoring_semantics": {"model": "uma.larc.final_score", "version": 1},
@@ -98,6 +110,13 @@ class TestStrategyExtensionSPI(unittest.TestCase):
                 },
             }
             (weights_dir / "sample_weight.json").write_text(json.dumps(sample_profile), encoding="utf-8")
+            sample_ladder = {
+                "preset_id": "longchamp_2400_turf",
+                "final_target": {"style": "leader"},
+                "mode": "tiered_ladder",
+                "ladder": {"tiers": [{"id": "T0", "label": "Core", "skills": ["逆时针○"]}]},
+            }
+            (ladders_dir / "synth_ladder.json").write_text(json.dumps(sample_ladder, ensure_ascii=False), encoding="utf-8")
             manifest = {
                 "schema_version": "maauma.strategy_pack.v1",
                 "pack_id": "synthetic_test_pack",
@@ -119,6 +138,24 @@ class TestStrategyExtensionSPI(unittest.TestCase):
                         "id": "synth_inline_weight",
                         "name": "Synthetic Inline Weight",
                         "profile": sample_profile,
+                    },
+                ],
+                "skill_ladder_presets": [
+                    {
+                        "id": "synth_file_ladder",
+                        "name": "Synthetic File Ladder",
+                        "summary": "File-backed skill ladder",
+                        "file": "skill_ladders/synth_ladder.json",
+                    },
+                    {
+                        "id": "synth_inline_ladder",
+                        "name": "Synthetic Inline Ladder",
+                        "policy": sample_ladder,
+                    },
+                    {
+                        "id": "synth_escape_ladder",
+                        "name": "Traversal Should Be Ignored",
+                        "file": "../outside.json",
                     },
                 ],
                 "ui_revisions": [
@@ -167,6 +204,16 @@ class TestStrategyExtensionSPI(unittest.TestCase):
             self.assertEqual(st["unlocked_workflow_modes"], ["direct_career", "cut_preserve", "cut_then_career"])
             self.assertTrue(st["allow_custom_workflows"])
             self.assertEqual(st["weight_preset_count"], 2)
+            self.assertEqual(st["skill_ladder_preset_count"], 2)
+            listed = tiered_ladder_presets.list_tiered_ladder_presets()
+            self.assertEqual([x["id"] for x in listed], ["synth_file_ladder", "synth_inline_ladder"])
+            self.assertEqual(tiered_ladder_presets.resolve_tiered_ladder_preset("synth_file_ladder")["preset_id"], "longchamp_2400_turf")
+            self.assertEqual(tiered_ladder_presets.resolve_tiered_ladder_preset("synth_inline_ladder")["mode"], "tiered_ladder")
+            with self.assertRaises(ValueError):
+                tiered_ladder_presets.resolve_tiered_ladder_preset("synth_escape_ladder")
+            pol = normalize_arc_policy({"enabled": True, "ladder_preset_id": "synth_file_ladder"})
+            self.assertEqual(pol["mode"], "tiered_ladder")
+            self.assertEqual(pol["ladder"]["tiers"][0]["skills"], ["逆时针○"])
 
             os.environ["MAAUMA_STRATEGY_PACK_DIR"] = "__NONE__"
             reload_extensions()
@@ -176,6 +223,8 @@ class TestStrategyExtensionSPI(unittest.TestCase):
             self.assertEqual(st_reset["unlocked_workflow_modes"], ["direct_career"])
             self.assertFalse(st_reset["allow_custom_workflows"])
             self.assertEqual(st_reset["weight_preset_count"], 0)
+            self.assertEqual(st_reset["skill_ladder_preset_count"], 0)
+            self.assertEqual(tiered_ladder_presets.list_tiered_ladder_presets(), [])
 
     def test_mei_unlock_gamble_enabled_in_ordinary_auto_career(self) -> None:
         from core.auto_trainer.larc_mei_unlock_policy import gamble_selection, select_mei_unlock

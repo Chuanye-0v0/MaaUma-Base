@@ -297,6 +297,13 @@ def observe_current(ctx, output, *, adb=None, persist_route=True):
     budget.observe_page(safe,packet.to_dict())
     budget.observe_page(race,packet.to_dict())
     scene = scene_from_decisions(safe, race)
+    compact_text = ''.join(packet.visible_text.split())
+    if (not packet.dangerous
+            and '成功获得技能' in compact_text
+            and '关闭' in compact_text):
+        from scripts.larc_skill_completion_frames import success_close_box
+        if success_close_box(image) is not None:
+            scene = {'owner': 'common', 'state': 'modal', 'entered': False}
     if (ordinary_retry and not packet.dangerous
             and (scene['owner'] == 'unknown' or scene.get('state') in {'race_result', 'race_scene'})
             and safe.get('reason') != 'connection_conflict'):

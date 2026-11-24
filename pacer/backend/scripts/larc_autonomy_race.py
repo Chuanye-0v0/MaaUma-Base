@@ -76,7 +76,8 @@ def _live_clock_session(source):
         raise ValueError('live_debut_clock_usage_invalid')
     session = RaceRouteSession(result_transition_pending=True, clock_retries_used=retries,
         last_clock_retry_remaining=state.get('last_clock_retry_remaining'),
-        clock_retry_entry_pending=state.get('clock_retry_entry_pending', False))
+        clock_retry_entry_pending=state.get('clock_retry_entry_pending', False),
+        clock_retry_declined=state.get('clock_retry_declined', False))
     return session, {'clock_items_committed': paid, 'clock_free_retries': free}
 
 
@@ -281,6 +282,18 @@ def _race_text_transition(result, *, result_transition_pending=False):
         # a modal. This does NOT grant a confirm tap: the caller only waits
         # after an already-confirmed entry, with the normal bounded budget.
         return transient_observation(result, reason="common_career_page_unrecognized")
+    if result.get("reason") == "race_preview:unknown_action_layout":
+        # A fading loading/trivia layer over green racecourse turf can trip the
+        # HSV preview-action check before race_participant_list renders. Only
+        # re-observe read-only when zero race-preview controls are visible; this
+        # never taps or bypasses real preview/WBC guards.
+        decision = result.get("decision", {})
+        visible = str(result.get("frame_safety", {}).get("visible_text", ""))
+        if any(term in visible for term in ("查看结果", "前往赛事", "基础能力", "更改战术")):
+            return False
+        return (result.get("performed") is False and decision.get("action") == "stop"
+            and not decision.get("tap")
+            and transient_observation(result, reason="common_career_page_unrecognized"))
     if result.get('reason') in {'race_day:enter_not_allowed', 'race_list:enter_not_allowed', 'wbc_hub:enter_not_allowed'}:
         # Confirmation may briefly uncover the old race-day background.
         # Callers require a confirmed entry before accepting this as a wait.
@@ -460,8 +473,12 @@ def _completed_live_result_handoff(run_root, saved):
             return None
         if decision.get('action') == 'tap':
             tap = decision.get('tap', {}); sha = result.get('frame_safety', {}).get('source_image_sha256')
-            expected = {'race_result_continue': 'race_result.continue',
-                'larc_explanation_continue': 'safe_advance.larc_explanation_continue'}.get(decision.get('reason'))
+            expected = {
+                'race_result_continue': 'race_result.continue',
+                'larc_explanation_continue': 'safe_advance.larc_explanation_continue',
+                'race_scene_start_or_continue': 'race_scene.start_or_continue',
+                'skip_or_advance_race_scene': 'race_scene.skip_or_advance',
+            }.get(decision.get('reason'))
             if (not expected or tap.get('coordinate_name') != expected or not sha
                     or result.get('performed') is not True or result.get('tap_performed') is not True
                     or not receipts or any(receipt.get('outcome') != 'confirmed'
@@ -498,7 +515,19 @@ def _completed_live_result_handoff(run_root, saved):
             and live_src.get('race_reason') == 'race_result_continue'
             and (live_src.get('current_result_proof') or {}).get('kind') == 'larc_rank_points_overlay'
         )
-        if not live_overlay_proof:
+        live_scene_proof = (
+            live_src.get('owner') == 'race'
+            and live_src.get('state') == 'race_scene'
+            and live_src.get('entered') is True
+            and live_src.get('race_reason') in {
+                'race_scene_start_or_continue',
+                'skip_or_advance_race_scene',
+                'race_scene_running',
+            }
+            and confirmed_result
+            and not result_pending
+        )
+        if not live_overlay_proof and not live_scene_proof:
             if not is_goal_stop or not confirmed_result or result_pending:
                 return None
         if (report.get('is_valid') is not True or report.get('live_takeover') is not True
@@ -1580,7 +1609,7 @@ def _run_larc_race_route(*, run_root: Path, output_dir: Path, adb_port: int,
         if (
             live_source is not None
             and result.get("performed") is True
-            and result.get("reason") == "leave_selected_non_g1_race_list"
+            and result.get("reason") in {"leave_selected_non_g1_race_list", "leave_unverified_g1_race_list"}
         ):
             report["live_race_list_returned_to_home"] = {"entry_submitted": False, "step": len(steps)}
         clock_retry_wait = (session.clock_retries_used < 5 and _clock_retry_unavailable_recheck(result, step_policy,

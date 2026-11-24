@@ -61,12 +61,20 @@ def capture_probe(config):
             if fresh is None:break
             samples.append(round((time.perf_counter()-started)*1000,2))
         details=device.capture_diagnostics();backend=details['backend']
+        fallback=backend.startswith('adb-') and (bool(details.get('fallback_reasons')) or details.get('native_available') is False)
         label=('雷电高速截图' if backend.startswith('ldplayer-opengl') else
                'MuMu高速截图' if backend=='mumu-ipc' else 'ADB直传截图' if backend=='adb-raw' else 'ADB兼容截图')
         average=round(mean(samples),2) if samples else None
+        is_slow=bool(fallback or (average is not None and average>=250.0))
         supported=size==(720,1280)
-        message=(f'连接成功 · {label}'+(f' · 约{average:.0f}毫秒/张' if average is not None else '')) if supported else '已连接；刷切需要竖屏720×1280，请调整后再开始。'
+        if supported:
+            message=(f'连接成功 · {label}'
+                     +(f' · 约{average:.0f}毫秒/张' if average is not None else '')
+                     +(' · 原生高速通道未启用' if fallback else ' · 截图偏慢，建议切换高速截图通道' if is_slow else ''))
+        else:
+            message='已连接；刷切需要竖屏720×1280，请调整后再开始。'
         return {'ok':supported,'endpoint':endpoint,'size':list(size),'capture_label':label,
+                'fallback':fallback,'is_slow':is_slow,
                 'first_frame_ms':first_ms,'capture_ms':samples,'mean_capture_ms':average,
                 'message':message,'read_only':True,'screenshots_saved':False,**details}
     finally:
@@ -89,11 +97,38 @@ def runtime_capture_info(snapshot, root):
         if not backend:return None
         label=('雷电高速截图' if backend.startswith('ldplayer-opengl') else
             'MuMu高速截图' if backend=='mumu-ipc' else 'ADB直传截图' if backend=='adb-raw' else 'ADB兼容截图')
-        fallback=bool(details.get('fallback_reasons')) and backend.startswith('adb-')
-        return {'backend':backend,'label':label,'fallback':fallback,
+        fallback=backend.startswith('adb-') and (bool(details.get('fallback_reasons')) or details.get('native_available') is False)
+        timings=capture.get('capture_timings') or []
+        total_cap_s=0.0;total_frames=0;valid_tabs=0
+        if isinstance(timings,list):
+            for entry in timings:
+                if not isinstance(entry,dict):continue
+                cs=entry.get('capture_seconds')
+                fr=entry.get('frames')
+                if isinstance(cs,(int,float)) and cs>=0:
+                    valid_tabs+=1
+                    if isinstance(fr,int) and fr>0:
+                        total_cap_s+=float(cs)
+                        total_frames+=fr
+                    elif fr is None:
+                        total_cap_s+=float(cs)
+                        total_frames+=1
+        mean_frame_ms=round((total_cap_s/total_frames)*1000.0,1) if total_frames>0 else None
+        mean_tab_ms=round((total_cap_s/valid_tabs)*1000.0,1) if valid_tabs>0 and total_frames>0 else None
+        is_slow=bool(fallback or (mean_frame_ms is not None and mean_frame_ms>=250.0))
+        message=f'最近训练截图：{label}'
+        if mean_frame_ms is not None:
+            message+=f' · 约{mean_frame_ms:.0f}毫秒/张'
+        if fallback:
+            message+=' · 原生高速通道未启用'
+        elif is_slow:
+            message+=' · 截图偏慢'
+        return {'backend':backend,'label':label,'fallback':fallback,'is_slow':is_slow,
+            'native_available':details.get('native_available'),
+            'mean_frame_ms':mean_frame_ms,'mean_tab_ms':mean_tab_ms,
             'turn_index':last.get('turn_index'),'basis':'last_completed_training_capture',
             'dimensions':details.get('dimensions'),
-            'message':f'最近训练截图：{label}'+(' · 原生通道未启用' if fallback else '')}
+            'message':message}
     except (OSError,ValueError,AttributeError,TypeError):
         return None
 

@@ -306,7 +306,7 @@ class RaceRoutePlanner(
         if (policy.scenario=='larc' and policy.allow_clock_retry
                 and (policy.allow_debut_retry_entry or policy.allow_result_retry_entry)
                 and policy.post_entry_only and not policy.inspection_only and not policy.count_reserved_only
-                and session is not None and session.clock_retries_used<5
+                and session is not None and session.clock_retries_used<5 and not session.clock_retry_declined
                 and not retry_prompt_visible(policy.visible_text)):
             from core.auto_trainer.race_clock_retry import (
                 ENTRY_ACTION_ID, result_entry_text, read_result_entry_and_candidate, result_retry_candidate, entry_point,
@@ -950,6 +950,20 @@ class RaceRoutePlanner(
                 return self._tap("enter_race_from_main_menu", "ready_main_menu", "main_menu.race",
                                  (int(width * 0.839), int(height * 0.867)), evidence)
             return self._stop(safe_scenario_reason, evidence=evidence)
+        if policy.scenario == "larc" and safe_scenario_reason == "common_career_page_unrecognized":
+            home_norm = "".join(str((screen_text or {}).get("normalized_text", "")).split())
+            if (
+                "养成" in home_norm
+                and "体力" in home_norm
+                and any(marker in home_norm for marker in ("休息", "海外适应性", "能力详情", "距离代表交流赛还剩"))
+                and not any(marker in home_norm for marker in ("赛事一览", "赛事详情", "查看结果", "比赛结果"))
+            ):
+                return {
+                    "action": "wait",
+                    "reason": "loading",
+                    "route_state": "loading",
+                    "evidence": evidence,
+                }
         if safe_scenario_reason in {
             "close_knowledge_table",
             "confirm_wisdom_learning_prompt",
@@ -1913,6 +1927,50 @@ class RaceRoutePlanner(
             height, width = img.shape[:2]
             return self._tap("leave_fan_goal_shortfall_race_list", "race_list", "race_list.back",
                 (int(width * 0.105), int(height * 0.963)), evidence)
+        if (
+            policy.scenario == "larc"
+            and policy.allow_leave_race_list is True
+            and looks_like_race_list
+            and "赛事一览" in normalized_screen_text
+            and not policy.allow_larc_custom_scheduled_race
+            and not policy.allow_fan_goal_recommended_race
+            and not policy.allow_first_win_rescue
+            and not policy.allow_select_visible_g1
+            and not policy.count_reserved_only
+            and locked_target_verification is None
+            and not positive_target_race
+            and (
+                session is None
+                or (
+                    not session.scheduled_binding_active
+                    and all(
+                        pending is None
+                        for pending in (
+                            session.pending_target_race,
+                            session.pending_locked_target_race,
+                            session.pending_scenario_final_race,
+                            session.pending_fan_goal_recommendation,
+                            session.pending_fan_goal_shortfall_selected,
+                            session.pending_wbc_hub_race,
+                            session.pending_gur_race,
+                        )
+                    )
+                )
+            )
+        ):
+            height, width = img.shape[:2]
+            leave_reason = (
+                "leave_unverified_g1_race_list"
+                if selected_grade == "G1"
+                else "leave_selected_non_g1_race_list"
+            )
+            return self._tap(
+                leave_reason,
+                "race_list",
+                "race_list.back",
+                (int(width * 0.105), int(height * 0.963)),
+                evidence,
+            )
         if fan_shortfall_list and not (
             policy.count_reserved_only and selected_race is not None
         ):

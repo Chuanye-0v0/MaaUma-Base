@@ -297,7 +297,8 @@ def apply_race_preference(api, prepared, output, context, preference_path):
     target_enabled = context.get("arc_policy", {}).get("enabled") is True
     arc_policy = context.get("arc_policy", {})
     classic = context.get("larc_year") == 2 and not context.get("terminal_build")
-    derived = target_enabled and not arc_policy.get("classic_allowlist") and arc_policy.get("auto_cm", True)
+    derived = target_enabled and (arc_policy.get("mode") == "tiered_ladder"
+                                  or (not arc_policy.get("classic_allowlist") and arc_policy.get("auto_cm", True)))
     legacy_timing = classic and not derived
     if target_enabled or legacy_timing:
         inventory = _read(prepared["inventory_path"])
@@ -360,8 +361,22 @@ def _confirmed_purchase(source, root, progress, context):
             or child.get("expected_remaining_skill_points") != original.get("remaining_skill_points")
             or type(original.get("remaining_skill_points")) is not int):
         raise ValueError("prerace_final_confirmation_unverified")
-    if (source / "success_close/success_close_report.json").exists():
-        raise ValueError("prerace_close_already_attempted_use_its_receipt")
+    close_path = source / "success_close/success_close_report.json"
+    if close_path.exists():
+        close = _read(close_path)
+        ret_path = source / "return_after_learning/return_after_learning_report.json"
+        ret = _read(ret_path) if ret_path.is_file() else {}
+        if not (
+            close.get("close_success_performed") is True
+            and close.get("stop_reason") in {"close_success_probe_complete", "batch_close_success_probe_complete"}
+            and close.get("device_action_count") == 1
+            and close.get("final_confirmation_report_sha256") == hashlib.sha256(final_path.read_bytes()).hexdigest()
+            and close.get("child_plan_sha256") == hashlib.sha256(child_path.read_bytes()).hexdigest()
+            and ret.get("return_performed") is not True
+            and not ret.get("actions")
+            and ret.get("device_action_count") in (None, 0)
+        ):
+            raise ValueError("prerace_close_already_attempted_use_its_receipt")
     return source, original, final_path, child_path
 
 
@@ -481,7 +496,8 @@ def run_skill_batch(*, d1_root, run_root, output_dir, run_style, year,
                 report["preference_path"] = str(preference_path)
         if arc_policy["enabled"]:
             context = _target_policy().target_context(context, arc_policy)
-            if (year == 2 and not arc_policy["classic_allowlist"] and not arc_policy["auto_cm"]
+            if (year == 2 and arc_policy.get("mode") != "tiered_ladder"
+                    and not arc_policy["classic_allowlist"] and not arc_policy["auto_cm"]
                     and resume_confirmed_from is None):
                 report.update(ok=True, stage="skipped", reason="classic_allowlist_empty", context=context)
                 return report
@@ -537,8 +553,10 @@ def run_skill_batch(*, d1_root, run_root, output_dir, run_style, year,
                           remaining_skill_points=remaining, purchase_may_have_occurred=True,
                           purchase_confirmed_before_resume=True)
             save()
+            prev_close = source / "success_close" / "success_close_report.json"
             learned = api.close(device, output, source / "selection", child_path,
-                                final_path, _confirmation_base(1), remaining, None, endpoint)
+                                final_path, _confirmation_base(1), remaining, None, endpoint,
+                                previous_close_report=(str(prev_close) if prev_close.is_file() else None))
             report["learning_result"] = learned
             if learned.get("ok") is not True or learned.get("remaining_skill_points") != remaining:
                 raise ValueError("prerace_close_return_failed:" + str(learned.get("reason")))

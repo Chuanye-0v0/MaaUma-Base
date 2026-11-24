@@ -97,6 +97,8 @@ def launch_arc_worker(ctx, output, request):
         "--external-skill-db-path", str(ctx.external_skill_db_path), "--endpoint", ctx.progress["device"], "--execute"]
     if request.get("style"):
         argv += ["--run-style", request["style"]]
+    if type(request.get("max_purchase_count")) is int and request["max_purchase_count"] > 0:
+        argv += ["--max-purchase-count", str(request["max_purchase_count"])]
     if request.get("resume_confirmed_from"):
         argv += ["--resume-confirmed-from", request["resume_confirmed_from"]]
     child = run_controlled_process(argv, cwd=str(ctx.root), capture_output=True, text=True,
@@ -212,6 +214,8 @@ def prepare_arc_skills(ctx, race_context, source, output_dir, *, navigation_fact
 
 def _prepare_arc_skills(ctx, race_context, source, output_dir, *, navigation_factory,
                         worker):
+    from core.auto_trainer.larc_target_skills import read_current_stats, summarize_run_skill_pt
+
     goal = load_goal_config(ctx.root/"goal.json")
     policy = goal.skill_timing.arc_policy
     year = arc_year(race_context)
@@ -219,7 +223,8 @@ def _prepare_arc_skills(ctx, race_context, source, output_dir, *, navigation_fac
         return None
     if not getattr(ctx, "terminal_skill_enabled", True):
         return {"ok": True, "status": "disabled_by_execution_options", "year": year}
-    if year == 2 and not policy.get("classic_allowlist") and not policy.get("auto_cm", True):
+    tiered_mode = policy.get("mode") == "tiered_ladder"
+    if year == 2 and not tiered_mode and not policy.get("classic_allowlist") and not policy.get("auto_cm", True):
         return {"ok": True, "status": "classic_allowlist_empty", "year": year, "turn_consumed": False}
     if not getattr(ctx, "d1_skill_root", None) or not getattr(ctx, "external_skill_db_path", None):
         return {"ok": False, "status": "skill_driver_not_configured", "year": year}
@@ -234,6 +239,34 @@ def _prepare_arc_skills(ctx, race_context, source, output_dir, *, navigation_fac
         return {"ok": True, "status": "already_complete", "year": year, "turn_consumed": False}
     if stage and stage.get("turn_index") != ctx.progress["next_turn"]:
         raise ValueError("arc_skill_pending_turn_mismatch")
+
+    stage_policy = policy.get("stage_policy") or {}
+    c_cfg = stage_policy.get("classic_arc") or {}
+    s_cfg = stage_policy.get("senior_arc") or {}
+    can_gate_before_nav = stage is None or (not stage.get("pending_worker") and not stage.get("batches"))
+    initial_max_purchase = None
+    if tiered_mode and year == 2:
+        c_mode = c_cfg.get("mode", "stat_rescue")
+        if can_gate_before_nav and c_mode == "skip":
+            return {"ok": True, "status": "skipped_by_stage_policy", "year": 2,
+                    "turn_consumed": False, "skill_pt_ledger": summarize_run_skill_pt(ctx.root)}
+        if can_gate_before_nav and c_mode == "stat_rescue":
+            stats = read_current_stats(ctx.root, ctx.progress, getattr(ctx, "current_stats", None))
+            spd_ok = type(stats.get("speed")) is int and stats["speed"] >= c_cfg.get("speed_threshold", 900)
+            sta_ok = type(stats.get("stamina")) is int and stats["stamina"] >= c_cfg.get("stamina_threshold", 600)
+            if spd_ok and sta_ok:
+                return {"ok": True, "status": "skipped_stats_sufficient", "year": 2,
+                        "current_stats": stats, "turn_consumed": False,
+                        "skill_pt_ledger": summarize_run_skill_pt(ctx.root)}
+            initial_max_purchase = c_cfg.get("max_skills", 2)
+    elif tiered_mode and year == 3:
+        s_mode = s_cfg.get("mode", "t0_only")
+        if can_gate_before_nav and s_mode == "skip":
+            return {"ok": True, "status": "skipped_by_stage_policy", "year": 3,
+                    "turn_consumed": False, "skill_pt_ledger": summarize_run_skill_pt(ctx.root)}
+        if s_mode == "t0_only":
+            initial_max_purchase = s_cfg.get("max_skills", 5)
+
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     if stage is None:
@@ -241,14 +274,35 @@ def _prepare_arc_skills(ctx, race_context, source, output_dir, *, navigation_fac
         request = {"year": year}
         if style in {"leader", "front", "betweener", "chaser"}:
             request["style"] = style
+        if initial_max_purchase is not None:
+            request["max_purchase_count"] = initial_max_purchase
         stage = {"status": "ready", "turn_index": ctx.progress["next_turn"], "year": year,
                  "request": request,
                  "race_context": race_context, "batches": [], "turn_consumed": False}
         ledger["stages"][key] = stage
         _atomic_write_json(ledger_path, ledger)
+
+    tiered_senior_t0 = tiered_mode and year == 3 and s_cfg.get("mode", "t0_only") == "t0_only"
+    senior_max_skills = s_cfg.get("max_skills", 5)
+    senior_reserve_pt = s_cfg.get("reserve_pt", 500)
+    bought_total = 0
+    for bp in stage["batches"]:
+        bp_path = Path(bp)
+        if not bp_path.is_absolute():
+            bp_path = ctx.root / bp_path
+        if bp_path.is_file():
+            try:
+                bought_total += len(read(bp_path).get("selected_action_ids") or [])
+            except (OSError, ValueError, TypeError):
+                pass
     # Classic retains its one-batch budget for later discounts. Senior may use
     # several existing D1 batches, each with the newly observed remaining Pt.
     while year != 2 or not stage["batches"]:
+        if tiered_senior_t0:
+            remaining_cap = senior_max_skills - bought_total
+            if remaining_cap <= 0:
+                break
+            stage["request"]["max_purchase_count"] = remaining_cap
         navigation = navigation_factory(ctx)
         batch = output/f"batch_{len(stage['batches'])+1:02d}"
         pending = stage.get("pending_worker")
@@ -311,13 +365,17 @@ def _prepare_arc_skills(ctx, race_context, source, output_dir, *, navigation_fac
         _atomic_write_json(ledger_path, ledger)
         points = result.get("remaining_skill_points")
         before = result.get("before", {}).get("current_skill_points")
+        bought_total += len(result.get("selected_action_ids") or [])
         if (not result.get("selected_action_ids") or type(points) is not int or type(before) is not int
                 or points <= 20 or points >= before):
+            break
+        if tiered_senior_t0 and (bought_total >= senior_max_skills or points <= senior_reserve_pt):
             break
     stage.update(status="complete", source_after=source)
     _atomic_write_json(ledger_path, ledger)
     return {"ok": True, "status": "complete", "year": year, "batches": stage["batches"],
-            "remaining_skill_points": stage.get("remaining_skill_points"), "turn_consumed": False}
+            "remaining_skill_points": stage.get("remaining_skill_points"), "turn_consumed": False,
+            "skill_pt_ledger": summarize_run_skill_pt(ctx.root, current_pt=stage.get("remaining_skill_points"))}
 
 
 def resume_arc_skill_learning(ctx, output_dir):

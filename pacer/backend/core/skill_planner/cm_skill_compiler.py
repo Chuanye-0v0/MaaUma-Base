@@ -17,9 +17,13 @@ import math
 _COURSE_KEYS = ("track_id", "distance_m", "distance_type", "surface", "rotation")
 _REPRESENTATIVE_DISTANCE = {"short": 1200, "mile": 1600, "middle": 2400, "long": 3000}
 _STATIC = frozenset((*_COURSE_KEYS, "course_distance", "running_style", "ground_type",
-                    "ground_condition", "season", "weather", "is_basis_distance", "always"))
+                    "ground_condition", "season", "weather", "is_basis_distance", "is_dirtgrade", "always"))
+_STAT_VARS = frozenset({"base_speed", "base_stamina", "base_power", "base_guts", "base_wisdom"})
+_DIRTGRADE_TRACK_IDS = frozenset({10101, 10103, 10104, 10105})
 _STYLE_RANKS = {"leader": (1, 2, 3), "front": (2, 3, 4, 5, 6),
                 "betweener": (4, 5, 6, 7, 8), "chaser": (5, 6, 7, 8, 9)}
+_STYLE_RANKS_12 = {"leader": (1, 2, 3, 4), "front": (2, 3, 4, 5, 6, 7),
+                   "betweener": (5, 6, 7, 8, 9, 10), "chaser": (7, 8, 9, 10, 11, 12)}
 _STYLE_HP = {"leader": .95, "front": .89, "betweener": 1., "chaser": .995}
 _STYLE_SPEED = {"leader": (1., .98, .962), "front": (.978, .991, .975),
                 "betweener": (.938, .998, .994), "chaser": (.931, 1., 1.)}
@@ -33,10 +37,10 @@ CM_GROUNDWORK_LINK = -400
 CM_START_SOURCE_LINK = -410
 
 
-def _preset(track_id, distance_m, distance_type, rotation, season, entry, offsets, surface="turf"):
+def _preset(track_id, distance_m, distance_type, rotation, season, entry, offsets, surface="turf", field_size=9):
     return dict(track_id=track_id, distance_m=distance_m, distance_type=distance_type,
                 surface=surface, rotation=rotation, ground_condition=1, season=season,
-                entry_windows=entry, entry_offsets_m=offsets)
+                field_size=field_size, entry_windows=entry, entry_offsets_m=offsets)
 
 
 # Approximate offsets from the last-third boundary, in order: third corner,
@@ -62,7 +66,24 @@ CM_TRACK_PRESETS = {
         ("final_corner_tail", "final_straight"), (-330, -202, -105, -13)),
     "ooi_2000_dirt": _preset(10101, 2000, "middle", 1, 4,
         ("third_corner",), (-36, 100, 202, 281), surface="dirt"),
+    "kawasaki_2100_dirt_loh": _preset(10103, 2100, "middle", 2, 4,
+        ("backstretch", "third_corner"), (75, 225, 300, 400), surface="dirt", field_size=12),
 }
+
+
+def _enrich_race_inputs(inputs, target, current_stats=None):
+    if "course_distance" in inputs:
+        inputs["is_basis_distance"] = int(inputs["course_distance"] % 400 == 0)
+    if target.get("surface") is not None:
+        inputs["is_dirtgrade"] = int(
+            target.get("surface") in {"dirt", "泥地"} and target.get("track_id") in _DIRTGRADE_TRACK_IDS
+        )
+    if current_stats:
+        stats = merge_current_stats(current_stats)
+        for key in _STAT_KEYS:
+            if key in stats:
+                inputs[f"base_{key}"] = stats[key]
+    return inputs
 _GENERIC_OFFSETS = {"short": (-260, -155, -80, 8), "mile": (-280, -155, -38, 18),
                     "middle": (-220, -25, 110, 260), "long": (40, 230, 360, 510)}
 
@@ -100,7 +121,7 @@ def resolve_cm_target(final_target, preset_id=None):
         matched = None
     if matched:
         preset = CM_TRACK_PRESETS[matched]
-        for key in (*_COURSE_KEYS, "ground_condition", "season"):
+        for key in (*_COURSE_KEYS, "ground_condition", "season", "field_size"):
             target.setdefault(key, preset[key])
     return target, matched
 
@@ -205,18 +226,20 @@ def _static_status(atoms, inputs, evaluate):
     return evaluate({"all": [term for term in atoms if term["variable"] in _STATIC]}, inputs)
 
 
-def _rank_quality(atoms, style, evaluate):
+def _rank_quality(atoms, style, evaluate, *, field_size=9):
     terms = [term for term in atoms if term["variable"] in {"order", "order_rate"}]
     if not terms:
         return 1.
-    # Percentage boundaries are converted to rank boundaries in a CM field.
-    terms = [dict(term, variable="order", value=max(1, int(term["value"] * 9 / 100 + .5)))
+    size = field_size if field_size in {9, 12} else 9
+    # Percentage boundaries are converted to rank boundaries for the active field size.
+    terms = [dict(term, variable="order", value=max(1, int(term["value"] * size / 100 + .5)))
              if term["variable"] == "order_rate" else term for term in terms]
-    ranks = _STYLE_RANKS.get(style, tuple(range(1, 10)))
+    style_map = _STYLE_RANKS_12 if size == 12 else _STYLE_RANKS
+    ranks = style_map.get(style, tuple(range(1, size + 1)))
     matched = sum(evaluate({"all": terms}, {"order": rank}) is True for rank in ranks)
     if matched == 0:
         return 0.
-    return .45 + .55 * matched / len(ranks) if style in _STYLE_RANKS else .45 + .25 * matched / 9
+    return .45 + .55 * matched / len(ranks) if style in style_map else .45 + .25 * matched / size
 
 
 _PHASE_EVENTS = {"phase": (0., 1.), "phase_random": (0., 1.),
@@ -363,9 +386,9 @@ def _acceleration_rating(terms, windows, course, duration, accel, rank, reliabil
     return _Rating(2, round(12 + 60 * accel * quality), "weak_entry_acceleration")
 
 
-def _rate_branch(master, branch, terms, preconditions, target, course, gate, evaluate):
+def _rate_branch(master, branch, terms, preconditions, target, course, gate, evaluate, inputs=None):
     effects = _self_effects(branch, master)
-    rank = _rank_quality(terms, target.get("style"), evaluate)
+    rank = _rank_quality(terms, target.get("style"), evaluate, field_size=target.get("field_size", 9))
     if rank == 0.:
         return _Rating(3, 0, "order_window_mismatches_style")
     windows = _trigger_windows(terms, course, evaluate)
@@ -389,7 +412,18 @@ def _rate_branch(master, branch, terms, preconditions, target, course, gate, eva
 
     passive = sum(max(0., effects.get(kind, 0.)) * weight for kind, weight in _PASSIVE.items())
     if passive:
-        certain = names <= _STATIC and all(t["variable"] in _STATIC for t in preconditions)
+        non_static = (names | {t["variable"] for t in preconditions}) - _STATIC
+        if not non_static:
+            certain = True
+        elif inputs and non_static <= _STAT_VARS:
+            stat_terms = [t for t in (terms + preconditions) if t["variable"] in _STAT_VARS]
+            certain = (
+                bool(stat_terms)
+                and all(t["variable"] in inputs for t in stat_terms)
+                and evaluate({"all": stat_terms}, inputs) is True
+            )
+        else:
+            certain = False
         speed_or_power = effects.get("passive_speed", 0.) > 0 or effects.get("passive_power", 0.) > 0
         stamina_needed = effects.get("passive_stamina", 0.) > 0 and (
             gate["status"] in {"deficit", "adequate"} or gate["stamina_duel_distance_eligible"])
@@ -450,7 +484,7 @@ def _rating(master, target, course, gate, inputs, evaluate):
                 unknown |= match is None
                 continue
             viable = True
-            ratings.append(_rate_branch(master, branch, condition, precondition, target, course, gate, evaluate))
+            ratings.append(_rate_branch(master, branch, condition, precondition, target, course, gate, evaluate, inputs=inputs))
     if not viable:
         reason = "unknown_target_requirement" if unknown else "final_target_incompatible"
         return _Rating(3, 0, reason), reason
@@ -573,9 +607,7 @@ def compile_cm_skill_profile(profile, inventory, catalog, *, final_target, prese
         target, geometry = resolve_cm_target(final_target, preset_id)
     else:
         target, geometry = dict(final_target), None
-    inputs = race_inputs(target)
-    if "course_distance" in inputs:
-        inputs["is_basis_distance"] = int(inputs["course_distance"] % 400 == 0)
+    inputs = _enrich_race_inputs(race_inputs(target), target, current_stats=current_stats)
     course = _course(target, geometry)
     result = deepcopy(profile)
     planner_policy = planner_policy or {}
@@ -611,9 +643,7 @@ def compile_cm_skill_profile(profile, inventory, catalog, *, final_target, prese
         gate = stamina_recovery_gate(target, current_stats, owned_recovery_hp=owned_heal * gate["initial_hp"])
     current_target, current_geometry = (resolve_cm_target(current_race_profile) if derived and current_race_profile else (None, None))
     if current_target:
-        current_inputs = race_inputs(current_target)
-        if "course_distance" in current_inputs:
-            current_inputs["is_basis_distance"] = int(current_inputs["course_distance"] % 400 == 0)
+        current_inputs = _enrich_race_inputs(race_inputs(current_target), current_target, current_stats=current_stats)
         current_course = _course(current_target, current_geometry)
         current_gate = stamina_recovery_gate(current_target, current_stats)
 

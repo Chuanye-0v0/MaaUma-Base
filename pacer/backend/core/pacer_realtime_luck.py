@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from math import comb, exp, isfinite, log, sqrt, tanh
+from math import comb, exp, floor, isfinite, log, sqrt, tanh
 from typing import Any
 
 from .career_training_luck import summarize_training_luck
@@ -15,6 +15,8 @@ ALL_CARD_TYPES = (*STAT_TABS, "friend", "group")
 #   Stat card (modern L'Arc SSR avg specialty S=78): 178 home, 100 each of 4 off-tabs, 50 absent -> total 628.
 #   Friend / Group card:                             100 each of 5 tabs, 100 absent             -> total 600.
 DEFAULT_SPECIALTY_PRIORITY = 78.0
+DEFAULT_INITIAL_BOND = 25.0
+DEFAULT_HINT_FREQUENCY = 30.0
 STAT_BASE_TAB_WEIGHT = 100.0
 STAT_ABSENT_WEIGHT = 50.0
 FRIEND_TAB_PROB = 100.0 / 600.0
@@ -22,6 +24,7 @@ FRIEND_ABSENT_PROB = 100.0 / 600.0
 
 # Empirical L'Arc CN skill-hint rate per present stat support & domestic charge dispersion
 HINT_PROB_PER_PRESENT_STAT = 0.0773
+BASE_HINT_PROB_UNBOOSTED = 0.0595
 DOMESTIC_CHARGE_SD_PER_MEMBER = 0.38
 DOMESTIC_TURN_CHARGE_SE_FLOOR = 0.18
 
@@ -31,7 +34,7 @@ SSS_TRIGGER_PROB = 0.20
 # Smooth mapping Z -> [-30, +30] with 0.0 strictly at mathematical expectation
 Z_TANH_DIVISOR = 2.75
 MAX_LUCK_SCORE = 30.0
-LUCK_BASIS = "deck_rng_expectation_v3_1"
+LUCK_BASIS = "deck_rng_expectation_v3_2"
 
 
 def _calendar_ordinal(period: Any, fallback_turn: int) -> int:
@@ -80,6 +83,23 @@ def _stage_bond80_prob(ordinal: int) -> float:
     return 0.99
 
 
+def _card_bond80_prob(ordinal: int, initial_bond: float | None = None) -> float:
+    """Shift expected >=80 bond curve when initial_bond is known; fall back to stage prior when None."""
+    if initial_bond is None:
+        return _stage_bond80_prob(ordinal)
+    if ordinal <= 6:
+        return 0.0
+    if ordinal >= 42:
+        return 0.99
+    clamped_bond = max(0.0, min(50.0, float(initial_bond)))
+    eff_ord = ordinal - (DEFAULT_INITIAL_BOND - clamped_bond) * 0.14
+    eff_ord = max(0.0, min(48.0, eff_ord))
+    lo = int(floor(eff_ord))
+    hi = min(48, lo + 1)
+    frac = eff_ord - lo
+    return (1.0 - frac) * _stage_bond80_prob(lo) + frac * _stage_bond80_prob(hi)
+
+
 def _expected_domestic_charge_per_member(ordinal: int) -> float:
     """Stage-calibrated expected preview charge cells per non-full L'Arc member."""
     if ordinal < 12:
@@ -126,7 +146,7 @@ def _erlang3_renewal_moments(lam: float) -> tuple[float, float]:
 def _card_tab_probs(card_type: str, specialty: float = DEFAULT_SPECIALTY_PRIORITY) -> tuple[dict[str, float], float]:
     """Return ({tab: P(card lands on tab)}, P(absent)) summing to 1.0."""
     if card_type in STAT_TABS:
-        s = max(0.0, min(120.0, float(specialty)))
+        s = max(0.0, min(150.0, float(specialty)))
         total = 5.0 * STAT_BASE_TAB_WEIGHT + s + STAT_ABSENT_WEIGHT
         probs = {
             tab: ((STAT_BASE_TAB_WEIGHT + s) if tab == card_type else STAT_BASE_TAB_WEIGHT) / total
@@ -138,7 +158,7 @@ def _card_tab_probs(card_type: str, specialty: float = DEFAULT_SPECIALTY_PRIORIT
 
 
 def _extract_deck_cards(payload: dict[str, Any], observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Resolve up to 6 deck cards ({type, specialty}) without using level/MLB/stats."""
+    """Resolve up to 6 deck cards ({type, specialty, initial_bond, hint_frequency}) without stat bias."""
     supports = payload.get("supports")
     if not isinstance(supports, list):
         prof = payload.get("support_card_profile")
@@ -152,13 +172,25 @@ def _extract_deck_cards(payload: dict[str, Any], observations: list[dict[str, An
             ctype = item.get("type") or item.get("card_type")
             if ctype in ALL_CARD_TYPES:
                 spec = item.get("specialty_priority")
+                bond = item.get("initial_bond")
+                hint = item.get("hint_frequency")
+                spec_known = type(spec) in (int, float) and isfinite(spec)
                 cards.append({
                     "type": ctype,
-                    "specialty": float(spec) if type(spec) in (int, float) and isfinite(spec) else DEFAULT_SPECIALTY_PRIORITY,
+                    "specialty": float(spec) if spec_known else DEFAULT_SPECIALTY_PRIORITY,
+                    "initial_bond": float(bond) if type(bond) in (int, float) and isfinite(bond) else None,
+                    "hint_frequency": float(hint) if type(hint) in (int, float) and isfinite(hint) else None,
+                    "params_resolved": spec_known,
                 })
     if len(cards) >= 5:
         while len(cards) < 6:
-            cards.append({"type": "friend", "specialty": 0.0})
+            cards.append({
+                "type": "friend",
+                "specialty": 0.0,
+                "initial_bond": None,
+                "hint_frequency": None,
+                "params_resolved": False,
+            })
         return cards[:6]
 
     # Fallback when support_card_profile is absent: infer deck counts from max simultaneous
@@ -190,13 +222,13 @@ def _extract_deck_cards(payload: dict[str, Any], observations: list[dict[str, An
     for c in inferred:
         have_counts[c["type"]] += 1
     if saw_friend and have_counts["friend"] + have_counts["group"] == 0 and len(inferred) < 6:
-        inferred.append({"type": "friend", "specialty": 0.0})
+        inferred.append({"type": "friend", "specialty": 0.0, "initial_bond": None, "hint_frequency": None, "params_resolved": False})
         have_counts["friend"] += 1
     for tab in ("speed", "wisdom", "stamina", "power", "guts"):
         need = max(0, max_simultaneous.get(tab, 0) - have_counts[tab])
         for _ in range(need):
             if len(inferred) < 6:
-                inferred.append({"type": tab, "specialty": DEFAULT_SPECIALTY_PRIORITY})
+                inferred.append({"type": tab, "specialty": DEFAULT_SPECIALTY_PRIORITY, "initial_bond": None, "hint_frequency": None, "params_resolved": False})
                 have_counts[tab] += 1
 
     # Fill any remaining unknown slots with standard L'Arc deck prior
@@ -209,10 +241,13 @@ def _extract_deck_cards(payload: dict[str, Any], observations: list[dict[str, An
         inferred.append({
             "type": fallback_type,
             "specialty": DEFAULT_SPECIALTY_PRIORITY if fallback_type in STAT_TABS else 0.0,
+            "initial_bond": None,
+            "hint_frequency": None,
+            "params_resolved": False,
         })
         have_counts[fallback_type] += 1
     while len(inferred) < 6:
-        inferred.append({"type": "wisdom", "specialty": DEFAULT_SPECIALTY_PRIORITY})
+        inferred.append({"type": "wisdom", "specialty": DEFAULT_SPECIALTY_PRIORITY, "initial_bond": None, "hint_frequency": None, "params_resolved": False})
     return inferred[:6]
 
 
@@ -255,6 +290,33 @@ def _clustering_moments(
     return expected_present, var_present, expected_tab_overload, var_tab_overload
 
 
+_BOARD_TERM_CORR: dict[tuple[str, str], float] = {
+    ("a1", "a2"): 0.55,
+    ("a1", "a2b"): 0.46,
+    ("a2", "a2b"): 0.05,
+    ("a2b", "a3"): 0.25,
+    ("a1", "a3"): 0.15,
+}
+
+
+def _board_term_corr(k1: str, k2: str) -> float:
+    if k1 == k2:
+        return 1.0
+    if (k1, k2) in _BOARD_TERM_CORR:
+        return _BOARD_TERM_CORR[(k1, k2)]
+    return _BOARD_TERM_CORR.get((k2, k1), 0.0)
+
+
+def _excess_stack_moments_poisson_binomial(probs: list[float]) -> tuple[float, float]:
+    """Exact (mean, var) of max(0, K - 1) for K ~ PoissonBinomial(probs)."""
+    if len(probs) <= 1 or max(probs, default=0.0) <= 0.0:
+        return 0.0, 0.0
+    pmf = _poisson_binomial_dist([min(1.0, max(0.0, p)) for p in probs])
+    m1 = sum(max(0, k - 1) * pk for k, pk in enumerate(pmf))
+    m2 = sum((max(0, k - 1) ** 2) * pk for k, pk in enumerate(pmf))
+    return m1, max(0.0, m2 - m1 * m1)
+
+
 def _excess_stack_moments_binomial(n_cards: int, p_eff: float) -> tuple[float, float]:
     """Exact (mean, var) of max(0, K - 1) for K ~ Binomial(n_cards, p_eff)."""
     if n_cards <= 1 or p_eff <= 0.0:
@@ -274,15 +336,16 @@ def _excess_stack_moments_binomial(n_cards: int, p_eff: float) -> tuple[float, f
 def _rainbow_sidekick_moments(
     card_distributions: list[tuple[str, dict[str, float], float]],
     stage_q: float,
+    card_qs: list[float] | None = None,
 ) -> tuple[float, float]:
     """Exact (mean, var) of non-rainbow support cards co-clustering onto active rainbow tabs."""
     n = len(card_distributions)
-    if n <= 1 or stage_q <= 0.0:
+    qs = [min(1.0, max(0.0, float(q))) for q in (card_qs if card_qs is not None else [stage_q] * n)]
+    if n <= 1 or not qs or max(qs) <= 0.0:
         return 0.0, 0.0
-    q = min(1.0, max(0.0, stage_q))
     non_rb_prob: list[dict[str, float]] = []
     rb_prob: list[dict[str, float]] = []
-    for ctype, tp, _ in card_distributions:
+    for (ctype, tp, _), q in zip(card_distributions, qs):
         non_rb_prob.append({
             t: tp[t] * (1.0 - q) if ctype == t else tp[t]
             for t in STAT_TABS
@@ -427,20 +490,36 @@ def build_pacer_realtime_luck(
     deck_cards = _extract_deck_cards(payload, [r for _, r in chosen_turns])
     deck_counts: dict[str, int] = defaultdict(int)
     card_distributions: list[tuple[str, dict[str, float], float]] = []
-    home_probs: dict[str, float] = {}
+    stat_home_probs_by_tab: dict[str, list[float]] = defaultdict(list)
     for card in deck_cards:
         ctype = card["type"]
         deck_counts[ctype] += 1
         t_probs, abs_prob = _card_tab_probs(ctype, card["specialty"])
         card_distributions.append((ctype, t_probs, abs_prob))
         if ctype in STAT_TABS:
-            home_probs[ctype] = t_probs[ctype]
+            stat_home_probs_by_tab[ctype].append(t_probs[ctype])
 
     # Precompute exact stationary clustering moments across the 5 tabs (full deck + stat-only for Turns 1-2)
     full_moments = _clustering_moments(card_distributions)
-    stat_only_dists = [d for d in card_distributions if d[0] in STAT_TABS]
+    stat_only_indices = [i for i, d in enumerate(card_distributions) if d[0] in STAT_TABS]
+    stat_only_dists = [card_distributions[i] for i in stat_only_indices]
     stat_moments = _clustering_moments(stat_only_dists) if stat_only_dists else full_moments
-    expected_stat_present = sum(1.0 - abs_p for ct, _, abs_p in card_distributions if ct in STAT_TABS)
+    mu_hints_exact = 0.0
+    var_hints_raw = 0.0
+    for idx, (ct, _, abs_p) in enumerate(card_distributions):
+        if ct not in STAT_TABS:
+            continue
+        pres_p = 1.0 - abs_p
+        hf = deck_cards[idx].get("hint_frequency")
+        hp = (
+            min(0.35, max(0.01, BASE_HINT_PROB_UNBOOSTED * (1.0 + float(hf) / 100.0)))
+            if hf is not None
+            else HINT_PROB_PER_PRESENT_STAT
+        )
+        p_h = pres_p * hp
+        mu_hints_exact += p_h
+        var_hints_raw += p_h * (1.0 - p_h)
+    var_hints_exact = max(0.08, var_hints_raw)
 
     # Index confirmed risky training judgment rolls by turn_index (exact martingale increments)
     if judgment is None:
@@ -462,11 +541,10 @@ def build_pacer_realtime_luck(
 
     turn_z_list: list[float] = []
     board_z_list: list[float] = []
-    ss_charge_z_list: list[float] = []
-    ss_progress_history: list[tuple[int, int]] = [(0, 0)]
 
     n_dom = 0
     k_ss = 0
+    k_sss = 0
     pending_held_ss = False
 
     for turn, row in chosen_turns:
@@ -481,17 +559,18 @@ def build_pacer_realtime_luck(
             n_dom += 1
 
         stage_q = _stage_bond80_prob(ordinal)
-        elig_cards: dict[str, float] = {
-            tab: float(deck_counts[tab]) * stage_q for tab in STAT_TABS
-        }
+        card_qs = [
+            _card_bond80_prob(ordinal, c.get("initial_bond")) if c["type"] in STAT_TABS else 0.0
+            for c in deck_cards
+        ]
+        stat_qs = [card_qs[i] for i in stat_only_indices]
+        mean_stat_q = (sum(stat_qs) / len(stat_qs)) if stat_qs else stage_q
 
         # Parse the 5 training facilities (strictly ignoring vitality, failure_rate, stats_gain & SS opponent circles)
         tab_rainbows: dict[str, int] = defaultdict(int)
         type_seen_total: dict[str, int] = defaultdict(int)
         raw_tab_supports: dict[str, list[str]] = defaultdict(list)
         total_hints = 0
-        charge_cells = 0
-        charge_members = 0
 
         for tr in row["trainings"]:
             tab = tr.get("training_type")
@@ -523,18 +602,6 @@ def build_pacer_realtime_luck(
                     if _bond_rainbow_ready(p) and it == tab:
                         rb_here += 1
 
-                if not abroad:
-                    ch = p.get("charge")
-                    if (
-                        isinstance(ch, dict)
-                        and ch.get("status") == "accepted"
-                        and ch.get("is_full") is False
-                        and type(ch.get("preview_cells")) is int
-                        and 0 <= ch["preview_cells"] <= 3
-                    ):
-                        charge_members += 1
-                        charge_cells += ch["preview_cells"]
-
             if rb_here == 0 and tr.get("friendship") is True and deck_counts[tab] > 0:
                 rb_here = 1
             tab_rainbows[tab] = min(deck_counts[tab], rb_here)
@@ -549,41 +616,47 @@ def build_pacer_realtime_luck(
                     tab_support_counts[tab] += 1
 
         # --- Sub-component (a): Board Placement, Rainbow & Stacking Z-score ---
-        weighted_terms: list[tuple[float, float]] = []
+        weighted_terms: list[tuple[str, float, float]] = []
 
-        # (a1) Rainbow count vs exact Poisson-binomial expectation
-        mu_rb = sum(elig_cards[t] * home_probs.get(t, 0.0) for t in STAT_TABS if deck_counts[t] > 0)
+        # (a1) Rainbow count vs exact Poisson-binomial expectation across individual cards
+        tab_rb_probs: dict[str, list[float]] = defaultdict(list)
+        tab_card_qs: dict[str, list[float]] = defaultdict(list)
+        all_rb_probs: list[float] = []
+        for idx, (ct, tp, _) in enumerate(card_distributions):
+            if ct in STAT_TABS:
+                q_i = card_qs[idx]
+                p_rb = q_i * tp[ct]
+                all_rb_probs.append(p_rb)
+                tab_rb_probs[ct].append(p_rb)
+                tab_card_qs[ct].append(q_i)
+        mu_rb = sum(all_rb_probs)
         obs_rb = float(sum(tab_rainbows.values()))
         if mu_rb >= 0.04:
-            var_rb = sum(
-                deck_counts[t] * (stage_q * home_probs.get(t, 0.0)) * (1.0 - stage_q * home_probs.get(t, 0.0))
-                for t in STAT_TABS
-                if deck_counts[t] > 0
-            )
+            var_rb = sum(p * (1.0 - p) for p in all_rb_probs)
             z_rb = (obs_rb - mu_rb) / sqrt(max(var_rb, 0.04))
-            weighted_terms.append((0.62, max(-8.0, min(8.0, z_rb))))
+            weighted_terms.append(("a1", 0.62, max(-8.0, min(8.0, z_rb))))
 
         # (a2) Multi-rainbow single-facility stacking (double/triple rainbow)
         mu_stack = 0.0
         var_stack = 0.0
         obs_stack = 0.0
         for tab in STAT_TABS:
-            n_t = deck_counts[tab]
-            if n_t >= 2 and stage_q >= 0.15:
-                p_eff = stage_q * home_probs.get(tab, 0.0)
-                m1, v1 = _excess_stack_moments_binomial(n_t, p_eff)
+            probs_t = tab_rb_probs.get(tab, [])
+            if len(probs_t) >= 2 and max(tab_card_qs.get(tab, [0.0])) >= 0.15:
+                m1, v1 = _excess_stack_moments_poisson_binomial(probs_t)
                 mu_stack += m1
                 var_stack += v1
                 obs_stack += float(max(0, tab_rainbows[tab] - 1))
         if var_stack >= 0.005:
             z_stack = (obs_stack - mu_stack) / sqrt(var_stack)
-            weighted_terms.append((0.40, max(-8.0, min(8.0, z_stack))))
+            weighted_terms.append(("a2", 0.40, max(-8.0, min(8.0, z_stack))))
 
         # (a2b) Rainbow co-clustering: non-rainbow sidekick cards landing on active rainbow tabs
         use_stat_only = pre_debut and ordinal <= 1 and (type_seen_total["friend"] + type_seen_total["group"] == 0)
         active_dists = stat_only_dists if use_stat_only else card_distributions
-        if stage_q >= 0.10:
-            mu_sk, var_sk = _rainbow_sidekick_moments(active_dists, stage_q)
+        active_qs = [card_qs[idx] for idx in stat_only_indices] if use_stat_only else card_qs
+        if max(active_qs, default=0.0) >= 0.10:
+            mu_sk, var_sk = _rainbow_sidekick_moments(active_dists, stage_q, card_qs=active_qs)
             if var_sk >= 0.015:
                 obs_sk = float(
                     sum(
@@ -593,7 +666,7 @@ def build_pacer_realtime_luck(
                     )
                 )
                 z_sk = (obs_sk - mu_sk) / sqrt(var_sk)
-                weighted_terms.append((0.36, max(-8.0, min(8.0, z_sk))))
+                weighted_terms.append(("a2b", 0.36, max(-8.0, min(8.0, z_sk))))
 
         # (a3) Support presence + multi-card facility clustering
         # Taper generic blank-tab overload weight as rainbow stage_q matures so rainbow co-clustering dominates
@@ -603,84 +676,54 @@ def build_pacer_realtime_luck(
         z_pres = (obs_present - exp_pres) / sqrt(max(var_pres, 0.15))
         z_over = (obs_overload - exp_over) / sqrt(max(var_over, 0.15))
         z_cluster = 0.35 * z_pres + 0.65 * z_over
-        w_cluster = 0.34 * (1.0 - 0.55 * stage_q)
-        weighted_terms.append((w_cluster, max(-8.0, min(8.0, z_cluster))))
+        w_cluster = 0.34 * (1.0 - 0.55 * mean_stat_q)
+        weighted_terms.append(("a3", w_cluster, max(-8.0, min(8.0, z_cluster))))
 
-        # (a4) Skill hints surprise
-        mu_hints = expected_stat_present * HINT_PROB_PER_PRESENT_STAT
-        var_hints = max(0.08, mu_hints * (1.0 - HINT_PROB_PER_PRESENT_STAT))
-        z_hints = (float(total_hints) - mu_hints) / sqrt(var_hints)
-        weighted_terms.append((0.14, max(-8.0, min(8.0, z_hints))))
+        # (a4) Skill hints surprise (using per-card hint_frequency when known)
+        z_hints = (float(total_hints) - mu_hints_exact) / sqrt(var_hints_exact)
+        weighted_terms.append(("a4", 0.14, max(-8.0, min(8.0, z_hints))))
 
-        board_norm = sqrt(sum(w * w for w, _ in weighted_terms))
-        z_board = sum(w * z for w, z in weighted_terms) / max(board_norm, 1e-6)
+        board_var = sum(
+            wi * wj * _board_term_corr(ki, kj)
+            for ki, wi, _ in weighted_terms
+            for kj, wj, _ in weighted_terms
+        )
+        board_norm = sqrt(max(board_var, 1e-12))
+        z_board = sum(w * z for _, w, z in weighted_terms) / max(board_norm, 1e-6)
         board_z_list.append(z_board)
 
-        # --- Sub-component (b): Stage-Calibrated Charge & Distinct SS/SSS Match RNG ---
-        ss_terms: list[tuple[float, float]] = []
-        if not abroad and not pre_debut and ordinal >= 12 and charge_members >= 2:
-            mean_ch = float(charge_cells) / float(charge_members)
-            exp_ch = _expected_domestic_charge_per_member(ordinal)
-            se_ch = max(DOMESTIC_TURN_CHARGE_SE_FLOOR, DOMESTIC_CHARGE_SD_PER_MEMBER / sqrt(float(charge_members)))
-            z_charge = (mean_ch - exp_ch) / se_ch
-            ss_terms.append((0.24, max(-6.0, min(6.0, z_charge))))
-
+        # --- Sub-component (b): Deduplicated SS/SSS metadata (excluded from RNG composite) ---
         ss_prev = _ss_preview_from_row(row)
         executed_ss = row.get("kind") == "ss"
         full_ss_ready = ss_prev is not None and ss_prev.get("ready_count") == 5
         if not abroad and (executed_ss or full_ss_ready):
-            ss_kind = (ss_prev or {}).get("kind") or "SS"
+            ss_kind = (ss_prev or {}).get("kind")
             if not pending_held_ss:
                 k_ss += 1
-                # Score SSS trigger RNG once SSS is unlockable (Junior Sep / ordinal >= 16 & 3rd SS onward)
-                if (ordinal >= 16 and k_ss >= 3) or ss_kind == "SSS":
-                    z_sss = ((1.0 if ss_kind == "SSS" else 0.0) - SSS_TRIGGER_PROB) / sqrt(
-                        SSS_TRIGGER_PROB * (1.0 - SSS_TRIGGER_PROB)
-                    )
-                    ss_terms.append((0.40, max(-3.0, min(3.5, z_sss))))
+                if ss_kind == "SSS":
+                    k_sss += 1
             pending_held_ss = not executed_ss
 
-        if ss_terms:
-            ss_charge_z_list.append(sum(w * z for w, z in ss_terms) / sqrt(sum(w * w for w, _ in ss_terms)))
-
-        all_terms = weighted_terms + ss_terms
-        total_norm = sqrt(sum(w * w for w, _ in all_terms))
-        z_turn = sum(w * z for w, z in all_terms) / max(total_norm, 1e-6)
+        z_turn = z_board
 
         # --- Sub-component (c): Training Judgment Martingale Shock ---
         if turn in judgment_by_turn:
             z_turn += 0.55 * max(-6.5, min(6.5, judgment_by_turn[turn]))
 
         turn_z_list.append(z_turn)
-        ss_progress_history.append((n_dom, k_ss))
 
     n = len(turn_z_list)
-    cum_turn_z = sum(turn_z_list) / sqrt(max(float(n), 4.0))
+    cum_z = sum(turn_z_list) / sqrt(max(float(n), 4.0))
     m_rec = min(n, 5)
-    rec_turn_z = sum(turn_z_list[-m_rec:]) / sqrt(max(float(m_rec), 2.5))
+    rec_z = sum(turn_z_list[-m_rec:]) / sqrt(max(float(m_rec), 2.5))
 
-    # --- Sub-component (d): Cumulative & Recent SS Pace vs Exact Erlang-3 Renewal Expectation ---
     ss_lam = _ss_renewal_lambda(n_dom)
-    mu_ss, var_ss = _erlang3_renewal_moments(ss_lam)
-    if n_dom >= 6 and var_ss >= 0.08:
-        ss_pace_z = max(-4.5, min(4.5, (float(k_ss) - mu_ss) / sqrt(max(var_ss, 0.22))))
-        cum_z = (0.68 * cum_turn_z + 0.66 * ss_pace_z) / 0.95
-    else:
-        ss_pace_z = 0.0
-        cum_z = cum_turn_z
+    mu_ss, _ = _erlang3_renewal_moments(ss_lam)
 
-    prev_dom, prev_k_ss = ss_progress_history[n - m_rec]
-    prev_mu_ss, _ = _erlang3_renewal_moments(_ss_renewal_lambda(prev_dom))
-    d_mu_ss = max(0.0, mu_ss - prev_mu_ss)
-    if n_dom >= 6 and d_mu_ss >= 0.15:
-        dk_ss = float(k_ss - prev_k_ss)
-        rec_pace_z = max(-3.5, min(3.5, (dk_ss - d_mu_ss) / sqrt(max(0.28, 0.42 * d_mu_ss))))
-        rec_z = (0.76 * rec_turn_z + 0.52 * rec_pace_z) / 0.92
-    else:
-        rec_z = rec_turn_z
-
-    # Renormalize convex combination so composite Z retains ~unit SD under pure noise
-    composite_z = (0.78 * cum_z + 0.22 * rec_z) / 0.91
+    # Exact dynamic overlap denominator between cumulative and recent window means
+    rho_cr = float(m_rec) / sqrt(max(float(n), 4.0) * max(float(m_rec), 2.5))
+    comp_norm = sqrt(0.78 ** 2 + 0.22 ** 2 + 2.0 * 0.78 * 0.22 * rho_cr)
+    composite_z = (0.78 * cum_z + 0.22 * rec_z) / comp_norm
     clamped_score = _map_z_to_score(composite_z)
     recent_rounded = _map_z_to_score(rec_z)
     mood = _mood_from_score(n, clamped_score)
@@ -697,11 +740,14 @@ def build_pacer_realtime_luck(
         "deck_counts": {k: int(deck_counts[k]) for k in ALL_CARD_TYPES if deck_counts[k] > 0},
         "components": {
             "board_z": round(sum(board_z_list) / sqrt(max(float(len(board_z_list)), 1.0)), 3),
-            "ss_charge_z": round(sum(ss_charge_z_list) / sqrt(max(float(len(ss_charge_z_list)), 1.0)), 3)
-            if ss_charge_z_list else 0.0,
-            "ss_pace_z": round(ss_pace_z, 3),
+            "charge_z": 0.0,
+            "sss_z": 0.0,
+            "ss_charge_z": 0.0,
+            "ss_pace_z": 0.0,
             "ss_count": k_ss,
+            "sss_count": k_sss,
             "ss_expected": round(mu_ss, 2),
+            "card_params_resolved": sum(1 for c in deck_cards if c.get("params_resolved")),
             "judgment_z": round(sum(judgment_by_turn.values()) / sqrt(max(float(len(judgment_by_turn)), 1.0)), 3)
             if judgment_by_turn else 0.0,
         },

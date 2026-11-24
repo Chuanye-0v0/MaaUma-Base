@@ -20,7 +20,7 @@ def _budget(row, now, cash, share, defer_language, current_income, *, rest_next=
     debts = obligations(levels, now, skip_language=defer_language,defer_niel_power=defer_niel_power)
     cash_after_purchase = cash - row['cost']
     projected = cash_after_purchase + current_income
-    friendship_cost = 0 if levels[7] == 3 else 300
+    friendship_cost = 0 if levels[7] == 3 else (300 if levels[7] == 2 else 500)
     preparation = 0
     race_income = 0
     for day in range(now + 1, FRIENDSHIP_DAY):

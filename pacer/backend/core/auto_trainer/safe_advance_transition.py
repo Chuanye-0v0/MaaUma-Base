@@ -334,6 +334,11 @@ _ALLOWED_V1_DECISIONS: dict[str, frozenset[tuple[str, str, str]]] = {
             ),
             (
                 "tap",
+                "close_exchange_points_expiry",
+                "safe_advance.exchange_points_expiry_close",
+            ),
+            (
+                "tap",
                 "confirm_wisdom_learning_prompt",
                 "safe_advance.wisdom_learning_prompt_confirm",
             ),

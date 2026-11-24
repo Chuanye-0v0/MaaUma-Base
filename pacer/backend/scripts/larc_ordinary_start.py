@@ -57,7 +57,7 @@ def start_preselected_ordinary_career(ctx, output_dir, *, trainee_name, trainee_
             import cv2
             from core.perception import Perception
             from core.auto_trainer.safe_advance import SafeAdvancePlanner
-            from core.auto_trainer.cut_condition_probe import ocr_tokens
+            from core.auto_trainer.cut_condition_probe import _default_ocr_reader, ocr_tokens
             from core.frame_io import read_image_with_retry
             image=read_image_with_retry(source)
             if image is None or image.shape[:2] not in {(1280,720),(2560,1440)}:
@@ -66,9 +66,17 @@ def start_preselected_ordinary_career(ctx, output_dir, *, trainee_name, trainee_
             canonical=cv2.resize(image,(720,1280))
             if SafeAdvancePlanner._continue_training_modal_button(Perception().analyze_image(canonical),canonical):
                 return {'state':'existing_career_handoff','reason':'existing_career_visible'}
-            tokens=ocr_tokens(canonical)
+            base_reader=kwargs.pop('reader',None)
+            if base_reader is None:
+                default_reader=_default_ocr_reader().read_regions
+                raw_regions=default_reader(canonical)
+                tokens=ocr_tokens(canonical,lambda _:raw_regions)
+                full_frame_reader=lambda img:raw_regions if img.shape==canonical.shape else default_reader(img)
+                base=analyze_restart_frame(source,reader=full_frame_reader,**kwargs)
+            else:
+                tokens=ocr_tokens(canonical,base_reader)
+                base=analyze_restart_frame(source,reader=base_reader,**kwargs)
             text=''.join(token['text'] for token in tokens)
-            base=analyze_restart_frame(source,reader=lambda _:tokens,**kwargs)
             # The shared owner identifies foreground inheritance/support/paid
             # modals before any trainee header left behind by a transition.
             if selection and (base.get('state')=='continue_trainee' or base.get('reason') in {

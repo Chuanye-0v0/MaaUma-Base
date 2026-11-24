@@ -492,12 +492,23 @@ def _promote_planner_final_skill_plan(
         raise ValueError("capture_batch_id_missing")
 
     race_profile = _required_mapping(build_context, "race_profile")
-    if local_auto_batch is None and build_context.get("target_mode") != "parent":
-        raise ValueError("target_mode_mismatch")
-    if local_auto_batch is None and race_profile.get("distance_type") != "middle":
-        raise ValueError("build_distance_mismatch")
-    if local_auto_batch is None and race_profile.get("style") != "betweener":
-        raise ValueError("build_style_mismatch")
+    report_inventory = report.get("inventory_packet")
+    if local_auto_batch is None:
+        if isinstance(report_inventory, Mapping):
+            if report_inventory.get("build_context") != dict(build_context):
+                raise ValueError("build_context_inventory_mismatch")
+            if build_context.get("target_mode") not in {"parent", "race"}:
+                raise ValueError("target_mode_mismatch")
+        elif build_context.get("target_mode") != "parent":
+            raise ValueError("target_mode_mismatch")
+        if not isinstance(report_inventory, Mapping) and race_profile.get("distance_type") != "middle":
+            raise ValueError("build_distance_mismatch")
+        if not isinstance(report_inventory, Mapping) and race_profile.get("style") != "betweener":
+            raise ValueError("build_style_mismatch")
+        if not isinstance(race_profile.get("distance_type"), str) or not race_profile["distance_type"]:
+            raise ValueError("build_distance_mismatch")
+        if not isinstance(race_profile.get("style"), str) or not race_profile["style"]:
+            raise ValueError("build_style_mismatch")
 
     verdict = _required_mapping(report, "verdict")
     if verdict.get("parser_verdict") != "PARSER_READY":
@@ -531,7 +542,19 @@ def _promote_planner_final_skill_plan(
         raise ValueError("parser_skills_invalid")
 
     dry_run = _required_mapping(report, "planner_dry_run")
-    if dry_run.get("executed") is not True or dry_run.get("status") != "ok":
+    dry_run_warnings = dry_run.get("warnings")
+    allow_race_unmet_partial = (
+        dry_run.get("status") == "partial"
+        and build_context.get("target_mode") == "race"
+        and dry_run.get("optimizer_status") == "ok"
+        and dry_run.get("risk_flags") == []
+        and isinstance(dry_run_warnings, list)
+        and set(dry_run_warnings) <= {"unmet_required_skills"}
+        and bool(dry_run.get("purchases"))
+    )
+    if dry_run.get("executed") is not True or (
+        dry_run.get("status") != "ok" and not allow_race_unmet_partial
+    ):
         raise ValueError("planner_dry_run_not_ready")
     if dry_run.get("target_mode") != build_context.get("target_mode"):
         raise ValueError("planner_target_mode_mismatch")
@@ -1110,7 +1133,7 @@ def _current_run_multi_evidence_identity_binding(
         and _confidence_at_least(binding.get("confidence"), 0.70)
         and isinstance(dimensions, int)
         and not isinstance(dimensions, bool)
-        and dimensions in {3, 4}
+        and dimensions in {3, 4, 5}
         and isinstance(evidence, Mapping)
         and evidence.get("cost") == 1.0
         and evidence.get("rarity") == 1.0

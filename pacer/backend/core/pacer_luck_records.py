@@ -1,5 +1,6 @@
 """Read compact luck inputs from already saved run records, without game I/O."""
 
+from functools import lru_cache
 from itertools import islice
 import json
 import re
@@ -17,7 +18,7 @@ _TURN = re.compile(r'turn_(\d{1,3})(?:_[A-Za-z0-9_]{1,64})?')
 _AFTER = re.compile(r'(?:route|event)_\d{2,3}')
 _HASH = re.compile(r'[0-9a-fA-F]{64}')
 _SIZE = 4 * 1024 * 1024
-_TOTAL_BYTES = 48 * 1024 * 1024
+_TOTAL_BYTES = 256 * 1024 * 1024
 _MAX_OBSERVATIONS = 128
 
 
@@ -220,7 +221,7 @@ def _observation(run, folder, turn, next_turn, remaining):
             ss_snap = _ss_snapshot_data(folder, run, turn, remaining)
         if ss_snap:
             ss_prev = _ss_preview_summary(ss_snap.get('preview'))
-    if ss_prev is None:
+    if ss_prev is None and basis == 'capture_sidecar':
         ss_prev = _pipeline_ss_preview(folder, run, remaining)
     row = {
         'observation_id': observation_id,
@@ -264,6 +265,99 @@ def _observation(run, folder, turn, next_turn, remaining):
     return row
 
 
+_ANCHOR_LEVELS = (1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50)
+
+
+@lru_cache(maxsize=1)
+def _support_library_index():
+    path = Path(__file__).resolve().parents[1] / 'data/support_knowledge/cn_larc_end/support_library.json'
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+        cards = payload.get('cards', []) if isinstance(payload, dict) else []
+        return {
+            str(card['card_id']): card
+            for card in cards
+            if isinstance(card, dict) and card.get('card_id') is not None
+        }
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _infer_card_level(level, limit_breaks, rarity):
+    if type(level) is int and 1 <= level <= 50:
+        return level
+    if type(limit_breaks) is int and 0 <= limit_breaks <= 4:
+        base = 20 if rarity == 'R' else 25 if rarity == 'SR' else 30
+        return min(50, max(1, base + 5 * limit_breaks))
+    return 40 if rarity == 'R' else 45 if rarity == 'SR' else 50
+
+
+def _eval_effect_at_level(rows, effect_id, level):
+    for row in rows:
+        if not isinstance(row, list) or len(row) != 12 or row[0] != effect_id:
+            continue
+        anchors = [
+            (lv, v)
+            for lv, v in zip(_ANCHOR_LEVELS, row[1:])
+            if type(v) is int and v >= 0
+        ]
+        if not anchors or level < anchors[0][0]:
+            return 0
+        if level >= anchors[-1][0]:
+            return anchors[-1][1]
+        for (l0, v0), (l1, v1) in zip(anchors, anchors[1:]):
+            if l0 <= level <= l1:
+                if l1 == l0:
+                    return int(v1)
+                return int(v0 + (v1 - v0) * (level - l0) // (l1 - l0))
+    return 0
+
+
+def _lookup_card_luck_params(card_id, *, level=None, limit_breaks=None, rarity=None, card_type=None):
+    if card_id in (None, '', 'unknown'):
+        return {}
+    card = _support_library_index().get(str(card_id))
+    if not card:
+        return {}
+    lv = _infer_card_level(level, limit_breaks, rarity or card.get('rarity'))
+    effects = card.get('support_effects_reference') or []
+    base_sp = _eval_effect_at_level(effects, 19, lv)
+    init_bond = _eval_effect_at_level(effects, 14, lv)
+    hint_freq = _eval_effect_at_level(effects, 18, lv)
+
+    unique = card.get('unique_effect_reference')
+    unique_sp = 0
+    if isinstance(unique, dict) and lv >= int(unique.get('level') or 30):
+        for ef in unique.get('effects') or []:
+            if not isinstance(ef, dict):
+                continue
+            etype = ef.get('type')
+            val = ef.get('value')
+            if type(val) not in (int, float):
+                continue
+            if etype == 19:
+                unique_sp += val
+            elif etype == 14:
+                init_bond += int(val)
+            elif etype == 18:
+                hint_freq += int(val)
+
+    eff_sp = (
+        round(((100.0 + base_sp) * (100.0 + unique_sp) / 100.0) - 100.0, 2)
+        if unique_sp > 0
+        else float(base_sp)
+    )
+    eff_type = card_type or canonical_type(card.get('type'))
+    if eff_type in ('friend', 'group'):
+        eff_sp = 0.0
+    return {
+        'specialty_priority': eff_sp,
+        'initial_bond': int(init_bond),
+        'hint_frequency': int(hint_freq),
+        'resolved_level': lv,
+    }
+
+
 def _read_supports(run, goal, remaining):
     candidates = [
         _read(run / 'session/support_card_profile.json', run, remaining, limit=256 * 1024),
@@ -282,13 +376,26 @@ def _read_supports(run, goal, remaining):
                 continue
             ctype = canonical_type(item.get('type') or item.get('card_type'))
             slot = item.get('slot') if type(item.get('slot')) is int and 0 <= item.get('slot') <= 5 else idx
+            card_id = item.get('card_id') if isinstance(item.get('card_id'), str) else None
+            looked = _lookup_card_luck_params(
+                card_id,
+                level=item.get('level'),
+                limit_breaks=item.get('limit_breaks'),
+                rarity=item.get('rarity'),
+                card_type=ctype,
+            )
             normalized.append({
                 'slot': slot,
                 'type': ctype,
-                'card_id': item.get('card_id') if isinstance(item.get('card_id'), str) else None,
+                'card_id': card_id,
                 'character_id': item.get('character_id') if isinstance(item.get('character_id'), str) else None,
+                'level': item.get('level') if type(item.get('level')) is int else looked.get('resolved_level'),
                 'specialty_priority': item.get('specialty_priority')
-                if type(item.get('specialty_priority')) in (int, float) else None,
+                if type(item.get('specialty_priority')) in (int, float) else looked.get('specialty_priority'),
+                'initial_bond': item.get('initial_bond')
+                if type(item.get('initial_bond')) in (int, float) else looked.get('initial_bond'),
+                'hint_frequency': item.get('hint_frequency')
+                if type(item.get('hint_frequency')) in (int, float) else looked.get('hint_frequency'),
             })
         if normalized:
             return normalized

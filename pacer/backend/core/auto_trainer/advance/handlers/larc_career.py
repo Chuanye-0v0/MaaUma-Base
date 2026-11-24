@@ -273,12 +273,30 @@ class LarcCareerHandlerMixin:
         if scenario == "larc" and "无法参加目标赛事" in notice and "前往赛事" in notice:
             point = self._go_to_race_modal_button(evidence["perception"], img)
             if point is not None:
-                evidence["race_prerequisite"] = {"source":"current_game_notice",
-                    "kind":"first_win" if "零胜段位" in notice else "race_entry_requirement"}
-                decision = self._tap_decision("go_to_race_entry_requirement", "safe_advance.go_to_race",
-                    point, evidence)
-                decision["route_state"] = "modal"
-                return decision
+                if "零胜段位" in notice or "零胜战" in notice:
+                    evidence["race_prerequisite"] = {
+                        "source": "current_game_notice",
+                        "kind": "first_win",
+                    }
+                    decision = self._tap_decision(
+                        "go_to_race_entry_requirement",
+                        "safe_advance.go_to_race",
+                        point,
+                        evidence,
+                    )
+                    decision["route_state"] = "modal"
+                    return decision
+                if (
+                    "取消" in notice
+                    and "赛事详情" not in notice
+                    and "要参加比赛吗" not in notice
+                ):
+                    return self._tap_decision(
+                        "cancel_larc_fan_warning",
+                        "safe_advance.larc_fan_warning_cancel",
+                        (round(img.shape[1] * 0.279), point[1]),
+                        evidence,
+                    )
         career_end = self._career_end_finish_button(screen_text, img)
         if career_end is not None:
             if allow_career_end_finish_after_skill_handoff:

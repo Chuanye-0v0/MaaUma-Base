@@ -398,14 +398,20 @@ def _detect_main_menu(
     image: np.ndarray, *, scenario: str | None = "grand_masters",
 ) -> dict[str, Any]:
     remaining_color = _blue_ratio if scenario == "larc" else _red_ratio
+    is_larc = scenario == "larc"
     anchors = [
         ("remaining_panel", (15, 42, 149, 126), remaining_color, 0.22),
         ("objective_panel", (158, 75, 711, 136), _white_ratio, 0.45),
-        ("stats_panel", (25, 825, 591, 906), _blue_ratio, 0.20),
+        (
+            "stats_panel",
+            (25, 825, 591, 906),
+            _white_ratio if is_larc else _blue_ratio,
+            0.30 if is_larc else 0.20,
+        ),
         ("bottom_actions", (28, 939, 686, 1155), _saturated_ratio, 0.18),
-        ("training_action", (220, 930, 500, 1045), _blue_ratio, 0.25),
-        ("rest_action", (25, 930, 210, 1045), _green_ratio, 0.20),
-        ("skill_action", (515, 930, 695, 1045), _blue_ratio, 0.20),
+        ("training_action", (220, 930, 500, 1045), _blue_ratio, 0.14 if is_larc else 0.25),
+        ("rest_action", (25, 930, 210, 1045), _green_ratio, 0.16 if is_larc else 0.20),
+        ("skill_action", (515, 930, 695, 1045), _blue_ratio, 0.11 if is_larc else 0.20),
     ]
     scores = []
     for name, roi, scorer, threshold in anchors:

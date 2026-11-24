@@ -209,7 +209,7 @@ def _is_current_run_multi_evidence_binding(binding: Mapping[str, Any]) -> bool:
         and _is_probability(confidence)
         and float(confidence) >= 0.70
         and _is_int(dimensions)
-        and dimensions in {3, 4}
+        and dimensions in {3, 4, 5}
         and evidence.get("cost") == 1.0
         and evidence.get("rarity") == 1.0
         and evidence.get("icon_color") == 1.0

@@ -1,6 +1,8 @@
 """Bounded charge opportunities, separate from observed batteries and rewards."""
 
-from core.auto_trainer.larc_participant_evidence import is_mei, training_rows, visible_charge
+from core.auto_trainer.larc_participant_evidence import (
+    effective_domestic_charge, is_mei, training_rows, visible_charge,
+)
 from core.auto_trainer.larc_ss_opportunity import ss_redemption
 
 
@@ -27,12 +29,16 @@ def battery_inventory(state, run_id):
         if not _bound(source, state, run_id) or view is None:
             continue
         for person in view[0]:
-            ref, charge = person.get("member_ref", {}), person.get("charge", {})
-            member_id, filled, net = ref.get("member_id"), charge.get("filled_cells"), charge.get("preview_cells")
+            ref = person.get("member_ref", {})
+            member_id = ref.get("member_id")
+            resolved = effective_domestic_charge(
+                person, state=state, tab_participants=view[0], candidate=option
+            )
             if (ref.get("status") != "accepted" or ref.get("run_session_id") != run_id or not member_id
-                    or charge.get("status") != "accepted" or charge.get("capacity") != 3
-                    or type(filled) is not int or type(net) is not int
-                    or not 0 <= filled <= 3 or not 0 <= net <= 3 - filled):
+                    or resolved is None):
+                continue
+            filled, net, _ = resolved
+            if not (0 <= filled <= 3 and 0 <= net <= 3 - filled):
                 continue
             if member_id in members and members[member_id]["filled"] != filled:
                 conflicts.add(member_id)

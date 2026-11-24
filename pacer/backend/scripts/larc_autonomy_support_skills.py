@@ -123,7 +123,8 @@ class StartupNavigation:
         """After a proven learning confirmation, only close success or go back."""
         from scripts.larc_transition_probe import actionable_surface
         closed=False
-        for _ in range(20):
+        backed=False
+        for _ in range(40):
             path,image=self.capture(folder)
             box=success_close_box(image)
             if box is not None:
@@ -132,20 +133,27 @@ class StartupNavigation:
                     self.tap(path,((box[0]+box[2])//2,(box[1]+box[3])//2),
                         'modal','startup.skills.close_success',('skill_acquisition','main_menu','loading','modal'))
                     closed=True
-                self.sleep(.1)
+                self.sleep(.25)
                 continue
             if inspect_skill_acquisition_page(image).get('accepted'):
-                self.observe(path,'skill_acquisition',resync=True)
-                point=SafeAdvancePlanner._skill_acquisition_back_button(image) or SafeAdvancePlanner._skill_acquisition_back_control(image)
-                if point is None:raise ValueError('startup_back_control_unknown')
-                self.tap(path,point,'skill_acquisition','startup.skills.back',('main_menu','loading'))
-                return self.return_menu(folder,worker_returned=True)
-            if actionable_surface(image,skip_enabled=True)=='main_menu':
+                packet=self.safety.analyze(path)
+                if '连接中' in str(packet.visible_text):
+                    self.sleep(.25)
+                    continue
+                if not backed:
+                    self.observe(path,'skill_acquisition',resync=True)
+                    point=SafeAdvancePlanner._skill_acquisition_back_button(image) or SafeAdvancePlanner._skill_acquisition_back_control(image)
+                    if point is None:raise ValueError('startup_back_control_unknown')
+                    self.tap(path,point,'skill_acquisition','startup.skills.back',('main_menu','loading'))
+                    backed=True
+                self.sleep(.25)
+                continue
+            if backed or actionable_surface(image,skip_enabled=True)=='main_menu':
                 provider=self.provider(path,path.with_suffix('.state.json'),turn_index=self.ctx.progress['next_turn'],scenario='larc')
                 if provider.get('valid_for_training') is True:
                     self.observe(path,'main_menu',resync=True)
                     return str(path),provider
-            self.sleep(.1)
+            self.sleep(.25)
         raise ValueError('startup_confirmed_return_not_settled')
 
 
@@ -183,6 +191,33 @@ def confirmed_startup_learning(ctx,worker_root):
         return None
 
 
+def _record_support_purchase_history(ledger, *, turn_index, before_pt, after_pt, action_ids, worker_report_path):
+    if type(before_pt) is not int or type(after_pt) is not int or not 0 <= after_pt < before_pt:
+        return
+    history = ledger.setdefault('purchase_history', [])
+    wpath_str = str(worker_report_path)
+    try:
+        wkey = str(Path(wpath_str).resolve())
+    except OSError:
+        wkey = wpath_str
+    for row in history:
+        if isinstance(row, dict) and row.get('worker_report_path'):
+            try:
+                existing_key = str(Path(row['worker_report_path']).resolve())
+            except OSError:
+                existing_key = str(row['worker_report_path'])
+            if existing_key == wkey:
+                return
+    history.append({
+        'turn_index': turn_index,
+        'before_pt': before_pt,
+        'after_pt': after_pt,
+        'spent_pt': before_pt - after_pt,
+        'selected_action_ids': list(action_ids or []),
+        'worker_report_path': wpath_str,
+    })
+
+
 def finish_startup_learning(ctx,ledger,proof,output,*,navigation_factory=StartupNavigation):
     navigation=navigation_factory(ctx)
     source,provider=navigation.finish_confirmed_return(output)
@@ -202,6 +237,19 @@ def finish_startup_learning(ctx,ledger,proof,output,*,navigation_factory=Startup
     ledger['status']='complete' if ledger['completed'] else 'deferred'
     _consume_trigger_dates(ledger)
     ledger['completion_recovery']={**proof,'returned_main_menu_path':source,'turn_consumed':False}
+    try:
+        wr_path = Path(proof['worker_root']) / 'worker_report.json'
+        wr = read(wr_path) if wr_path.is_file() else {}
+        _record_support_purchase_history(
+            ledger,
+            turn_index=ctx.progress['next_turn'],
+            before_pt=(wr.get('before') or {}).get('current_skill_points'),
+            after_pt=proof.get('remaining_skill_points'),
+            action_ids=wr.get('selected_action_ids') or proof.get('learned_skill_ids'),
+            worker_report_path=wr_path,
+        )
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
     ledger.pop('pending_worker_root',None)
     _learning_status(ctx,"learned","purchase_recovered","已完成上次技能学习收尾",mode=ledger.get("target",{}).get("mode","legacy_speed_startup"),selected_count=len(proof["learned_skill_ids"]))
     _atomic_write_json(ctx.root/'session/larc_support_skill_startup.json',ledger)
@@ -273,7 +321,7 @@ def prepare_support_skills(ctx,source,provider,output_dir,*,cut_mode=False,navig
         if not (ledger.get("last_checked_turn")==turn and keep.get("turn_index")==turn and keep.get("status") in {"learned","skipped"}):
             _learning_status(ctx,**waiting_status(ledger,target,run_id=ctx.run_id,turn=turn,points=points,timing=goal.skill_timing,period=period))
         return None,source,provider
-    options=execution_options(goal.skill_timing)
+    options=execution_options(goal.skill_timing,period=period)
     if options['max_cost']==0 or options['spend_fraction']==0:
         _learning_status(ctx,"skipped","no_purchase_budget","中途技能预算为0，暂不购买",mode=learning_mode(goal.skill_timing))
         return _notice_once(ctx,'no_purchase_budget'),source,provider
@@ -320,6 +368,15 @@ def prepare_support_skills(ctx,source,provider,output_dir,*,cut_mode=False,navig
     diagnostic=result.get('startup',{});held=diagnostic.get('after') if result.get('learning_result',{}).get('ok') is True else diagnostic.get('held')
     if isinstance(held,dict):
         ledger.update(held);ledger.update(learning_completion(target,held))
+    if result.get('learning_result',{}).get('ok') is True:
+        _record_support_purchase_history(
+            ledger,
+            turn_index=turn,
+            before_pt=(result.get('before') or {}).get('current_skill_points', points),
+            after_pt=result.get('remaining_skill_points') if type(result.get('remaining_skill_points')) is int else after_points,
+            action_ids=result.get('selected_action_ids'),
+            worker_report_path=output/'worker/worker_report.json',
+        )
     ledger.update(status='complete' if ledger.get('completed') else 'deferred',
         last_checked_pt=after_points if type(after_points) is int else result.get('remaining_skill_points',points))
     _atomic_write_json(ledger_path,ledger)

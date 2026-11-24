@@ -72,7 +72,22 @@ def _best_name_score(skill: dict[str, Any], candidate: dict[str, Any]) -> float:
     expected = [candidate['name']]
     expected.extend(candidate.get('aliases', []))
     expected.extend(candidate.get('ocr_aliases', []))
-    return max((_similarity(left, right) for left in observed for right in expected), default=0.0)
+    best = max((_similarity(left, right) for left in observed for right in expected), default=0.0)
+    cand_name = str(candidate.get('name') or '')
+    if cand_name.endswith('◎'):
+        stem_norm = _normalize_text(cand_name[:-1])
+        if stem_norm:
+            cand_sentinel = stem_norm + '圈'
+            for left in observed:
+                raw_left = str(left)
+                if any(sym in raw_left for sym in ('○', '◎', '×', '圈', '双圈')):
+                    continue
+                left_norm = _normalize_text(raw_left)
+                if left_norm:
+                    score = SequenceMatcher(None, left_norm, cand_sentinel).ratio()
+                    if score > best:
+                        best = score
+    return best
 
 def _description_score(skill: dict[str, Any], candidate: dict[str, Any]) -> float:
     observed = skill.get('description') or skill.get('ocr_raw', {}).get('description')
@@ -99,14 +114,17 @@ def _cost_score(skill: dict[str, Any], candidate: dict[str, Any]) -> float:
     layers = candidate.get('upgrade_cost_layers')
     if layers:
         extra = skill.get('verified_extra_discount', 0)
-        expected = sum((round(cost * (100 - (skill.get('discount_percent') or 0) - extra) / 100) if hint is None else round(cost * (100 - hint - extra) / 100) for cost, hint in layers))
-        return float(observed == expected)
+        expected_round = sum((round(cost * (100 - (skill.get('discount_percent') or 0) - extra) / 100) if hint is None else round(cost * (100 - hint - extra) / 100) for cost, hint in layers))
+        expected_floor = sum(((int(cost) * (100 - int(skill.get('discount_percent') or 0) - int(extra)) // 100) if hint is None else (int(cost) * (100 - int(hint) - int(extra)) // 100) for cost, hint in layers))
+        return float(observed in {expected_round, expected_floor})
     discount = skill.get('discount_percent')
     if type(discount) is int:
         discount += skill.get('verified_extra_discount', 0)
     discounted = _expected_discounted_cost(candidate, discount)
     if discounted is not None:
         expected = {discounted}
+        if candidate.get('base_cost') is not None and type(discount) is int:
+            expected.add(int(int(candidate['base_cost']) * (100 - int(discount)) // 100))
         expected.update(candidate.get('display_costs_by_discount', {}).get(str(skill['discount_percent']), []))
     else:
         expected = set(candidate.get('display_costs', []))
@@ -284,10 +302,55 @@ def _current_run_multi_evidence_candidate(skill: dict[str, Any], catalog: list[d
     top_scored['current_run_contract'] = {'version': 'current_run_multi_evidence.v1', 'local_db_id': _candidate_local_db_id(top_candidate), 'description_anchor_exact': description_anchor, 'name_score_threshold_met': normal_name_gate or unique_noisy_name_gate, 'identity_status': top_candidate.get('identity_status'), 'metadata_status': top_candidate.get('metadata_status')}
     return top_scored
 
+def _lookup_observed_lower_hint(tier: dict[str, Any], observed_rows: Iterable[dict[str, Any]]) -> int:
+    """Resolve an observed discount for an unacquired lower skill despite dropped '！' or '○'."""
+    tier_name = str(tier.get('name') or '')
+    if not tier_name:
+        return 0
+    tier_norm = re.sub('！+', '', _normalize_text(tier_name))
+    tier_has_symbol = tier_name.endswith(('○', '◎', '×'))
+    tier_stem = re.sub('(?:圈|！)+$', '', _normalize_text(tier_name)) if tier_name.endswith('○') else ''
+
+    exact_matches: list[tuple[bool, int]] = []
+    norm_matches: list[tuple[bool, int]] = []
+    dropped_circle_matches: list[tuple[bool, int]] = []
+
+    for row in observed_rows:
+        if row.get('acquired') is not False:
+            continue
+        discount = row.get('discount_percent') or 0
+        if type(discount) is not int:
+            continue
+        row_name = str(row.get('name') or '')
+        if not row_name:
+            continue
+        is_complete = 'row_partially_visible' not in (row.get('unknown_reason') or [])
+        if row_name == tier_name:
+            exact_matches.append((is_complete, discount))
+            continue
+        row_norm = re.sub('！+', '', _normalize_text(row_name))
+        if not tier_has_symbol and not row_name.endswith(('○', '◎', '×')) and row_norm and row_norm == tier_norm:
+            norm_matches.append((is_complete, discount))
+            continue
+        if (
+            tier_name.endswith('○')
+            and tier_stem
+            and not any(sym in row_name for sym in ('○', '◎', '×', '圈', '双圈'))
+            and row_norm == tier_stem
+            and _description_score(row, tier) >= 0.85
+        ):
+            dropped_circle_matches.append((is_complete, discount))
+
+    for bucket in (exact_matches, norm_matches, dropped_circle_matches):
+        if bucket:
+            bucket.sort(key=lambda item: (item[0], item[1]), reverse=True)
+            return int(bucket[0][1])
+    return 0
+
+
 def _remaining_upgrade_catalog(catalog, owned, observed_rows=()):
     """Catalog costs include the lower chain; only its unowned portion is displayed."""
     by_id = {item['skill_id']: item for item in catalog}
-    hints = {row.get('name'): row.get('discount_percent') or 0 for row in observed_rows if row.get('acquired') is False}
     result = []
     for item in catalog:
         pending = list(item.get('relations', {}).get('lower', []))
@@ -302,6 +365,14 @@ def _remaining_upgrade_catalog(catalog, owned, observed_rows=()):
             if lower_id in owned and type(lower.get('base_cost')) is int:
                 paid.append(lower['base_cost'])
             pending.extend(lower.get('relations', {}).get('lower', []))
+        if not paid and str(item.get('name', '')).endswith('◎') and type(item.get('base_cost')) is int:
+            for lower_id in item.get('relations', {}).get('lower', []):
+                lower = by_id.get(lower_id)
+                if (lower is not None and str(lower.get('name', '')).endswith('○')
+                        and type(lower.get('base_cost')) is int and 0 < lower['base_cost'] < item['base_cost']):
+                    # Buying ○ replaces the row in-place with unacquired ◎, so ◎ always displays its single-step cost.
+                    paid.append(lower['base_cost'])
+                    visited.add(lower_id)
         if paid and type(item.get('base_cost')) is int and (0 < max(paid) < item['base_cost']):
             item = {**item, 'base_cost': item['base_cost'] - max(paid), 'display_costs': [], 'display_costs_by_discount': {}}
         chain = sorted((by_id[key] for key in visited), key=lambda row: row.get('base_cost') or 0)
@@ -316,7 +387,7 @@ def _remaining_upgrade_catalog(catalog, owned, observed_rows=()):
                     layers = []
                     break
                 if total > paid_total:
-                    hint = None if tier is original else hints.get(tier['name'], 0)
+                    hint = None if tier is original else _lookup_observed_lower_hint(tier, observed_rows)
                     layers.append((total - previous, hint))
                 previous = total
             if layers:
@@ -367,8 +438,22 @@ def resolve_skill_manifest(manifest: dict[str, Any], catalog: list[dict[str, Any
                 runner_up = ranked[1] if len(ranked) > 1 else {'score': 0.0}
                 margin = round(top['score'] - runner_up['score'], 4)
         current_run_multi_evidence_confirm = current_run_multi_evidence is not None
-        auto_confirm = standard_confirm or unique_fuzzy_confirm or current_run_multi_evidence_confirm
-        binding_policy = 'standard' if standard_confirm else 'unique_fuzzy' if unique_fuzzy_confirm else 'current_run_multi_evidence' if current_run_multi_evidence_confirm else 'abstain'
+        acquired_unique_twin_confirm = False
+        if (not (standard_confirm or unique_fuzzy_confirm or current_run_multi_evidence_confirm)
+                and skill.get('acquired') is True and len(ranked) >= 2):
+            top_id = str(top.get('skill_id') or '')
+            run_id = str(runner_up.get('skill_id') or '')
+            same_twin_name = _normalize_text(top.get('name')) == _normalize_text(runner_up.get('name'))
+            one_inherited = top_id.startswith('cn-db:9') != run_id.startswith('cn-db:9')
+            if (same_twin_name and one_inherited
+                    and top['score'] >= AUTO_CONFIRM_SCORE and not top['hard_conflicts']
+                    and top['evidence'].get('name', 0.0) >= 0.95
+                    and top['evidence'].get('description', 0.0) >= 0.80
+                    and top['evidence'].get('description', 0.0) > runner_up['evidence'].get('description', 0.0)
+                    and margin >= 0.03):
+                acquired_unique_twin_confirm = True
+        auto_confirm = standard_confirm or unique_fuzzy_confirm or current_run_multi_evidence_confirm or acquired_unique_twin_confirm
+        binding_policy = 'standard' if standard_confirm else 'unique_fuzzy' if unique_fuzzy_confirm else 'current_run_multi_evidence' if current_run_multi_evidence_confirm else 'acquired_unique_twin' if acquired_unique_twin_confirm else 'abstain'
         reasons: list[str] = []
         if not auto_confirm:
             reasons.append('insufficient_unique_evidence')

@@ -311,7 +311,7 @@ def authorized_entry(policy,session,decision,text, *, image=None):
         return bool(policy.scenario=='larc' and policy.allow_clock_retry and not getattr(policy,'clock_retry_unresolved',False) and policy.post_entry_only
             and proof.get('screen_size') in ([720,1280],[1440,2560])
             and not policy.inspection_only and not policy.count_reserved_only
-            and session is not None and session.clock_retries_used<5 and not session.clock_retry_entry_pending
+            and session is not None and session.clock_retries_used<5 and not session.clock_retry_entry_pending and not getattr(session, 'clock_retry_declined', False)
             and decision.get('action')=='tap' and decision.get('reason')=='open_lost_race_retry'
             and decision.get('tap')=={'coordinate_name':ENTRY_ACTION_ID,'x':entry_point(proof)[0],
                 'y':entry_point(proof)[1],'scaled':False})
@@ -319,7 +319,7 @@ def authorized_entry(policy,session,decision,text, *, image=None):
     if proof.get('screen_size') not in ([720,1280],[1440,2560]) or len(proof.get('box',[]))!=4:return False
     return bool(policy.scenario=='larc' and policy.allow_clock_retry and not getattr(policy,'clock_retry_unresolved',False) and policy.allow_debut_retry_entry
         and policy.post_entry_only and not policy.inspection_only and not policy.count_reserved_only
-        and session is not None and session.clock_retries_used<5 and not session.clock_retry_entry_pending
+        and session is not None and session.clock_retries_used<5 and not session.clock_retry_entry_pending and not getattr(session, 'clock_retry_declined', False)
         and observed and proof.get('rank')==observed['rank']
         and decision.get('action')=='tap' and decision.get('reason')=='open_lost_race_retry'
         and decision.get('tap')=={'coordinate_name':ENTRY_ACTION_ID,'x':entry_point(proof)[0],'y':entry_point(proof)[1],'scaled':False})

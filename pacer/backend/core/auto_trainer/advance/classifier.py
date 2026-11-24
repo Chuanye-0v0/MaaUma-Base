@@ -1276,6 +1276,20 @@ class SafeAdvanceClassifierMixin:
         return bool(bottom_graywhite > 0.60 and nameplate_green > 0.20)
 
     @staticmethod
+    def _looks_like_colored_nameplate_bottom_dialogue(img: np.ndarray) -> bool:
+        height, width = img.shape[:2]
+        if height < width:
+            return False
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        bottom = hsv[int(height * 0.70) : int(height * 0.92), int(width * 0.02) : int(width * 0.98)]
+        nameplate = hsv[int(height * 0.68) : int(height * 0.78), int(width * 0.02) : int(width * 0.55)]
+        if bottom.size == 0 or nameplate.size == 0:
+            return False
+        bottom_graywhite = np.mean((bottom[:, :, 1] < 110) & (bottom[:, :, 2] > 100))
+        nameplate_colored = np.mean((nameplate[:, :, 1] > 70) & (nameplate[:, :, 2] > 100))
+        return bool(bottom_graywhite > 0.60 and nameplate_colored > 0.20)
+
+    @staticmethod
     def _looks_like_story_dialogue_with_record_controls(img: np.ndarray) -> bool:
         height, width = img.shape[:2]
         if height < width:

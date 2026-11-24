@@ -2226,8 +2226,9 @@ class SafeAdvanceExecutor:
         if adaptation_tap and getattr(adb, "supports_in_memory_capture", False) is True:
             from core.auto_trainer.larc_control_wait import adaptation_controls, controls_changed
             before_adaptation = read_image_compat(screenshot_path)
+            is_return_tap = tap["coordinate_name"] == "safe_advance.larc_adaptation_return"
             adaptation_ready = lambda image: controls_changed(before_adaptation, image) and adaptation_controls(
-                image, allow_home=tap["coordinate_name"] == "safe_advance.larc_adaptation_return")
+                image, allow_home=is_return_tap, require_leave_grid=is_return_tap)
             sleep_seconds = 0
         elif (scenario == "larc" and decision.get("reason") == "larc_ss_open"
                 and getattr(adb, "supports_in_memory_capture", False) is True):

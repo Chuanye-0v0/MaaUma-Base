@@ -598,7 +598,8 @@ class DialogueAndEventsHandlerMixin:
                 and SafeAdvancePlanner._looks_like_large_bottom_dialogue(img)
                 and (SafeAdvancePlanner._looks_like_dialogue_continue_arrow(img)
                     or SafeAdvancePlanner._looks_like_training_story_dialogue(img)
-                    or SafeAdvancePlanner._looks_like_green_nameplate_bottom_dialogue(img))):
+                    or SafeAdvancePlanner._looks_like_green_nameplate_bottom_dialogue(img)
+                    or SafeAdvancePlanner._looks_like_colored_nameplate_bottom_dialogue(img))):
             return SafeAdvancePlanner._advance_bottom_dialogue(evidence,img)
         return {'action':'wait','reason':'bottom_skip_state_unconfirmed','route_state':'auto_skip_wait','evidence':evidence}
 

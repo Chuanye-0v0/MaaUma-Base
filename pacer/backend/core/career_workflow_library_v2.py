@@ -20,6 +20,7 @@ from pathlib import Path
 import re
 import tempfile
 
+from core.auto_trainer import larc_strategy_versions as _strategy_versions
 from core.auto_trainer.ace_graduation import normalize_ace_cycle
 from core.career_workflow import (
     ACE_CYCLE_MODE,
@@ -35,6 +36,7 @@ from core.career_workflow_library import (
     _read as _read_json_obj,
     _resolved as _resolve_v1_profile,
     deepmerge,
+    normalize_library as normalize_library_v1,
 )
 
 SCHEMA_V2 = 'uma.career_workflow_library.v2'
@@ -857,6 +859,33 @@ def _v1_selection(custom_modes: list[dict], mode_id: str, profile_id: str | None
     return mode, profile
 
 
+def _sanitize_unregistered_revisions(value: dict) -> tuple[dict, list[str]]:
+    """Replace unregistered larc_policy.revision values in an in-memory copy only."""
+    copied = deepcopy(value)
+    replaced: list[str] = []
+    known = _strategy_versions.REVISION_POLICY_VERSIONS
+    fallback = _strategy_versions.CURRENT_REVISION
+
+    def _walk(node: object) -> None:
+        if isinstance(node, dict):
+            lp = node.get('larc_policy')
+            if isinstance(lp, dict):
+                rev = lp.get('revision')
+                if isinstance(rev, str) and rev not in known:
+                    replaced.append(rev)
+                    lp['revision'] = fallback
+            for v in node.values():
+                if isinstance(v, (dict, list)):
+                    _walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                if isinstance(item, (dict, list)):
+                    _walk(item)
+
+    _walk(copied)
+    return copied, sorted(set(replaced))
+
+
 class BuildLibraryStore:
     """Build-first V2 library storage. `.load`/`.resolve`/`.payload` are strictly read-only."""
 
@@ -865,6 +894,7 @@ class BuildLibraryStore:
         self.path = self.root / LIBRARY_V2
         self.v1_path = self.root / LIBRARY_V1
         self.v1_backup_path = self.root / V1_BACKUP
+        self._last_load_warnings: list[str] = []
 
     def _has_any_v1_source(self) -> bool:
         panel = self.v1_path.parent
@@ -883,14 +913,52 @@ class BuildLibraryStore:
         return v2
 
     def load(self, initial_policies=None) -> dict:
+        self._last_load_warnings = []
         value = _read_json_obj(self.path)
         if value is not None:
-            return normalize_library_v2(value)
+            try:
+                return normalize_library_v2(value)
+            except ValueError as err:
+                if 'larc_policy_revision_unknown' in str(err):
+                    sanitized, replaced = _sanitize_unregistered_revisions(value)
+                    if replaced:
+                        result = normalize_library_v2(sanitized)
+                        fallback = _strategy_versions.CURRENT_REVISION
+                        self._last_load_warnings.append(
+                            f"检测到已保存方案使用了当前未注册的策略版本（{'、'.join(replaced)}），"
+                            f"已临时以默认策略 {fallback} 只读载入（原磁盘文件未改写）；安装对应策略包后重启即可恢复。"
+                        )
+                        return result
+                raise
         v1_disk = _read_json_obj(self.v1_path)
         if v1_disk is not None or self._has_any_v1_source():
-            v1_loaded = LibraryStore(self.root).load(initial_policies)
-            return migrate_v1_to_v2(v1_loaded)
-        return self._initial_v2(initial_policies)
+            try:
+                try:
+                    v1_loaded = LibraryStore(self.root).load(initial_policies)
+                except ValueError:
+                    if initial_policies is None:
+                        raise
+                    v1_loaded = LibraryStore(self.root).load(None)
+                return migrate_v1_to_v2(v1_loaded)
+            except ValueError as err:
+                if 'larc_policy_revision_unknown' in str(err) and v1_disk is not None:
+                    sanitized_v1, replaced = _sanitize_unregistered_revisions(v1_disk)
+                    if replaced:
+                        normalized_v1 = normalize_library_v1(sanitized_v1)
+                        result = migrate_v1_to_v2(normalized_v1)
+                        fallback = _strategy_versions.CURRENT_REVISION
+                        self._last_load_warnings.append(
+                            f"检测到已保存方案使用了当前未注册的策略版本（{'、'.join(replaced)}），"
+                            f"已临时以默认策略 {fallback} 只读载入（原磁盘文件未改写）；安装对应策略包后重启即可恢复。"
+                        )
+                        return result
+                raise
+        try:
+            return self._initial_v2(initial_policies)
+        except ValueError:
+            if initial_policies is None:
+                raise
+            return self._initial_v2(None)
 
     def _current_disk_revision(self) -> int:
         existing_v2 = _read_json_obj(self.path)
@@ -952,7 +1020,7 @@ class BuildLibraryStore:
         if eff_mode not in BUILTIN_MODE_NAMES:
             mode, profile = _v1_selection(lib.get('custom_modes') or [], eff_mode, profile_id)
             eff_profile = profile['id']
-        return {
+        result = {
             'library': lib,
             'document': document,
             'mode_id': eff_mode,
@@ -961,3 +1029,6 @@ class BuildLibraryStore:
             'builtin_modes': [{'id': mid, 'name': mname} for mid, mname in BUILTIN_MODES],
             'builtin_templates': builtin_templates(),
         }
+        if self._last_load_warnings:
+            result['warnings'] = list(self._last_load_warnings)
+        return result

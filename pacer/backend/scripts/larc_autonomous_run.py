@@ -1344,6 +1344,9 @@ def _route_to_menu(ctx, output, summary, save_summary, *, observe_only=False, po
     wait_budget = _career_transition_budget()
     last_unknown_read = None
     preview_handoff_seen = False
+    skip_stall_nudges = 0
+    last_skip_nudge_at = None
+    race_list_return_attempts = 0
     for index in range(240 if probe is not None else 60):
         root = output / f"route_{index:02d}"
         entry_route = RouteTransitionSession.load(ctx.route, expected_run_session_id=ctx.run_id)
@@ -1544,6 +1547,8 @@ def _route_to_menu(ctx, output, summary, save_summary, *, observe_only=False, po
             wait_budget.reset()
             last_unknown_read = None
             preview_handoff_seen = False
+            skip_stall_nudges = 0
+            last_skip_nudge_at = None
         if reason == "terminal_rating_verified":
             rows = report.get("step_reports", [])
             evidence = rows[-1].get("result", {}).get("decision", {}).get("evidence", {}) if rows else {}
@@ -1663,6 +1668,8 @@ def _route_to_menu(ctx, output, summary, save_summary, *, observe_only=False, po
                     post_action = True
                     wait_budget.reset()
                     last_unknown_read = None
+                    skip_stall_nudges = 0
+                    last_skip_nudge_at = None
                     continue
             visible = "".join(str(decision.get("evidence", {}).get("screen_text", {}).get(
                 "normalized_text", "")).split())
@@ -1688,6 +1695,8 @@ def _route_to_menu(ctx, output, summary, save_summary, *, observe_only=False, po
                 # exhaust the old common-route unknown-page timer.
                 wait_budget.reset()
                 last_unknown_read = None
+                skip_stall_nudges = 0
+                last_skip_nudge_at = None
                 continue
         if transient_observation(last_result, reason=reason, allow_home_guess=home_guess):
             # Unknown animation is not a new actionable page. Keep the existing
@@ -1696,6 +1705,52 @@ def _route_to_menu(ctx, output, summary, save_summary, *, observe_only=False, po
             wait_budget.observe(image=observed_frame, key=wait_key,
                 progress_token=last_result.get("acknowledged_inputs"))
             last_unknown_read = monotonic()
+            from core.auto_trainer.event_options import event_option_rows_ready
+            snap = wait_budget.snapshot()
+            nudge_now = monotonic()
+            nudge_text = "".join(str((((decision.get("evidence") or {}).get("screen_text") or {}).get("normalized_text") or "")).split())
+            if (not observe_only
+                    and probe is not None
+                    and has_frame
+                    and decision.get("reason") == "bottom_skip_double_enabled"
+                    and snap["idle_elapsed_seconds"] >= 6.0
+                    and skip_stall_nudges < 3
+                    and (last_skip_nudge_at is None or nudge_now - last_skip_nudge_at >= 4.0)
+                    and not last_result.get("frame_safety", {}).get("dangerous")
+                    and not decision.get("evidence", {}).get("screen_text", {}).get("dangerous")
+                    and not any(marker in nudge_text for marker in ("休息", "海外适应性", "能力详情", "参赛条件", "距离代表交流赛还剩"))
+                    and not SafeAdvancePlanner._looks_like_confirm_modal_panel(observed_frame)
+                    and not event_option_rows_ready(observed_frame)
+                    and not SafeAdvancePlanner._looks_like_training_home_controls(observed_frame)
+                    and SafeAdvancePlanner._looks_like_large_bottom_dialogue(observed_frame)):
+                nudge_frame = observed_frame
+                if callable(getattr(probe.adb, "read_frame", None)):
+                    try:
+                        fresh = probe.adb.read_frame(deadline=monotonic() + 0.25)
+                        if getattr(fresh, "ndim", None) == 3 and getattr(fresh, "size", 0):
+                            nudge_frame = fresh
+                    except Exception:
+                        pass
+                still_dialogue = True
+                if nudge_frame is not observed_frame:
+                    from core.auto_trainer.safe_advance import SafeAdvanceExecutor
+                    still_dialogue = (
+                        not SafeAdvancePlanner._looks_like_confirm_modal_panel(nudge_frame)
+                        and not event_option_rows_ready(nudge_frame)
+                        and not SafeAdvancePlanner._looks_like_training_home_controls(nudge_frame)
+                        and not SafeAdvanceExecutor._career_home_controls_ready(nudge_frame)
+                        and SafeAdvancePlanner._looks_like_large_bottom_dialogue(nudge_frame)
+                    )
+                if still_dialogue:
+                    h, w = nudge_frame.shape[:2]
+                    probe.adb.tap(int(w * 0.14), int(h * 0.45), scaled=False)
+                    skip_stall_nudges += 1
+                    last_skip_nudge_at = monotonic()
+                    last_unknown_read = None
+                    summary["route_reports"][-1]["skip_stall_dialogue_nudge"] = skip_stall_nudges
+                    wait_budget.observe(image=nudge_frame, key=wait_key, progressed=True)
+                    sleep(.35)
+                    continue
             if wait_budget.expired:
                 _record_wait_stop(ctx, summary, wait_budget, 'career_transition_no_progress_timeout',
                     root / 'report.json', surface=decision.get('route_state'))
@@ -1908,6 +1963,38 @@ def _route_to_menu(ctx, output, summary, save_summary, *, observe_only=False, po
                 wait_budget.reset()
                 post_action = True
                 continue
+            if not observe_only and race_list_return_attempts < 2:
+                last_source = (
+                    (rows[-1].get("screenshot_path") if rows else None)
+                    or decision.get("evidence", {}).get("image")
+                    or report.get("source_screenshot_path")
+                    or ""
+                )
+                last_sha = str(last_result.get("frame_safety", {}).get("source_image_sha256", "") or "")
+                if last_source and re.fullmatch(r"[0-9a-fA-F]{64}", last_sha):
+                    race_list_return_attempts += 1
+                    route = RouteTransitionSession.load(ctx.route, expected_run_session_id=ctx.run_id)
+                    route.observe("race_list", source_sha256=last_sha, resync=True)
+                    route.save(ctx.route)
+                    ready, reason = _run_fixed_race(
+                        ctx,
+                        output / f"race_list_return_{index:02d}",
+                        summary,
+                        save_summary,
+                        live_source={
+                            "owner": "race",
+                            "state": "race_list",
+                            "entered": False,
+                            "source": str(last_source),
+                            "source_sha256": last_sha,
+                        },
+                    )
+                    if not ready:
+                        return None, reason
+                    wait_budget.reset()
+                    post_action = True
+                    resync_main_menu = True
+                    continue
         if reason == "max_steps_reached":
             continue
         terminal_skill_state = ctx.root / "session/larc_terminal_skills.json"
@@ -3053,10 +3140,15 @@ def _run(args):
     except MeiOutingInspectionError as exc:
         _record_outing_inspection_failure(summary, exc)
     except Exception as exc:
-        _stop(summary, "execution_exception")
-        summary["error"] = f"{type(exc).__name__}:{exc}"
         from core.auto_trainer.stop_screenshot_evidence import safe_capture_failure
         failure=safe_capture_failure(getattr(exc,'capture_failure',None)or getattr(ctx,'capture_failure',None))
+        stop_reason = (
+            "capture_failed"
+            if failure and str(exc) in {"live_takeover_capture_failed", "live_takeover_adb_connect_failed"}
+            else "execution_exception"
+        )
+        _stop(summary, stop_reason)
+        summary["error"] = f"{type(exc).__name__}:{exc}"
         if failure:summary['capture_failure']=failure
     finally:
         # Freeze the already observed frame before closing probes/journals.

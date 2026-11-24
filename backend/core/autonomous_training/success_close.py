@@ -65,14 +65,41 @@ def close_skill_purchase_success(*, device: Any, child_plan_path: str | Path, fi
         nonlocal frame_sequence
         frame_sequence += 1
         image = read_image(str(frame), cv2.IMREAD_COLOR)
-        state = dict(inspect_skill_purchase_success_dialog(image, reviewed_rows=reviewed_rows) if reviewed_rows is not None else inspect_skill_multi_purchase_success_dialog(image, confirmed_item_ids=child_ids, verified_selection=child.get('final_authorization', {}).get('confirmation_policy') == 'verified_selection'))
+        verified_selection = child.get('final_authorization', {}).get('confirmation_policy') == 'verified_selection'
+        auto_included_ids: list[str] = []
+        if reviewed_rows is not None:
+            state = dict(inspect_skill_purchase_success_dialog(image, reviewed_rows=reviewed_rows))
+        else:
+            state = dict(inspect_skill_multi_purchase_success_dialog(image, confirmed_item_ids=child_ids, verified_selection=verified_selection))
+            if state.get('accepted') is not True and verified_selection:
+                upgradable_ids = [
+                    str(item['item_id'])
+                    for item in child.get('purchases', [])
+                    if isinstance(item, Mapping)
+                    and (
+                        item.get('rarity') == 'gold'
+                        or (isinstance(item.get('must_satisfy_ocr'), Mapping) and item['must_satisfy_ocr'].get('rarity_or_icon_type') == 'gold')
+                        or str(item.get('name') or '').endswith('◎')
+                    )
+                ]
+                for extra_count in range(1, len(upgradable_ids) + 1):
+                    candidate_auto = [f'auto_included_lower:{uid}' for uid in upgradable_ids[:extra_count]]
+                    candidate_state = inspect_skill_multi_purchase_success_dialog(
+                        image,
+                        confirmed_item_ids=child_ids + candidate_auto,
+                        verified_selection=True,
+                    )
+                    if candidate_state.get('accepted') is True:
+                        state = dict(candidate_state)
+                        auto_included_ids = candidate_auto
+                        break
         promotion = child['execution_promotion']
-        state.update({'fresh': True, 'plan_id': child['plan_id'], 'sample_id': promotion['sample_id'], 'session_id': promotion['session_id'], 'capture_batch_id': promotion['fresh_capture_id'], 'frame_capture_id': f'success-close-{frame_sequence}', 'frame_sequence': frame_sequence, 'frame_sha256': _sha256_file(Path(frame)), 'planned_item_ids': child_ids, 'auto_included_item_ids': []})
+        state.update({'fresh': True, 'plan_id': child['plan_id'], 'sample_id': promotion['sample_id'], 'session_id': promotion['session_id'], 'capture_batch_id': promotion['fresh_capture_id'], 'frame_capture_id': f'success-close-{frame_sequence}', 'frame_sequence': frame_sequence, 'frame_sha256': _sha256_file(Path(frame)), 'planned_item_ids': child_ids, 'auto_included_item_ids': auto_included_ids})
         return state
-    for attempt in range(4):
+    for attempt in range(6):
         attempt_frame_start = len(adb.captured_paths)
         execution = SkillPurchaseExecutor(child, adb=adb, parse_fresh_state=parse_fresh_state, mode='live', execute=True, safety_token=SKILL_PURCHASE_SAFETY_TOKEN, stage=_close_stage(child_ids), expected_action_id=_CLOSE_ACTION).run()
-        if execution.actions or execution.tap_count or execution.stop_reason not in {'success_dialog_page_mismatch', 'batch_success_dialog_page_mismatch'} or (attempt == 3):
+        if execution.actions or execution.tap_count or execution.stop_reason not in {'success_dialog_page_mismatch', 'batch_success_dialog_page_mismatch'} or (attempt == 5):
             break
         time.sleep(0.5)
     performed = execution.stop_reason == _close_complete_stop(child_ids) and execution.actions == (_CLOSE_ACTION,) and (execution.tap_count == 1)

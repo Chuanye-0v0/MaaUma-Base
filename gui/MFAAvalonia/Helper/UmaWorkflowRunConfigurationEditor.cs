@@ -643,7 +643,7 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
         var summary=Note("");summary.Name=prefix+"SkillListSummary";
         void Refresh(){var list=options["early_skill_allowlist"];var count=list is JArray rows?rows.Count:list?.Type==JTokenType.String?(list.ToString().Split('\n').Count(v=>!string.IsNullOrWhiteSpace(v))):0;
             var mid=options["mid_skill_learning"] as JObject;var enabled=mid==null?kind!="cut"&&(bool?)options["with_ramonu"]==true&&count>0:(bool?)mid["enabled"]==true;
-            var arc=options["arc_policy"] as JObject;var cmLabel=kind!="cut"&&(bool?)arc?["enabled"]==true?((bool?)arc?["auto_cm"]!=false?" · CM智能选技:开":" · CM白名单:开"):"";
+            var arc=options["arc_policy"] as JObject;var arcMode=(string?)arc?["mode"];var cmLabel=kind!="cut"&&(bool?)arc?["enabled"]==true?(string.Equals(arcMode,"tiered_ladder",StringComparison.Ordinal)?" · 自定义技能梯队:开":((bool?)arc?["auto_cm"]!=false?" · CM智能选技:开":" · CM白名单:开")):"";
             summary.Text=count+" 个技能 · 学习"+(enabled?"已启用":"未启用")+cmLabel;}refreshSummaries.Add(Refresh);Refresh();
         var labels=new StackPanel{Spacing=3,Children={new TextBlock{Text="技能清单",FontSize=14,FontWeight=FontWeight.SemiBold},summary}};
         var open=new Button{Name=prefix+"OpenSkillLearning",Content="打开技能学习",Height=34,Padding=new Thickness(12,5),VerticalAlignment=VerticalAlignment.Center};open.Click+=(_,_)=>SkillLearningRequested?.Invoke();
