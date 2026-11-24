@@ -666,9 +666,11 @@ class RaceRoutePlanner(
                 and not policy.count_reserved_only and not policy.wbc_only
                 and not policy.inspection_only and not policy.allow_leave_race_detail
                 and (policy.allow_quick_result or policy.allow_skip_race_scene)):
-            from core.auto_trainer.larc_race_tactics import race_tactic_control
+            from core.auto_trainer.larc_race_tactics import is_tactic_modal_visible, race_tactic_control
+            tactic_modal_open = is_tactic_modal_visible(img, preview_text)
             is_preview = (early_preview_actions is not None
-                          and ("前往赛事" in preview_text or "查看结果" in preview_text))
+                          and ("前往赛事" in preview_text or "查看结果" in preview_text)
+                          and not tactic_modal_open)
             if is_preview:
                 tactic_desired = policy.desired_run_style
                 modal_solo_fallback = False
@@ -681,7 +683,7 @@ class RaceRoutePlanner(
                                   or (session is not None and session.solo_leader_front_aptitude_rejected))
             tactic = race_tactic_control(
                 img, preview_text, tactic_desired, preview=is_preview,
-                modal_closing=bool(not is_preview and session is not None and session.tactic_modal_closing),
+                modal_closing=bool(session is not None and session.tactic_modal_closing),
                 solo_leader_to_front=policy.solo_leader_to_front,
                 solo_leader_fallback=modal_solo_fallback,
                 solo_leader_restore_style=policy.solo_leader_restore_style,

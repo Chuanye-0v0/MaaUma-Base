@@ -40,7 +40,11 @@ def _ensure_pacer_backend_path() -> None:
 
 _ensure_pacer_backend_path()
 
-from core.auto_trainer.larc_race_tactics import STYLE_CENTERS, race_tactic_control
+from core.auto_trainer.larc_race_tactics import (
+    STYLE_CENTERS,
+    preview_is_solo_leader,
+    race_tactic_control,
+)
 from core.auto_trainer.racing.models import RaceRoutePolicy, RaceRouteSession
 from core.auto_trainer.racing.planner import RaceRoutePlanner
 
@@ -168,6 +172,36 @@ class TacticModalClosingTests(unittest.TestCase):
         )
         self.assertEqual(still_loading["kind"], "wait")
         self.assertEqual(still_loading["reason"], "race_tactic_preview_loading")
+
+    def test_frosted_blue_background_shadow_does_not_fake_leader_opponent_and_closing_modal_ignores_preview_buttons(self) -> None:
+        prev_blue_bg = _synth_preview_image(solo_leader=True).copy()
+        prev_blue_bg[693:722, 631:687] = (160, 120, 90)
+        solo, inks, _ = preview_is_solo_leader(prev_blue_bg)
+        self.assertTrue(solo)
+        self.assertEqual(inks["leader"], 0.0)
+
+        planner = RaceRoutePlanner()
+        with TemporaryDirectory() as tmpdir:
+            modal_with_preview = _synth_modal_image("front").copy()
+            modal_with_preview[1120:1220, 130:355] = _BGR_WHITE
+            modal_with_preview[1120:1220, 365:590] = (40, 220, 80)
+            p = Path(tmpdir) / "modal_closing_with_bg.png"
+            cv2.imwrite(str(p), modal_with_preview)
+            d = planner.plan(
+                p,
+                session=RaceRouteSession(pending_tactic_target=None, tactic_modal_closing=True),
+                policy=RaceRoutePolicy(
+                    scenario="larc",
+                    desired_run_style="leader",
+                    solo_leader_to_front=True,
+                    allow_confirm_race=True,
+                    allow_quick_result=True,
+                    post_entry_only=True,
+                    visible_text="战术 跟前 后追G 居中G 跟前D 领跑A 已选择：2人 已选择：4人 已选择：2人 取消 确定 查看结果 前往赛事",
+                ),
+            )
+            self.assertEqual(d["action"], "wait")
+            self.assertEqual(d["reason"], "race_tactic_modal_closing")
 
 
 if __name__ == "__main__":

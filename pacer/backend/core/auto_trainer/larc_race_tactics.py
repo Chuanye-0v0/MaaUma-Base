@@ -37,7 +37,7 @@ def preview_tactic_opponent_inks(image):
         x1 = max(0, int(round(cx + dx - 28)))
         x2 = min(720, int(round(cx + dx + 28)))
         chsv = hsv[cy1:cy2, x1:x2]
-        inks[style] = round(float(((chsv[:, :, 2] < 165) & (chsv[:, :, 1] > 15)).mean()), 4)
+        inks[style] = round(float(((chsv[:, :, 0] <= 25) & (chsv[:, :, 1] > 35) & (chsv[:, :, 2] < 150)).mean()), 4)
     return inks, btn_center
 
 
@@ -62,6 +62,27 @@ def parse_modal_style_aptitudes(text):
     return aptitudes
 
 
+def _modal_planes(image):
+    im = cv2.resize(image, (720, 1280), interpolation=cv2.INTER_AREA)
+    hsv = cv2.cvtColor(im, cv2.COLOR_BGR2HSV)
+    green = (hsv[:, :, 0] > 30) & (hsv[:, :, 0] < 85) & (hsv[:, :, 1] > 90) & (hsv[:, :, 2] > 120)
+    white = (hsv[:, :, 1] < 60) & (hsv[:, :, 2] > 190)
+    return green, white
+
+
+def is_tactic_modal_visible(image, text) -> bool:
+    if image is None or len(getattr(image, "shape", ())) < 2:
+        return False
+    compact = "".join(str(text).split())
+    if "战术" not in compact or not all(label in compact for label in STYLE_LABELS.values()):
+        return False
+    green, white = _modal_planes(image)
+    return bool(
+        green[310:348, 30:690].mean() > .7
+        and all(white[753:800, x-42:x+42].mean() > .45 for x in STYLE_CENTERS.values())
+    )
+
+
 def race_tactic_control(
     image,
     text,
@@ -82,10 +103,7 @@ def race_tactic_control(
     elif desired not in STYLE_LABELS:
         raise ValueError("race_tactic_style_invalid")
     compact = "".join(str(text).split())
-    im = cv2.resize(image, (720, 1280), interpolation=cv2.INTER_AREA)
-    hsv = cv2.cvtColor(im, cv2.COLOR_BGR2HSV)
-    green = (hsv[:, :, 0] > 30) & (hsv[:, :, 0] < 85) & (hsv[:, :, 1] > 90) & (hsv[:, :, 2] > 120)
-    white = (hsv[:, :, 1] < 60) & (hsv[:, :, 2] > 190)
+    green, white = _modal_planes(image)
     target = STYLE_LABELS.get(desired)
     result = {"target_style": desired, "target_label": target}
     is_tactic_modal = (
