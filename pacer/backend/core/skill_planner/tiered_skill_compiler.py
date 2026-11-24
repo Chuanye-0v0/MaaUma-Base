@@ -762,9 +762,9 @@ def compile_tiered_skill_profile(
                     if hp_gap <= 0 and promoted_recs:
                         break
 
-        # 3. Green skill quota
+        # 3. Green skill quota (terminal LoH build only, never pre-L'Arc races)
         gq = ladder["green_skill_quota"]
-        if gq["enabled"]:
+        if gq["enabled"] and terminal:
             gq_ids, _ = _resolve_ordered(gq["skills"], rows, masters, knowledge, cm)
             gq_set = set(gq_ids)
             gq_order = {sid: idx for idx, sid in enumerate(gq_ids)}
@@ -896,9 +896,20 @@ def compile_tiered_skill_profile(
     groundwork_bundles = {}
     link_priorities = {}
     gw_cfg = ladder["groundwork_gate"]
-    if gw_cfg["enabled"] and eligible:
+    if gw_cfg["enabled"]:
         gw_ids = [sid for sid in sorted(eligible) if cand_ratings[sid].start_requirement > 0]
-        if gw_ids:
+        owned_gw_reqs = [
+            owned_ratings[mid].start_requirement
+            for mid in owned
+            if mid not in superseded_masters and owned_ratings[mid].start_requirement > 0
+        ]
+        if gw_ids or (terminal and owned_gw_reqs):
+            gq_cfg = ladder["green_skill_quota"]
+            gq_ids, _ = _resolve_ordered(gq_cfg.get("skills", []), rows, masters, knowledge, cm)
+            gq_order = {sid: idx for idx, sid in enumerate(gq_ids)}
+            lr_ids, _ = _resolve_ordered(gq_cfg.get("last_resort_skills", []), rows, masters, knowledge, cm)
+            lr_set = set(lr_ids)
+
             owned_source_fams = set()
             owned_green_fams = set()
             owned_active_fams = set()
@@ -925,11 +936,16 @@ def compile_tiered_skill_profile(
                     continue
                 if sid not in eligible and cand_exclusions[sid]:
                     continue
+                is_green = (rows.get(sid, {}).get("type") or (masters.get(sid) or {}).get("type")) == "green"
+                green_bucket = (0 if sid in gq_order else 2 if sid in lr_set else 1) if is_green else 0
+                green_rank = gq_order.get(sid, 999) if is_green else 999
                 base_pt = cand_quotes[sid].get("cost_pt")
                 disc = _effective_discount_percent(learnable_clickable[sid], base_pt) or 0.0
                 avail_sources.append((
                     0 if sid in eligible else 1,
                     eff_tier.get(sid, fallback_tier_idx + 1),
+                    green_bucket,
+                    green_rank,
                     learnable_clickable[sid]["display_cost"],
                     -disc,
                     sid,
@@ -938,17 +954,14 @@ def compile_tiered_skill_profile(
             avail_sources.sort()
             dedup_sources = []
             picked_fams = set(owned_source_fams)
-            for _el, _t, _c, _d, sid, fam in avail_sources:
+            for _el, _t, _gb, _gr, _c, _d, sid, fam in avail_sources:
                 if fam in picked_fams:
                     continue
                 picked_fams.add(fam)
                 dedup_sources.append(sid)
 
-            for gw_sid in gw_ids:
-                req = max(cand_ratings[gw_sid].start_requirement, gw_cfg["min_sources"])
+            def _pick_groundwork_sources(req: int, gw_cost: int, gw_tier: int, extra_slots: int) -> list[str] | None:
                 missing = max(0, req - len(owned_source_fams))
-                gw_cost = learnable_clickable[gw_sid]["display_cost"]
-                gw_tier = eff_tier[gw_sid]
                 chosen = None
                 if gw_cfg["reliable_active_pair"] and req >= 3:
                     avail_green = [
@@ -969,7 +982,7 @@ def compile_tiered_skill_profile(
                         rel_pkgs.append(avail_green[:need_g2] + avail_active[:need_a2])
                     valid_pkgs = [
                         pkg for pkg in rel_pkgs
-                        if 1 + len(pkg) <= batch_cap
+                        if extra_slots + len(pkg) <= batch_cap
                         and gw_cost + sum(learnable_clickable[x]["display_cost"] for x in pkg) <= budget
                     ]
                     if valid_pkgs:
@@ -982,18 +995,17 @@ def compile_tiered_skill_profile(
                             ),
                         )
                         if not chosen:
-                            continue
-
+                            return []
                 if chosen is None:
                     if missing == 0:
-                        continue
+                        return []
                     chosen = dedup_sources[:missing]
                     bundle_cost = gw_cost + sum(learnable_clickable[x]["display_cost"] for x in chosen)
-                    if len(chosen) < missing or 1 + len(chosen) > batch_cap or bundle_cost > budget:
-                        eligible.discard(gw_sid)
-                        decisions[gw_sid]["reason"] = "insufficient_start_activation_sources"
-                        continue
+                    if len(chosen) < missing or extra_slots + len(chosen) > batch_cap or bundle_cost > budget:
+                        return None
+                return chosen
 
+            def _apply_chosen_sources(chosen: list[str], gw_tier: int) -> None:
                 for src in chosen:
                     eligible.add(src)
                     if eff_tier.get(src, fallback_tier_idx + 1) > gw_tier:
@@ -1006,12 +1018,36 @@ def compile_tiered_skill_profile(
                             dynamic_promotions.append({"skill_id": src, "reason": "groundwork_start_source"})
                     link_priorities[src] = cm.CM_START_SOURCE_LINK
                     decisions[src]["reason"] = None
+
+            for gw_sid in gw_ids:
+                req = max(cand_ratings[gw_sid].start_requirement, gw_cfg["min_sources"])
+                chosen = _pick_groundwork_sources(
+                    req, learnable_clickable[gw_sid]["display_cost"], eff_tier[gw_sid], 1
+                )
+                if chosen is None:
+                    eligible.discard(gw_sid)
+                    decisions[gw_sid]["reason"] = "insufficient_start_activation_sources"
+                    continue
+                if not chosen:
+                    continue
+                _apply_chosen_sources(chosen, eff_tier[gw_sid])
                 link_priorities[gw_sid] = cm.CM_GROUNDWORK_LINK
                 groundwork_bundles[gw_sid] = {
                     "required": req,
                     "owned_source_count": len(owned_source_fams),
                     "required_skill_ids": chosen,
                 }
+
+            if not gw_ids and terminal and owned_gw_reqs:
+                req = max(max(owned_gw_reqs), gw_cfg["min_sources"])
+                chosen = _pick_groundwork_sources(req, 0, 0, 0)
+                if chosen:
+                    _apply_chosen_sources(chosen, 0)
+                    groundwork_bundles["__owned_groundwork__"] = {
+                        "required": req,
+                        "owned_source_count": len(owned_source_fams),
+                        "required_skill_ids": chosen,
+                    }
 
     # Compute within-tier bonuses
     def _within_bonus(sid: str) -> int:
@@ -1163,7 +1199,7 @@ def compile_tiered_skill_profile(
         "current_stats": cm.merge_current_stats(current_stats),
         "stamina_recovery_gate": gate,
         "eligible_skill_ids": sorted(eligible),
-        "groundwork_bundles": {sid: data for sid, data in groundwork_bundles.items() if sid in eligible},
+        "groundwork_bundles": {sid: data for sid, data in groundwork_bundles.items() if sid in eligible or sid == "__owned_groundwork__"},
         "reserve_skill_pt": result["reserve_skill_pt"],
         "ladder_resolution": ladder_resolution,
         "dynamic_promotions": dynamic_promotions,
