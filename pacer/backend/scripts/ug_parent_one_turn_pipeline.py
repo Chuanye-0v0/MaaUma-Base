@@ -2702,6 +2702,24 @@ def _latest_ss_observation(report, stage, args):
     return None
 
 
+def _is_larc_overseas_expedition_period(args) -> bool:
+    provider = getattr(args, "_main_menu_provider_report", None)
+    if not isinstance(provider, dict):
+        return False
+    lp = provider.get("larc_period")
+    if not isinstance(lp, dict):
+        lp = ((provider.get("state_context") or {}).get("scenario_state") or {}).get("larc_period")
+    if not isinstance(lp, dict):
+        return False
+    if "status" in lp and lp.get("status") != "verified":
+        return False
+    val = lp.get("value") if isinstance(lp.get("value"), dict) else lp
+    year_index = val.get("year_index")
+    month = val.get("month")
+    half = val.get("half")
+    return year_index in (2, 3) and ((month == 7 and half == "second") or month in (8, 9))
+
+
 def _collect_larc_ss_information(args, training_parser, capture_report):
     from core.native_capture_adb import adb_for_capture
     from core.auto_trainer.larc_ss_information_probe import LarcSSInformationProbe, PROBE_CONFIRM_TOKEN
@@ -2713,6 +2731,17 @@ def _collect_larc_ss_information(args, training_parser, capture_report):
         return {"status": "cached", "reason": "reward_cycle_initialization_already_attempted"}
     if not roster.needs_ss_information:
         return {"status": "cached", "reason": "no_observed_ss_execution_since_scan"}
+    if _is_larc_overseas_expedition_period(args):
+        # Overseas expedition replaces the training-screen SS information button
+        # with overseas adaptation points and disables SS matches. Defer cycle
+        # initialization until back in Japan without failing mid-career takeover.
+        return {
+            "status": "optional_unavailable",
+            "reason": "overseas_expedition_no_ss_information",
+            "returned_to_training": True,
+            "turn_consumed": False,
+            "turn_consuming_action_executed": False,
+        }
     result = LarcSSInformationProbe(adb=adb_for_capture(args.adb_port)).run(
         run_session_id=args.run_session_id, turn_index=args.turn_index,
         roster=roster, roster_path=training_parser.larc_roster_path,
