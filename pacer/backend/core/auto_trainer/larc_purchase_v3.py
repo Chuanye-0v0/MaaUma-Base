@@ -321,6 +321,32 @@ def _route(now, points, original, days, utility, *, initial, initial_cost, curre
     halted = []
     indices = {day: i for i, day in enumerate(days)}
     option_count=option_max=expanded_states=pruned_owned=pruned_beam=0
+
+    @lru_cache(maxsize=4096)
+    def _min_cash_to_survive(ow_t, cur_day, end_day):
+        bal = 0.0
+        worst = 0.0
+        ow = list(ow_t)
+        for d in range(cur_day + 1, end_day + 1):
+            for slot, unlock in UNLOCK_DAYS.items():
+                if ow[slot] == 0 and now < unlock <= d:
+                    ow[slot] = 1
+            due = [
+                slot for slot, lv in enumerate(ow)
+                if slot != 9 and lv == 1
+                and mandatory_due(slot, now, defer_niel_power=allow_power_deferral) <= d
+            ]
+            if allow_language_deferral and now <= 42 and d < 64:
+                due = [slot for slot in due if slot != 4]
+            for slot in due:
+                bal -= LEVEL_TWO_COSTS[slot]
+                ow[slot] = 2
+            if bal < worst:
+                worst = bal
+            if d in indices:
+                bal += income_at(d, branch, share)
+        return -worst
+
     for day in range(now + 1, 67):
         updated = []
         for cash, owned, value, gap, actions, deadline_gap in states:
@@ -372,7 +398,12 @@ def _route(now, points, original, days, utility, *, initial, initial_cost, curre
             break
         if friendship_deadline and not focused_first_cycle and day >= 43 and any(row[5] == 0 for row in updated):
             updated = [row for row in updated if row[5] == 0]
-        updated.sort(key=lambda row: row[2] - row[3] * .35, reverse=True)
+        def _beam_sort_key(row):
+            c, ow = row[0], row[1]
+            s_full = 1 if c + 1e-9 >= _min_cash_to_survive(ow, day, 66) else 0
+            s_arc1 = (1 if c + 1e-9 >= _min_cash_to_survive(ow, day, 42) else 0) if day < 42 else s_full
+            return (s_full, s_arc1, row[2] - row[3] * .35)
+        updated.sort(key=_beam_sort_key, reverse=True)
         selected = [];counts = {}
         for position,row in enumerate(updated):
             key = row[1]

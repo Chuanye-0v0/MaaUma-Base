@@ -227,18 +227,61 @@ class Quote:
             ):
                 return
             sel = res['selected']
+            has_first_facility = any(lv == 3 for lv in levels[:5])
+            training_phases = set(plans.TRAINING_PHASE_SLOTS.keys())
+
+            def _scenario_entry(row, name):
+                for entry in row.get('scenarios', ()):
+                    if entry.get('scenario') == name:
+                        return entry
+                return None
+
+            def _ordinary_total(row):
+                ord_s = _scenario_entry(row, 'ordinary')
+                if ord_s is not None and 'direct_score' in row and 'value' in ord_s:
+                    return row['direct_score'] + ord_s['value']
+                return row['score']
+
+            def _first_arc_pt_safe(row):
+                if 'expedition_skill_pt' not in row['phases']:
+                    return False
+                if row.get('current_preparation_gap', 0.0) > 1e-6:
+                    return False
+                ord_s = _scenario_entry(row, 'ordinary')
+                if ord_s is not None:
+                    if not all(
+                        b['future_route'].get('continuation_feasible') is True
+                        for b in ord_s.get('branches', ())
+                    ):
+                        return False
+                cons_s = _scenario_entry(row, 'conservative')
+                if cons_s is not None:
+                    for b in cons_s.get('branches', ()):
+                        halted = b['future_route'].get('halted_at')
+                        if halted is not None and halted.get('ordinal', 99) <= 42:
+                            return False
+                return True
+
             if 'expedition_skill_pt' not in sel['phases'] and (sel['phases'] or sel['action_id'] != 'rest.normal'):
                 sel_cand = candidates.get(sel['action_id'])
                 sel_is_rainbow = bool(sel['phases'] and sel_cand is not None and sel_cand.friendship)
+                sel_is_second_facility = bool(
+                    has_first_facility and not training_phases.isdisjoint(sel['phases'])
+                )
                 no_buy_score = res['NoBuy']['score']
                 no_buy_aid = res['NoBuy']['action_id']
 
                 def _early_pt_solvent(row):
-                    if 'expedition_skill_pt' not in row['phases']:
+                    if not _first_arc_pt_safe(row):
                         return False
-                    if row['score'] <= no_buy_score + 1e-6:
-                        return False
-                    return row.get('current_preparation_gap', 0.0) <= 1e-6
+                    if row['score'] > no_buy_score + 1e-6:
+                        return True
+                    return bool(
+                        has_first_facility
+                        and row['phases'] == ['expedition_skill_pt']
+                        and (grid['points'] - row['cost'] >= 200)
+                        and (_ordinary_total(row) >= _ordinary_total(res['NoBuy']) - 20.0)
+                    )
 
                 if not sel_is_rainbow:
                     pt_rows = [
@@ -274,6 +317,11 @@ class Quote:
                             res['selected'] = best_pt
                             res['ranking'] = [best_pt, *(r for r in res['ranking'] if r is not best_pt)]
                             res['selection_reason'] = 'first_expedition_early_pt50_priority'
+                        elif sel_is_second_facility and pt_rows and _ordinary_total(pt_rows[0]) >= _ordinary_total(sel) - 35.0:
+                            best_pt = pt_rows[0]
+                            res['selected'] = best_pt
+                            res['ranking'] = [best_pt, *(r for r in res['ranking'] if r is not best_pt)]
+                            res['selection_reason'] = 'first_expedition_pt_before_second_facility'
                 else:
                     same_rainbow_bundles = [
                         r for r in res['ranking']
@@ -287,6 +335,18 @@ class Quote:
                         res['selected'] = best_pt
                         res['ranking'] = [best_pt, *(r for r in res['ranking'] if r is not best_pt)]
                         res['selection_reason'] = 'first_expedition_rainbow_bundle_with_pt50'
+                    elif sel_is_second_facility:
+                        pt_alt = [
+                            r for r in res['ranking']
+                            if _early_pt_solvent(r)
+                            and r['phases'] == ['expedition_skill_pt']
+                            and r['action_id'] in (sel['action_id'], no_buy_aid)
+                        ]
+                        if pt_alt and _ordinary_total(pt_alt[0]) >= _ordinary_total(sel) - 35.0:
+                            best_pt = pt_alt[0]
+                            res['selected'] = best_pt
+                            res['ranking'] = [best_pt, *(r for r in res['ranking'] if r is not best_pt)]
+                            res['selection_reason'] = 'first_expedition_pt_before_second_facility'
 
         _apply_early_pt50(result)
         if wisdom_ctx is not None:

@@ -120,6 +120,9 @@ class Current:
     deficit_convexity: float = 0.0
     pt_soft_cap: float | None = None
     pt_over_cap_factor: float = 1.0
+    loh_deficit_kappas: tuple[float, ...] = (0.0,) * 5
+    loh_deficit_starts: tuple[float, ...] = (60.0,) * 5
+    loh_deficit_full: float = 220.0
 
 
 def display(raw: float) -> float:
@@ -143,7 +146,10 @@ def utility(s: State, c: Current) -> float:
         total = c.pt_factor * s.pt
     lam = getattr(c, "deficit_convexity", 0.0)
     sfs = c.scarcity_factors if len(c.scarcity_factors) == 5 else (1.0,) * 5
-    for raw, target, w, sf in zip(s.raw, c.targets, c.importance, sfs):
+    d_kappas = getattr(c, "loh_deficit_kappas", (0.0,) * 5)
+    d_starts = getattr(c, "loh_deficit_starts", (60.0,) * 5)
+    d_full = float(getattr(c, "loh_deficit_full", 220.0))
+    for idx, (raw, target, w, sf) in enumerate(zip(s.raw, c.targets, c.importance, sfs)):
         x = display(raw)
         inside = min(x, target)
         total += w * (inside + c.after_target_credit * max(0.0, x - target) + sf * max(0.0, inside - 1200.0))
@@ -154,6 +160,14 @@ def utility(s: State, c: Current) -> float:
             # Optional convex deficit penalty for extension profiles.
             d = max(0.0, (target - x) / target)
             total -= w * lam * target * d * d / 2.0
+        dk = float(d_kappas[idx]) if idx < len(d_kappas) else 0.0
+        if dk > 0.0 and target > 0.0:
+            ds = float(d_starts[idx]) if idx < len(d_starts) else 60.0
+            over_gap = max(0.0, (target - x) - ds)
+            if over_gap > 0.0:
+                span = max(1.0, d_full - ds)
+                quad = (over_gap * over_gap / (2.0 * span)) if over_gap <= span else (over_gap - 0.5 * span)
+                total -= w * dk * quad
     return total
 
 
