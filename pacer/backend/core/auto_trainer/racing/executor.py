@@ -58,6 +58,12 @@ from .models import (
 )
 
 
+RACE_ENTRY_LOADING_EXTRA_RETRIES = 8
+RACE_ENTRY_LOADING_REOBSERVATION_DELAY_SECONDS = 0.6
+_RACE_ENTRY_LOADING_TEXT = ("连接中", "通信中", "加载中", "读取中", "nowloading")
+_RACE_ENTRY_STILL_ON_HUB_TEXT = ("代表交流赛", "目标赛事", "凯旋门代表交流赛")
+
+
 class RaceRouteExecutor:
     def __init__(
         self,
@@ -76,16 +82,28 @@ class RaceRouteExecutor:
         self._default_gentle_budget = TransitionBudget()
 
     def _observe_race_day_entry(self,adb,source_path,*,pre_sha256,decision,policy,session):
-        """Observe the submitted navigation once, then at most two fresh reads.
+        """Observe the submitted navigation once, then bounded retry reads.
 
         Pre-frame text proves the entry input only. Destination identity always
         uses a separately analyzed current post frame; this method never taps.
+        When transient loading text (e.g. 连接中) or the unchanged hub screen
+        appears, extend read-only re-observations up to RACE_ENTRY_LOADING_EXTRA_RETRIES.
         """
         observations=[]
         final={'path':'','sha256':None,'screen':'unknown'}
-        for index in range(RACE_ENTRY_POST_OBSERVATION_RETRIES+1):
-            if index:self.sleep_fn(RACE_READ_ONLY_REOBSERVATION_DELAY_SECONDS)
+        normal_used=0
+        extra_loading_used=0
+        max_normal=RACE_ENTRY_POST_OBSERVATION_RETRIES+1
+        index=0
+        while normal_used<max_normal:
+            if index:
+                prev_reason=(observations[-1] or {}).get('reason')
+                delay=(RACE_ENTRY_LOADING_REOBSERVATION_DELAY_SECONDS
+                    if prev_reason in {'entry_frame_unchanged','entry_transition_loading'}
+                    else RACE_READ_ONLY_REOBSERVATION_DELAY_SECONDS)
+                self.sleep_fn(delay)
             suffix='.post_tap' if index==0 else f'.post_tap_read_{index:03d}'
+            index+=1
             path=source_path.with_name(f'{source_path.stem}{suffix}{source_path.suffix or ".png"}')
             current={'path':str(path),'sha256':None,'screen':'unknown','input_performed':False}
             observations.append(current);final=current
@@ -104,9 +122,12 @@ class RaceRouteExecutor:
                 if post_packet.dangerous or any(term in ''.join(post_packet.visible_text.split()) for term in _RACE_ACCOUNT_CONFLICT_TEXT):
                     current['reason']='unsafe_post_page';break
                 if post_packet.text_status!='ok' or post_packet.errors:
-                    current['reason']='post_text_unreadable';continue
+                    current['reason']='post_text_unreadable';normal_used+=1;continue
                 if sha==pre_sha256:
-                    current['reason']='entry_frame_unchanged';continue
+                    current['reason']='entry_frame_unchanged'
+                    if extra_loading_used<RACE_ENTRY_LOADING_EXTRA_RETRIES:
+                        extra_loading_used+=1;continue
+                    normal_used+=1;continue
                 if RaceRoutePlanner._looks_like_race_list_postcondition(image,post_packet.visible_text):
                     current['screen']='race_list';current['reason']='current_post_list_verified';break
                 if policy.scenario=='larc' and session is not None:
@@ -114,9 +135,22 @@ class RaceRouteExecutor:
                         entry_decision=decision,session=session,visible_text=post_packet.visible_text)
                     if successor is not None:
                         current['screen']=str(successor['route_state']);current['reason']='current_exchange_successor_verified';break
-                current['reason']='post_page_unrecognized'
+                compact=''.join(post_packet.visible_text.split()).lower()
+                loading_transition=(
+                    any(marker in compact for marker in _RACE_ENTRY_LOADING_TEXT)
+                    or (decision.get('route_state')=='race_day_main_menu'
+                        and any(marker in compact for marker in _RACE_ENTRY_STILL_ON_HUB_TEXT)
+                        and '是否参加比赛' not in compact)
+                )
+                if loading_transition:
+                    current['reason']='entry_transition_loading'
+                    if extra_loading_used<RACE_ENTRY_LOADING_EXTRA_RETRIES:
+                        extra_loading_used+=1;continue
+                else:
+                    current['reason']='post_page_unrecognized'
             except (OSError,ValueError,RuntimeError,cv2.error) as exc:
                 current['reason']='post_read_unavailable:'+type(exc).__name__
+            normal_used+=1
         return dict(final),observations
 
     @reobserving_step
