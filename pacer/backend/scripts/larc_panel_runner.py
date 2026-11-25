@@ -146,7 +146,7 @@ def _restart_after_mei_unlock_failure(args, report, control, attempt_index, *, m
     return {'ok': True, 'reason': 'mei_unlock_restarted', 'new_run_root': str(new_root), 'route': route}
 
 
-def make_larc_runner_factory(run=None, *, umaa_root=None,control_factory=None,lease=None):
+def make_larc_runner_factory(run=None, *, umaa_root=None,control_factory=None,lease=None,state_dir=None):
     def factory(profile, port):
         from scripts.larc_autonomous_run import parse_args, run as run_career
         args = parse_args(list(profile.runner_config["argv"]))
@@ -283,6 +283,18 @@ def make_larc_runner_factory(run=None, *, umaa_root=None,control_factory=None,le
             except Exception as error:
                 reason = ("runner_heartbeat_failed" if heartbeat is not None and heartbeat.failure is not None
                     else "device_busy" if str(error) == "device_busy" else "runner_error")
+                try:
+                    from core.auto_trainer.runner_error_diagnostics import record_runner_error
+                    record_runner_error(
+                        getattr(args, "run_root", None),
+                        error,
+                        reason=reason,
+                        mode="career",
+                        run_id=getattr(port, "run_id", None),
+                        control_state_dir=state_dir,
+                    )
+                except Exception:
+                    pass
                 port.finish(outcome="stopped", reason=reason, evidence_sha256=None)
                 raise
             finally:
@@ -305,7 +317,7 @@ def create_larc_control_service(state_dir, profiles, *, run=None, umaa_root=None
     """Profiles contain approved CLI arguments; button requests contain no shell."""
     service=DashboardControlService(state_dir=Path(state_dir),
         profiles={name: ControlProfile(name, {"argv": list(argv)}) for name, argv in profiles.items()},
-        runner_factory=make_larc_runner_factory(run, umaa_root=umaa_root,control_factory=control_factory,lease=lease))
+        runner_factory=make_larc_runner_factory(run, umaa_root=umaa_root,control_factory=control_factory,lease=lease,state_dir=state_dir))
     if control_factory is not None and (service.snapshot()['state'] not in {'idle','stopped'} or (Path(state_dir)/'runner.lock').exists()):
         from scripts.larc_umaa_common import occupancy
         if len(profiles)!=1:raise ValueError('career_reconnect_profile_ambiguous')

@@ -80,6 +80,33 @@ def _manual_pause(snapshot,runtime,attempt_id):
                 'pause_id':_id(value.get('pause_id')),'status':'waiting'}
     return None
 
+def _load_runner_error(snapshot, root, batch_id, attempt_id, run_id):
+    """Read bounded runner_error diagnostic from run/batch or control state dir."""
+    try:
+        from core.auto_trainer.runner_error_diagnostics import load_runner_error
+    except Exception:
+        return None
+    runs = (Path(root) / 'runs').resolve()
+    candidates = []
+    run_root_raw = snapshot.get('run_root')
+    selected = _inside(run_root_raw, runs)
+    if selected is not None:
+        candidates.append((selected / 'runner_error.json', None))
+    cut_attempt = _inside(_obj(snapshot.get('cut')).get('current_attempt_root'), runs)
+    if cut_attempt is not None:
+        candidates.append((cut_attempt / 'runner_error.json', None))
+    endpoint = snapshot.get('endpoint')
+    if isinstance(endpoint, str) and ':' in endpoint:
+        port = endpoint.rsplit(':', 1)[1]
+        if port.isdigit():
+            candidates.append((runs / 'umaa-panel-control' / port / 'last_runner_error.json', run_id))
+    for path, expected_run_id in candidates:
+        loaded = load_runner_error(path, expected_run_id=expected_run_id)
+        if loaded is not None:
+            return loaded
+    return None
+
+
 def annotate(snapshot,root):
     """Add display/report fields without altering old records or task state."""
     control=_obj(snapshot.get('control'));runtime=_obj(control.get('runtime'))
@@ -161,11 +188,22 @@ def annotate(snapshot,root):
         message=('后台运行心跳更新失败，已停止脚本并保留当前育成。'
             if state=='stopped' else '后台运行心跳更新失败，已请求停止脚本；请等待后台确认。')
         message+='可提交停止报告查看已记录的异常类型。'
+    runner_error=None
+    if source=='control' and reason in {'runner_error','device_busy'}:
+        runner_error=_load_runner_error(snapshot,root,batch_id,attempt_id,control.get('run_id'))
+        if runner_error and not message:
+            err_msg=(runner_error.get('error_message') or '')
+            loc=runner_error.get('location') or '<unknown>'
+            line=runner_error.get('line') or 0
+            detail=f"（{runner_error['error_type']} @ {loc}:{line}）"
+            message=(f"后台运行异常停止{detail}：{err_msg}" if err_msg else f"后台运行异常停止{detail}。")[:500]
     context={'schema_version':SCHEMA,'mode':mode,'state':state,'source':source,'reason':reason,
         'message':message,'step':step,'pause_source':pause_source,'batch_id':batch_id,'attempt_id':attempt_id,
         'batch_status':batch_status,'batch_stop':batch_stop,'pending_action':pending,
         'manual_handoff':manual,
         'restart_pending':step=='cut_restart' and batch_status=='running' and state in ACTIVE,'reportable_failure':reportable}
+    if runner_error is not None:
+        context['runner_error']=runner_error
     # The inner career sees the heartbeat owner's stop as user_stop. Preserve
     # the initiating exception type with the outer failure, without exporting
     # exception messages, paths, or an old run's unrelated diagnostic value.

@@ -284,7 +284,7 @@ def create_panel_run(*, device_port, targets, runs_dir=None, strategy="baseline"
     if arc_policy is not None:
         arc_policy = parse_arc_skill_policy(arc_policy)
     parent = Path(runs_dir or ROOT / "runs").resolve()
-    name = f"larc_panel_{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:6]}"
+    name = f"larc_panel_{datetime.now():%y%m%d%H%M%S}_{uuid.uuid4().hex[:4]}"
     root = parent / name
     (root / "session").mkdir(parents=True, exist_ok=False)
     update_goal(root, targets, strategy=strategy, failure_limit=failure_limit,early_skill_allowlist=early_skill_allowlist, arc_policy=arc_policy,

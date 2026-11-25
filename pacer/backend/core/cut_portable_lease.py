@@ -8,10 +8,35 @@ import stat
 import threading
 import time
 
-from core.cut_portable_runtime import device_ports
+from core.cut_portable_runtime import device_ports, portable_root
 
 _held=ContextVar('cut_portable_device_leases',default=frozenset())
 _handles=ContextVar('cut_portable_native_handles',default=None)
+
+
+def _fallback_lock_root():
+    root = portable_root()
+    if root is None:
+        return None
+    app = root.parent if root.name.casefold() == 'backend' else root
+    if app.name.casefold() == 'pacer':
+        install_root = app.parent
+        candidates = (install_root / 'temp', root / 'runs')
+    else:
+        candidates = (app / 'temp', root / 'runs')
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+            if not _plain(resolved):
+                continue
+            resolved.mkdir(parents=True, exist_ok=True)
+            probe_file = resolved / f'.lock_root_probe_{os.getpid()}'
+            probe_file.write_text('1', encoding='utf-8')
+            probe_file.unlink(missing_ok=True)
+            return resolved
+        except OSError:
+            continue
+    return None
 
 
 def _plain(path):
@@ -73,23 +98,49 @@ def _lock(stream,unlock=False):
 
 
 def probe(directory,endpoint):
-    path=_path(directory,endpoint)
-    if not path.exists():return None
-    with path.open('r+b') as stream:
-        try:_lock(stream)
-        except OSError:
-            try:return json.loads(path.with_suffix('.json').read_text(encoding='utf8'))
-            except (OSError,ValueError):return {'owner':'unknown'}
-        _lock(stream,True)
-    return None
+    try:
+        path=_path(directory,endpoint)
+        if not path.exists():return None
+        with path.open('r+b') as stream:
+            try:_lock(stream)
+            except OSError:
+                try:return json.loads(path.with_suffix('.json').read_text(encoding='utf8'))
+                except (OSError,ValueError):return {'owner':'unknown'}
+            _lock(stream,True)
+        return None
+    except PermissionError:
+        if not os.environ.get('UMA_PUBLIC_LOCK_ROOT'):
+            fallback=_fallback_lock_root()
+            if fallback is not None:
+                os.environ['UMA_PUBLIC_LOCK_ROOT']=str(fallback)
+                return probe(directory,endpoint)
+        return None
 
 
 @contextmanager
 def hold(directory,endpoint,owner):
     path=_path(directory,endpoint);key=str(path)
     if key in _held.get():yield;return
-    path.parent.mkdir(parents=True,exist_ok=True)
-    with path.open('a+b') as stream:
+    try:
+        path.parent.mkdir(parents=True,exist_ok=True)
+        stream=path.open('a+b')
+    except PermissionError as err:
+        if not os.environ.get('UMA_PUBLIC_LOCK_ROOT'):
+            fallback=_fallback_lock_root()
+            if fallback is not None:
+                os.environ['UMA_PUBLIC_LOCK_ROOT']=str(fallback)
+                path=_path(directory,endpoint);key=str(path)
+                path.parent.mkdir(parents=True,exist_ok=True)
+                stream=path.open('a+b')
+            else:
+                raise PermissionError(
+                    f"device_lock_permission_denied:{path.parent} (请使用 打开MaaUma.cmd 启动或设置可写的 UMA_PUBLIC_LOCK_ROOT)"
+                ) from err
+        else:
+            raise PermissionError(
+                f"device_lock_permission_denied:{path.parent} (请使用 打开MaaUma.cmd 启动或设置可写的 UMA_PUBLIC_LOCK_ROOT)"
+            ) from err
+    with stream:
         if path.stat().st_size==0:stream.write(b'0');stream.flush()
         try:_lock(stream)
         except OSError:raise RuntimeError('device_busy') from None

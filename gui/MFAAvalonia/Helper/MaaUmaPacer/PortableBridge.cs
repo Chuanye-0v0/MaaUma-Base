@@ -96,6 +96,34 @@ public sealed class UmaPacerBridge : IUmaPacerBridge
         info.Environment["PYTHONUTF8"]="1";info.Environment["PYTHONIOENCODING"]="utf-8";info.Environment["PYTHONDONTWRITEBYTECODE"]="1";
         var temporary=Path.Combine(root,"runs","pacer-tmp");Directory.CreateDirectory(temporary);
         info.Environment["TEMP"]=temporary;info.Environment["TMP"]=temporary;
+        AppRuntime.EnsureWritableProcessEnvironment();
+        if (!info.Environment.TryGetValue("UMA_PUBLIC_LOCK_ROOT", out var configuredLockRoot) || string.IsNullOrWhiteSpace(configuredLockRoot))
+        {
+            var envLockRoot = Environment.GetEnvironmentVariable("UMA_PUBLIC_LOCK_ROOT");
+            if (!string.IsNullOrWhiteSpace(envLockRoot))
+            {
+                info.Environment["UMA_PUBLIC_LOCK_ROOT"] = envLockRoot;
+            }
+            else
+            {
+                var localAppData = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+                var defaultLockDir = string.IsNullOrWhiteSpace(localAppData) ? null : Path.Combine(localAppData, "UmaSuite", "device-locks");
+                if (string.IsNullOrWhiteSpace(defaultLockDir) || !IsDirectoryWritable(defaultLockDir))
+                {
+                    var trimmedRoot = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    var appRoot = Path.GetFileName(trimmedRoot).Equals("pacer", StringComparison.OrdinalIgnoreCase)
+                        ? (Path.GetDirectoryName(trimmedRoot) ?? trimmedRoot)
+                        : trimmedRoot;
+                    var appLockRoot = Path.Combine(appRoot, "temp");
+                    try
+                    {
+                        Directory.CreateDirectory(appLockRoot);
+                        info.Environment["UMA_PUBLIC_LOCK_ROOT"] = appLockRoot;
+                    }
+                    catch { }
+                }
+            }
+        }
         process = Process.Start(info) ?? throw new InvalidOperationException("育成后台未能启动。");
         diagnosticRoot = root;
         // Drain diagnostics without storing credentials/screens or unbounded text.
@@ -104,6 +132,24 @@ public sealed class UmaPacerBridge : IUmaPacerBridge
         broken = false;
         stdoutDrain = null;
         protocolFailure = null;
+    }
+
+    private static bool IsDirectoryWritable(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+        try
+        {
+            Directory.CreateDirectory(path);
+            var probe = Path.Combine(path, $".lock_probe_{Guid.NewGuid():N}");
+            File.WriteAllText(probe, "1");
+            File.Delete(probe);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private void BreakProtocol(Task<string?>? pendingRead = null,string kind = "unspecified")

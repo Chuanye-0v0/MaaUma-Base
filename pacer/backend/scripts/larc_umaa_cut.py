@@ -241,7 +241,7 @@ def create_batch(root, config, *, template=None, decision_preferences=None,ai_op
             # attempt copies the batch policy over its newly created Goal.
             source = new_goal_policy_defaults(source)
         prepared=prepare_panel_policy(source,strategy='baseline',task_mode='cut')
-    directory = Path(root) / 'runs' / f'cut_pacer_{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:6]}'
+    directory = Path(root) / 'runs' / f'cut_pacer_{datetime.now():%y%m%d%H%M%S}_{uuid.uuid4().hex[:4]}'
     session = CutSession(directory, config)
     if prepared is not None:
         session.data['larc_policy']=prepared['policy']
@@ -313,6 +313,18 @@ def create_cut_control_service(state_dir, profiles, *, umaa_root, lease=None, co
         except Exception as error:
             reason=('runner_heartbeat_failed' if heartbeat is not None and heartbeat.failure is not None
                 else 'device_busy' if str(error) == 'device_busy' else 'runner_error')
+            try:
+                from core.auto_trainer.runner_error_diagnostics import record_runner_error
+                record_runner_error(
+                    settings.get('batch_root'),
+                    error,
+                    reason=reason,
+                    mode='cut',
+                    run_id=getattr(port, 'run_id', None),
+                    control_state_dir=state_dir,
+                )
+            except Exception:
+                pass
             port.finish(outcome='stopped', reason=reason, evidence_sha256=None)
             raise
         finally:

@@ -21,6 +21,7 @@ import json
 import logging
 import re
 import threading
+import os
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ from typing import Any
 import cv2
 import numpy as np
 
+from core.frame_io import io_path, read_image_compat
 from core.support_slot_recognizer import SupportSlotRecognizer
 from core.grand_masters_fragment_recognizer import (
     recognize_grand_masters_training_fragment,
@@ -420,7 +422,7 @@ class TrainingParser:
 
     def parse_for_scenario(self, image_path: str | Path, *, scenario: str | None) -> TrainingData:
         path = Path(image_path)
-        img = cv2.imread(str(path))
+        img = read_image_compat(path)
         if img is None:
             raise ValueError(f"无法读取图片: {path}")
 
@@ -454,7 +456,7 @@ class TrainingParser:
                 self._larc_support_reader = LarcSupportReader()
             participants = self._larc_support_reader.read(img)
             source = self._larc_capture_source
-            if source is not None and Path(source["absolute_path"]).resolve() == path.resolve():
+            if source is not None and os.path.normcase(os.path.abspath(source["absolute_path"])) == os.path.normcase(os.path.abspath(path)):
                 participants = self._larc_roster.observe_training(img, participants, source=source)
                 if self._larc_roster_path is not None and participants["status"] == "accepted":
                     self._larc_roster.save(self._larc_roster_path)
@@ -2230,7 +2232,7 @@ class TrainingParser:
         Returns:
             True if enough data was extracted (>=3 non-zero gains).
         """
-        img = cv2.imread(image_path)
+        img = read_image_compat(image_path)
         if img is None:
             return False
 
@@ -2343,7 +2345,7 @@ class TrainingParser:
         )
 
         try:
-            image_bytes = Path(image_path).read_bytes()
+            image_bytes = io_path(image_path).read_bytes()
         except OSError:
             image_bytes = str(image_path).encode("utf-8")
         raw = self._call_mimo_cached(

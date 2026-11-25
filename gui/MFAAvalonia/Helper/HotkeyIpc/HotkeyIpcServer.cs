@@ -89,25 +89,63 @@ public class HotkeyIpcServer : IDisposable
 
     public static int? LoadPortFromFile()
     {
+        foreach (var portPath in EnumerateCandidatePortPaths())
+        {
+            try
+            {
+                if (File.Exists(portPath))
+                {
+                    var content = File.ReadAllText(portPath).Trim();
+                    if (int.TryParse(content, out int port))
+                        return port;
+                }
+            }
+            catch { }
+        }
+        return null;
+    }
+
+    private static IEnumerable<string> EnumerateCandidatePortPaths()
+    {
+        string? primary = null;
+        try { primary = GetPortFilePath(); } catch { }
+        if (!string.IsNullOrEmpty(primary))
+            yield return primary;
+        var fallback = Path.Combine(AppPaths.TempDirectory, "MFAAvalonia", PortFileName);
+        if (!string.Equals(fallback, primary, StringComparison.OrdinalIgnoreCase))
+            yield return fallback;
+    }
+
+    private static bool TryPrepareWritableDir(string dir)
+    {
         try
         {
-            var portPath = GetPortFilePath();
-            if (File.Exists(portPath))
-            {
-                var content = File.ReadAllText(portPath).Trim();
-                if (int.TryParse(content, out int port))
-                    return port;
-            }
+            Directory.CreateDirectory(dir);
+            var probe = Path.Combine(dir, $".ipc_probe_{Guid.NewGuid():N}");
+            File.WriteAllText(probe, "1");
+            File.Delete(probe);
+            return true;
         }
-        catch { }
-        return null;
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string GetPortFilePath()
     {
-        // 使用用户临时目录，确保所有进程都能访问同一个文件
+        // 使用用户临时目录，确保所有进程都能访问同一个文件；若不可写则回退到应用内 temp 目录
         var tempDir = Path.Combine(Path.GetTempPath(), "MFAAvalonia");
-        Directory.CreateDirectory(tempDir);
+        if (!TryPrepareWritableDir(tempDir))
+        {
+            var fallbackDir = Path.Combine(AppPaths.TempDirectory, "MFAAvalonia");
+            Directory.CreateDirectory(fallbackDir);
+            tempDir = fallbackDir;
+        }
         var portPath = Path.Combine(tempDir, PortFileName);
         return portPath;
     }

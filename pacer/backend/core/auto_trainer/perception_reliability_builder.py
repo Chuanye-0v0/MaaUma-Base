@@ -6,6 +6,8 @@ import hashlib
 import json
 import re
 from pathlib import Path
+
+from core.auto_trainer.pacer_storage import _io
 from typing import Any, Mapping
 
 from core.auto_trainer.career_supervisor_turn import TurnAuthorityBundle
@@ -297,9 +299,9 @@ def write_perception_reliability_artifact_exclusive(
     if not isinstance(path, Path):
         raise TypeError("perception_reliability_path_invalid")
     payload = canonical_perception_reliability_bytes(artifact)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _io(path.parent).mkdir(parents=True, exist_ok=True)
     try:
-        with path.open("xb") as handle:
+        with _io(path).open("xb") as handle:
             handle.write(payload)
             handle.flush()
     except FileExistsError as exc:
@@ -307,7 +309,7 @@ def write_perception_reliability_artifact_exclusive(
             "perception_reliability_artifact_exists"
         ) from exc
     try:
-        actual = path.read_bytes()
+        actual = _io(path).read_bytes()
     except OSError as exc:
         raise ValueError("perception_reliability_artifact_verify_failed") from exc
     if actual != payload:

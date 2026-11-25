@@ -10,7 +10,9 @@ from typing import Any, Callable
 import cv2
 import numpy as np
 
+from core.frame_io import read_image_compat
 from .capture_adapter import load_capture_group_raws
+from .pacer_storage import _io
 from .training_current_stats import FIELD_ORDER, read_training_current_stats
 from .larc_vitality_preview import read_overseas_adaptation_gain, read_training_vitality_preview
 
@@ -22,7 +24,7 @@ _REPORT_KEYS = {"status", "reason", "values", "fields"}
 
 def _manifest_sha256(path: Path) -> str | None:
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        return hashlib.sha256(_io(path).read_bytes()).hexdigest()
     except OSError:
         return None
 
@@ -67,7 +69,7 @@ def _invalid(
 
 
 def _canonical_image(path: Path) -> np.ndarray | None:
-    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    image = read_image_compat(path, cv2.IMREAD_COLOR)
     if image is None:
         return None
     if image.shape == (1280, 720, 3):
@@ -125,7 +127,7 @@ def build_training_page_observation(
             manifest_sha256=None,
             reason="capture_manifest_unreadable",
         )
-    if output_path.exists() and not overwrite:
+    if _io(output_path).exists() and not overwrite:
         return _invalid(
             manifest_path=manifest_path,
             actual_group_id=actual_group_id,
@@ -290,8 +292,8 @@ def build_training_page_observation(
             reason="training_page_observation_not_serializable",
             turn_index=turn_index,
         )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(serialized + "\n", encoding="utf-8")
+    _io(output_path.parent).mkdir(parents=True, exist_ok=True)
+    _io(output_path).write_text(serialized + "\n", encoding="utf-8")
     return result
 
 

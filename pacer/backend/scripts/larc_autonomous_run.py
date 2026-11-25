@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import uuid
 from types import SimpleNamespace
 from time import monotonic, time_ns
 
@@ -2602,7 +2603,7 @@ def _run(args):
     ctx.live_takeover = live_takeover
     ctx.live_takeover_year1_adapt_recheck = bool(live_takeover)
     ctx.ss_sieve_player_takeover = getattr(args, '_player_live_takeover', False) is True
-    output = ctx.root / ("autonomous_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
+    output = ctx.root / ("autonomous_" + datetime.now().strftime("%y%m%d%H%M%S_") + uuid.uuid4().hex[:4])
     output.mkdir()
     ctx.segment_root = output
     summary = {"run_session_id": ctx.run_id, "device": ctx.progress["device"], "output": str(output),
@@ -3221,7 +3222,7 @@ def _run(args):
                                              "output": str(turn_root)})
             save_summary()
             argv = ["--goal-config", str(ctx.root / "goal.json"), "--output-root", str(turn_root / "capture"),
-                    "--actual-group-id", f"{output.name}_turn{turn}", "--run-session-id", ctx.run_id,
+                    "--actual-group-id", f"t{turn:03d}_{uuid.uuid4().hex[:6]}", "--run-session-id", ctx.run_id,
                     "--turn-index", str(turn), "--source-state-key", f"{ctx.run_id}_turn{turn:03d}",
                     "--operator-id", "larc-autonomy", "--state-context-provider", "main-menu-png",
                     "--main-menu-screenshot-path", str(source), "--start-screen", "main-menu",

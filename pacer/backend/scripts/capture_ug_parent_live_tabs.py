@@ -287,8 +287,9 @@ def _larc_participant_signature(evidence) -> tuple | None:
 
 def _verified_larc_gain_rows(path: Path, reader) -> tuple | None:
     import cv2
+    from core.frame_io import read_image_compat
 
-    image = cv2.imread(str(_io(path)))
+    image = read_image_compat(path)
     if image is None or image.shape[:2] not in {(1280, 720), (2560, 1440)}:
         return None
     if image.shape[:2] == (2560, 1440):
@@ -676,8 +677,8 @@ def main(argv: list[str] | None = None) -> int:
         source_images, prior_group = _refresh_sources(args, state_context)
         # A refresh retains the previous formal pages until capture succeeds;
         # ordinary native capture writes the one canonical group directly.
-        raw_dir = (output_root / "rf" / uuid.uuid4().hex[:10] if args.refresh_tabs or has_published_capture else
-                   output_root / "incoming_raw" / args.actual_group_id
+        raw_dir = (output_root / "rf" / uuid.uuid4().hex[:6] if args.refresh_tabs or has_published_capture else
+                   output_root / "r" / args.actual_group_id
                    if _normalized_capture_size(scenario, args.capture_transport) == (720, 1280)
                    else output_root / "raw_720")
         _io(raw_dir).mkdir(parents=True, exist_ok=True)

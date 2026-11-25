@@ -161,8 +161,70 @@ MFAAvalonia 命令行参数
         }
     }
 
+    private static int _envSanitized;
+
+    public static void EnsureWritableProcessEnvironment()
+    {
+        if (System.Threading.Interlocked.CompareExchange(ref _envSanitized, 1, 0) != 0)
+            return;
+
+        try
+        {
+            var baseDir = AppContext.BaseDirectory;
+            if (!string.IsNullOrWhiteSpace(baseDir))
+            {
+                if (!CanWriteDirectory(Path.GetTempPath()))
+                {
+                    var fallbackTemp = Path.Combine(baseDir, "temp", "native-ipc-probe");
+                    if (CanWriteDirectory(fallbackTemp))
+                    {
+                        Environment.SetEnvironmentVariable("TEMP", fallbackTemp, EnvironmentVariableTarget.Process);
+                        Environment.SetEnvironmentVariable("TMP", fallbackTemp, EnvironmentVariableTarget.Process);
+                    }
+                }
+
+                var lockBase = Environment.GetEnvironmentVariable("UMA_PUBLIC_LOCK_ROOT");
+                if (string.IsNullOrWhiteSpace(lockBase))
+                    lockBase = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+                var probeLockDir = string.IsNullOrWhiteSpace(lockBase)
+                    ? string.Empty
+                    : Path.Combine(lockBase, "UmaSuite", "device-locks");
+                if (string.IsNullOrWhiteSpace(probeLockDir) || !CanWriteDirectory(probeLockDir))
+                {
+                    var fallbackLock = Path.Combine(baseDir, "temp");
+                    if (CanWriteDirectory(fallbackLock))
+                    {
+                        Environment.SetEnvironmentVariable("UMA_PUBLIC_LOCK_ROOT", fallbackLock, EnvironmentVariableTarget.Process);
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static bool CanWriteDirectory(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+        try
+        {
+            Directory.CreateDirectory(path);
+            var probe = Path.Combine(path, $".maauma_probe_{Guid.NewGuid():N}");
+            File.WriteAllText(probe, "1");
+            File.Delete(probe);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static void Initialize(string[] args, string instanceKey)
     {
+        EnsureWritableProcessEnvironment();
         Args = ParseArguments(args);
         _instanceKey = instanceKey;
         _executablePath = Environment.ProcessPath;

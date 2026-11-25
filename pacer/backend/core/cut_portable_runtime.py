@@ -48,31 +48,37 @@ def portable_capture_preference():
     return value
 
 
-def enable_unicode_image_paths():
+def enable_unicode_image_paths(*, force: bool = False):
     """Keep OpenCV 4.10's ANSI path handling out of standalone Windows I/O.
 
     The adapter is process-local and only enabled by the standalone entrypoint.
-    ASCII paths retain the original code path; image codecs are unchanged.
+    Short ASCII paths retain the original code path; non-ASCII or long (>=240)
+    Windows paths route through core.frame_io.io_path (extended-length prefix).
     """
-    if portable_root() is None:return
+    if not force and portable_root() is None:return
     import cv2
     import numpy as np
+    from core.frame_io import io_path
     if getattr(cv2.imread,'_cut_unicode_paths',False):return
     original_read,original_write=cv2.imread,cv2.imwrite
 
+    def _needs_compat(path: str) -> bool:
+        return (not path.isascii()) or len(path) >= 240 or path.startswith('\\\\?\\')
+
     def read(filename,flags=cv2.IMREAD_COLOR):
         path=os.fsdecode(filename)
-        if path.isascii():return original_read(path,flags)
-        try:data=Path(path).read_bytes()
+        if not _needs_compat(path):return original_read(path,flags)
+        try:data=io_path(path).read_bytes()
         except OSError:return None
         return cv2.imdecode(np.frombuffer(data,dtype=np.uint8),flags) if data else None
 
     def write(filename,img,params=None):
         path=os.fsdecode(filename)
-        if path.isascii():return original_write(path,img,params or [])
-        ok,data=cv2.imencode(Path(path).suffix,img,params or [])
+        if not _needs_compat(path):return original_write(path,img,params or [])
+        suffix=Path(path).suffix or '.png'
+        ok,data=cv2.imencode(suffix,img,params or [])
         if not ok:return False
-        try:Path(path).write_bytes(data.tobytes())
+        try:io_path(path).write_bytes(data.tobytes())
         except OSError:return False
         return True
 

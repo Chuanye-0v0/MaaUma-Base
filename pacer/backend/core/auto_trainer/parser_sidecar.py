@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from core.auto_trainer.capture_adapter import load_capture_group_raws
+from core.auto_trainer.pacer_storage import _glob, _io
 from core.auto_trainer.state import TRAINING_TYPES
 from core.training_gain_reliability import (
     classify_reliable_exact_gain,
@@ -58,7 +59,7 @@ def build_training_options_sidecar(
     pretty: bool = False,
 ) -> dict[str, Any]:
     output_path = Path(output_path)
-    if output_path.exists() and not overwrite:
+    if _io(output_path).exists() and not overwrite:
         return {
             "is_valid": False,
             "errors": [f"output_exists:{output_path}"],
@@ -158,8 +159,8 @@ def build_training_options_sidecar(
         "errors": errors,
         "is_valid": not errors,
     }
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
+    _io(output_path.parent).mkdir(parents=True, exist_ok=True)
+    _io(output_path).write_text(
         json.dumps(sidecar, ensure_ascii=False, indent=2 if pretty else None),
         encoding="utf-8",
     )
@@ -467,7 +468,7 @@ def _apply_stable_precheck_gain_consensus(
         return None
 
     candidate_paths = sorted(
-        (execution_root / "raw_720").glob(f"{tab}.attempt-*.precheck_*.png")
+        _glob(execution_root / "raw_720", f"{tab}.attempt-*.precheck_*.png")
     )
     if len(candidate_paths) < 2:
         return None

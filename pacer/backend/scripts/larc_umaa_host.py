@@ -9,6 +9,7 @@ import json
 from copy import deepcopy
 import os
 from pathlib import Path
+import re
 import sys
 import time
 
@@ -109,7 +110,12 @@ class PacerHost:
             except (OSError, ValueError):
                 continue
             progress = read_json(path / 'progress.json')
-            rows.append(dict(path=str(path), mode='career', label=f"{path.name[11:26]} · 已推进 {progress.get('actions_completed', 0)} 步",
+            stamp = path.name[11:26]
+            if m_compact := re.fullmatch(r'larc_panel_(\d{6})(\d{6})_.+', path.name):
+                stamp = f'20{m_compact.group(1)}_{m_compact.group(2)}'
+            elif m_legacy := re.fullmatch(r'larc_panel_(\d{8}_\d{6})_.+', path.name):
+                stamp = m_legacy.group(1)
+            rows.append(dict(path=str(path), mode='career', label=f"{stamp} · 已推进 {progress.get('actions_completed', 0)} 步",
                              settings=self.settings(path), modified=path.joinpath('progress.json').stat().st_mtime))
         return sorted(rows, key=lambda row: row['modified'], reverse=True)
 

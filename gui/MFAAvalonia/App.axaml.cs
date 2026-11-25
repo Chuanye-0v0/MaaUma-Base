@@ -138,6 +138,7 @@ public partial class App : Application
     {
         try
         {
+            AppRuntime.EnsureWritableProcessEnvironment();
             UmaPublicRuntime.AcquireApplicationLock();
             TelemetryService.InitializeBootstrapFromInterface(AppContext.BaseDirectory);
             base.Initialize();

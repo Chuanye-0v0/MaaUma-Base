@@ -1560,7 +1560,7 @@ def _prepare_perception_reliability_artifact(
         for tab in TRAINING_TYPES
     }
     try:
-        sidecar_bytes = sidecar_path.read_bytes()
+        sidecar_bytes = _io(sidecar_path).read_bytes()
         sidecar = json.loads(sidecar_bytes.decode("utf-8-sig"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("perception_sidecar_invalid") from exc
@@ -1642,12 +1642,12 @@ def _prepare_perception_reliability_artifact(
         artifact,
     )
     authority_path = execution_root / "perception_authority.json"
-    authority_path.write_text(
+    _io(authority_path).write_text(
         json.dumps(authority.to_dict(), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     frames_path = execution_root / "perception_frames.json"
-    frames_path.write_text(
+    _io(frames_path).write_text(
         json.dumps(frames, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )

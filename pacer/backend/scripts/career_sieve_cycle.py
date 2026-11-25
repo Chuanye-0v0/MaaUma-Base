@@ -60,7 +60,7 @@ def create_sieve_batch(root, endpoint, document):
         'validation_character_name': setup['character_name'], 'strategy': 'baseline',
         'device_port': int(endpoint.rsplit(':', 1)[1]), 'retain_screenshots': options['retain_training'],
         **{key: setup[key] for key in ('support_deck', 'borrow_card_id', 'borrow_min_level', 'borrow_min_break')}})
-    path = Path(root) / 'runs' / f'cut_pacer_{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:6]}'
+    path = Path(root) / 'runs' / f'cut_pacer_{datetime.now():%y%m%d%H%M%S}_{uuid.uuid4().hex[:4]}'
     session = CutSession(path, config)
     session.data[CYCLE] = {
         'phase': 'ready',

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import uuid
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ import cv2
 
 from core.auto_trainer.state import TRAINING_TYPES
 from core.auto_trainer.pacer_storage import _io
+from core.frame_io import read_image_compat
 
 
 LIVE_CAPTURE_SCHEMA_VERSION = "ug_parent_live_capture_manifest.v1"
@@ -34,8 +36,8 @@ def build_live_capture_package(
 ) -> dict[str, Any]:
     output_root = Path(output_root)
     manifest_path = output_root / "execution_manifest.json"
-    group_dir = output_root / "incoming_raw" / actual_group_id
-    generation_dir = group_dir / ("g_" + uuid.uuid4().hex[:10])
+    group_dir = output_root / "r" / actual_group_id
+    generation_dir = group_dir / ("g" + uuid.uuid4().hex[:5])
     refreshing = _io(manifest_path).is_file()
     native_resolution = tuple(source_resolution) == tuple(normalized_resolution)
     normalized_dir = (generation_dir if native_resolution else generation_dir / "normalized") if refreshing else group_dir
@@ -65,7 +67,7 @@ def build_live_capture_package(
     )
     for sequence, tab in enumerate(TRAINING_TYPES, start=1):
         source_path = Path(source_images[tab])
-        image = cv2.imread(str(_io(source_path)))
+        image = read_image_compat(source_path)
         if image is None:
             raise ValueError(f"source_image_unreadable:{tab}:{source_path}")
         width, height = image.shape[1], image.shape[0]
@@ -77,7 +79,7 @@ def build_live_capture_package(
 
         raw_720_path = raw_720_dir / f"{tab}.png"
         if native_resolution:
-            if source_path.resolve() != raw_720_path.resolve():
+            if os.path.normcase(os.path.abspath(source_path)) != os.path.normcase(os.path.abspath(raw_720_path)):
                 shutil.copyfile(_io(source_path), _io(raw_720_path))
         else:
             _write_png(raw_720_path, image)

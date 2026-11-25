@@ -159,6 +159,16 @@ def _endpoint(value):
     return isinstance(value, str) and bool(re.fullmatch(r'127\.0\.0\.1:[0-9]{1,5}', value)) and 1 <= int(value.rsplit(':', 1)[1]) <= 65535
 
 
+def _created_order(run):
+    match = re.search(r'(20\d{6}_\d{6})', run.name)
+    if match:
+        return match.group(1)
+    compact = re.match(r'(?:cut_pacer|larc_panel)_(\d{6})(\d{6})_', run.name)
+    if compact:
+        return f'20{compact.group(1)}_{compact.group(2)}'
+    return str(getattr(_stat(run), 'st_birthtime', _stat(run).st_ctime)).zfill(24)
+
+
 def _batch_identity(run):
     """Production writes schema/config before the potentially enormous attempts.
 
@@ -210,8 +220,7 @@ def _batch_identity(run):
     port = config.get('device_port') if isinstance(config, dict) else None
     if fields.get('schema_version') != 'uma.cut_farming_session.v1' or type(port) is not int or not 1 <= port <= 65535:
         return None
-    timestamp = re.search(r'(20\d{6}_\d{6})', run.name)
-    created = timestamp.group(1) if timestamp else str(getattr(_stat(run), 'st_birthtime', _stat(run).st_ctime)).zfill(24)
+    created = _created_order(run)
     return {'endpoint': f'127.0.0.1:{port}', 'guards': {'cut_farming.json': before},
             'inode': _token(run)[:2], 'order': created + '/' + run.name, 'kind': 'batch'}
 
@@ -238,8 +247,7 @@ def _identity(run):
             guards[name] = None
     # Production names contain their creation timestamp; do not choose the most
     # recently touched old waiting state as the newest career.
-    timestamp = re.search(r'(20\d{6}_\d{6})', run.name)
-    created = timestamp.group(1) if timestamp else str(getattr(_stat(run), 'st_birthtime', _stat(run).st_ctime)).zfill(24)
+    created = _created_order(run)
     return {'endpoint': endpoint, 'guards': guards, 'inode': _token(run)[:2],
             'order': created + '/' + run.name}
 

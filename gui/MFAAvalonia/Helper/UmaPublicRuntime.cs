@@ -78,6 +78,7 @@ public static class UmaPublicRuntime
 
     public static async Task<JArray> Request(JObject request, string module)
     {
+        AppRuntime.EnsureWritableProcessEnvironment();
         if (module != "desktop.umaa_public_presets" && module != "desktop.umaa_public_plant"
             && module != "desktop.umaa_seed_cycle" && module != "desktop.parent_library_api" && module != "desktop.parent_planning_api" && module != "desktop.parent_compatibility_api" && module != "desktop.parent_planner_api") throw new InvalidOperationException("公开编辑接口不可用。");
         var python = Path.Combine(AppContext.BaseDirectory, "runtime", "python.exe");

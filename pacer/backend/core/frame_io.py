@@ -20,9 +20,11 @@ def io_path(path: str | Path) -> Path:
 
 def read_image_compat(path: str | Path, flags: int = cv2.IMREAD_COLOR) -> np.ndarray | None:
     """Read an image via cv2.imread first, falling back to long-path byte decode."""
-    image = cv2.imread(str(path)) if flags == cv2.IMREAD_COLOR else cv2.imread(str(path), flags)
-    if image is not None:
-        return image
+    raw_str = str(path)
+    if not (os.name == "nt" and (not raw_str.isascii() or len(raw_str) >= 240 or raw_str.startswith("\\\\?\\"))):
+        image = cv2.imread(raw_str) if flags == cv2.IMREAD_COLOR else cv2.imread(raw_str, flags)
+        if image is not None:
+            return image
     try:
         data = io_path(path).read_bytes()
     except OSError:

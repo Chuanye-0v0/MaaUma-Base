@@ -766,9 +766,10 @@ def _review_record(base, run, progress, config, attempt, *, mode, index=None, st
         try:timestamp=datetime.fromisoformat(started)
         except ValueError:pass
     if timestamp is None:
-        match=re.fullmatch(r'larc_panel_(\d{8}_\d{6})_.+',run.name)
+        match=re.fullmatch(r'larc_panel_(\d{8}_\d{6}|\d{12})_.+',run.name)
         if match:
-            try:timestamp=datetime.strptime(match[1],'%Y%m%d_%H%M%S')
+            stamp=match[1]
+            try:timestamp=datetime.strptime(stamp,'%Y%m%d_%H%M%S') if '_' in stamp else datetime.strptime('20'+stamp,'%Y%m%d%H%M%S')
             except ValueError:pass
     label=f"{timestamp.strftime('%m-%d %H:%M') if timestamp else '时间未知'} · {name} · {status_label}"
     if mode=='career':label='自动育成 · '+label
