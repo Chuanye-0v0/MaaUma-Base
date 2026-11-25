@@ -14,7 +14,8 @@ from core.auto_trainer.cut_farming import CutFarmingConfig, CutSession, atomic_j
 from core.auto_trainer.runtime_control import RunStopped, bind, current_page_resume
 from core.career_workflow import ace_cycle_node, ss_sieve_node, validate_start_document
 from scripts.career_workflow_runtime import (DOCUMENT, SS_SIEVE_FAILURE, WorkflowState,
-    authorized_continuation_restart, authorized_sieve_failure, load_for_run, read)
+    authorized_continuation_restart, authorized_mei_unlock_restart, authorized_sieve_failure,
+    load_for_run, read)
 
 CYCLE = 'ss_sieve_cycle'
 _ACTIVE_CAREER_TAKEOVER_STATES = frozenset({
@@ -398,9 +399,13 @@ class SieveCycle:
                     if report.get('status') in {'batch_limit_reached', 'handoff'}:
                         return self._stop('stopped', reason)
                     self.session.finish_attempt(reason)
+                    mei_restart = authorized_mei_unlock_restart(store, root, report)
                     if (not data.get('pending_action') and not data.get('tp_refill_pending')
                             and (authorized_sieve_failure(store, root, report)
-                                 or authorized_continuation_restart(store, root, report))):
+                                 or authorized_continuation_restart(store, root, report)
+                                 or mei_restart)):
+                        if mei_restart and report.get('mei_unlock_failure') is not None:
+                            attempt['mei_unlock_failure'] = report.get('mei_unlock_failure')
                         if len(data['attempts']) >= self.session.config.max_attempts:
                             attempt.update(status='last_attempt_preserved', ss_sieve_outcome='completed')
                             self.cycle['phase'] = 'completed'
@@ -408,6 +413,9 @@ class SieveCycle:
                             return self._stop('limit_reached', 'last_attempt_preserved_no_remaining_budget')
                         if not self._abandon(root):
                             return self._stop('route_failed', 'ss_sieve_abandon_unverified')
+                        if mei_restart:
+                            attempt['status'] = 'mei_unlock_failed'
+                            self.session.save()
                         root = None
                         continue
                     attempt['ss_sieve_outcome'] = 'failed'

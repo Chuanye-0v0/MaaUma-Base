@@ -41,6 +41,62 @@ def title_key(text):
     return normalized(text)
 
 
+_YEAR_NAME_TO_INDEX={'junior':1,'classic':2,'senior':3}
+_YEAR_INDEX_TO_NAME={1:'junior',2:'classic',3:'senior'}
+DEFAULT_TARGET_SKILL_BREAK_CHAIN_FROM='senior_4_second'
+_BREAK_CHAIN_RE=re.compile(r'^(junior|classic|senior|[123])_(\d{1,2})_(first|second)$')
+
+
+def normalize_target_skill_break_chain_from(raw):
+    if raw is None or (isinstance(raw,str) and not raw.strip()):
+        return DEFAULT_TARGET_SKILL_BREAK_CHAIN_FROM
+    if isinstance(raw,dict):
+        year=raw.get('year_index');month=raw.get('month');half=raw.get('half')
+        if (year not in _YEAR_INDEX_TO_NAME or type(month) is not int
+                or not 1<=month<=12 or half not in {'first','second'}):
+            raise ValueError('防沉底断事件时间格式无效，请选择预设或填写年/月/上下半月。')
+        return f'{_YEAR_INDEX_TO_NAME[year]}_{month}_{half}'
+    if type(raw) is int and 0<=raw<=66:
+        from core.auto_trainer.larc_calendar import period_at
+        p=period_at(raw)
+        return f"{_YEAR_INDEX_TO_NAME[p['year_index']]}_{p['month']}_{p['half']}"
+    if not isinstance(raw,str):
+        raise ValueError('防沉底断事件时间格式无效，请选择预设或填写年/月/上下半月。')
+    text=raw.strip().lower()
+    if text in {'off','always'}:
+        return text
+    m=_BREAK_CHAIN_RE.fullmatch(text)
+    if not m:
+        raise ValueError('防沉底断事件时间格式无效，请选择预设或填写年/月/上下半月。')
+    year_token,month_token,half=m.group(1),int(m.group(2)),m.group(3)
+    if not 1<=month_token<=12:
+        raise ValueError('防沉底断事件月份必须在 1 到 12 之间。')
+    year_name=_YEAR_INDEX_TO_NAME[int(year_token)] if year_token.isdigit() else year_token
+    return f'{year_name}_{month_token}_{half}'
+
+
+def target_skill_break_chain_day(value):
+    norm=normalize_target_skill_break_chain_from(value)
+    if norm=='off':return None
+    if norm=='always':return 0
+    m=_BREAK_CHAIN_RE.fullmatch(norm)
+    assert m is not None
+    from core.auto_trainer.larc_calendar import period_ordinal
+    return period_ordinal({'year_index':_YEAR_NAME_TO_INDEX[m.group(1)],'month':int(m.group(2)),'half':m.group(3)})
+
+
+def _current_larc_calendar_day(state):
+    scenario_state=getattr(state,'scenario_state',None) or {}
+    if not isinstance(scenario_state,dict):return None
+    period=scenario_state.get('larc_period') or {}
+    if not isinstance(period,dict):return None
+    val=period.get('value') if period.get('status')=='verified' else (
+        period if {'year_index','month','half'}.issubset(period) else None)
+    if not isinstance(val,dict):return None
+    from core.auto_trainer.larc_calendar import period_ordinal
+    return period_ordinal(val)
+
+
 def normalize_preferences(value):
     if not isinstance(value,dict):raise ValueError('事件目标应为配置对象。')
     result=deepcopy(value)
@@ -68,6 +124,7 @@ def normalize_preferences(value):
         item=result.get(field,default)
         if type(item) is not bool:raise ValueError('事件取舍开关应为true或false。')
         result[field]=item
+    result['target_skill_break_chain_from']=normalize_target_skill_break_chain_from(result.get('target_skill_break_chain_from'))
     choices=result.get('manual_choices',{})
     if not isinstance(choices,dict) or any(not isinstance(key,str) or not key or type(index) is not int or not 1<=index<=5 for key,index in choices.items()):
         raise ValueError('事件指定请选择上、中、下或对应序号；恢复自动请移除此项。')
@@ -151,15 +208,35 @@ def _card_confirmed_wild(event_or_row,scope,*,library=None):
     return bool(scope['complete'] and (card_id or (owner and owner not in scope['deck_chars'])))
 
 
-_CN_SUPPORT_TITLE_ALIASES={
-    title_key('将火焰般的爱意献给你'):title_key('将如火般的爱意献给你'),
-    title_key('你是速度精确的行板'):title_key('你是节奏恰到好处的行板'),
-    title_key('从高十五度恢复原位但是'):title_key('从十五度音程转回原位......但是'),
-    title_key('从高十五度恢复原位但是一'):title_key('从十五度音程转回原位......但是'),
-    title_key('理应挥洒的汗水'):title_key('应该流的这滴汗'),
-    title_key('理应追逐的背影'):title_key('应该追逐的背影'),
-    title_key('理应追赶的背影'):title_key('应该追逐的背影'),
+_CN_SUPPORT_TITLE_ALIASES_RAW={
+    '突发的合奏':'突发合奏',
+    '终将迈向壮丽合奏':'终将成为壮丽的乐章',
+    '将火焰般的爱意献给你':'将如火般的爱意献给你',
+    '你是速度精确的行板':'你是节奏恰到好处的行板',
+    '从高十五度恢复原位但是':'从十五度音程转回原位......但是',
+    '从高十五度恢复原位但是一':'从十五度音程转回原位......但是',
+    '理应挥洒的汗水':'应该流的这滴汗',
+    '值得追赶的背影':'应该追逐的背影',
+    '理应追逐的背影':'应该追逐的背影',
+    '理应追赶的背影':'应该追逐的背影',
+    'Vol.1 《超越自律》':'Vol.1 《克己的彼岸》',
+    'Vol.2 《一脉相承》':'Vol.2 《连绵不绝》',
 }
+_CN_SUPPORT_TITLE_ALIASES={
+    title_key(alias):title_key(canonical)
+    for alias,canonical in _CN_SUPPORT_TITLE_ALIASES_RAW.items()
+}
+
+
+def support_cn_alias_titles(titles):
+    keys={title_key(v) for v in titles if isinstance(v,str) and v}
+    extra=[]
+    for alias,canonical in _CN_SUPPORT_TITLE_ALIASES_RAW.items():
+        ak=title_key(alias)
+        if title_key(canonical) in keys and ak not in keys:
+            extra.append(alias)
+            keys.add(ak)
+    return extra
 
 
 def _levenshtein(a,b):
@@ -525,6 +602,7 @@ def score_library_event(match,state,goal,context,mood):
     bonus={} if is_wild else context.get('bonuses_by_owner',{}).get(str(event.get('support_card_id')), {})
     rows=[]
     rank_by_index={}
+    direct_rank_by_index={}
     for option in event['options']:
         scenarios=[]
         for branch in option['branches']:
@@ -589,16 +667,33 @@ def score_library_event(match,state,goal,context,mood):
         priority=len(matched_targets) if preferences['prioritize_target_routes'] and not path.get('target_path_uncertain') else 0
         target_order_rank=(tuple(sorted((-targets.index(sid) for sid in matched_targets if sid in targets),reverse=True))
             if priority>0 else ())
+        direct_priority=len(direct) if preferences['prioritize_target_routes'] else 0
+        direct_order_rank=(tuple(sorted((-targets.index(sid) for sid in direct if sid in targets),reverse=True))
+            if direct_priority>0 else ())
         rank_by_index[option['index']]=(priority,target_order_rank)
+        direct_rank_by_index[option['index']]=(direct_priority,direct_order_rank)
         rows.append({**selected,'index':option['index'],'target_priority':priority,'branch_basis':branch_basis,
             **_branch_recovery(scenarios),
             'score':round(selected['score'],4),'target_paths_retained':retained,
             'lost_target_skill_routes':path.get('lost_target_skill_routes',[]),
             'target_hints_now':sorted(set(path.get('target_skill_hints_now',[]))|direct),
+            'direct_target_skills':sorted(direct),
             'chain_transition':option.get('chain_transition'),'future_rewards_are_guaranteed':False})
-    recovery=_guaranteed_recovery_choice(rows,goal=goal)
-    best_target_key=max(rank_by_index[x['index']] for x in rows)
-    eligible=[r for r in rows if rank_by_index[r['index']]==best_target_key]
+    break_threshold=preferences['target_skill_break_chain_from']
+    break_day=target_skill_break_chain_day(break_threshold)
+    current_day=_current_larc_calendar_day(state)
+    late_break_active=(break_day is not None) and (break_day==0 or (current_day is not None and current_day>=break_day))
+    best_direct_key=max(direct_rank_by_index[x['index']] for x in rows)
+    late_break_info=None
+    if late_break_active and preferences['prioritize_target_routes'] and best_direct_key[0]>0 and any(
+            direct_rank_by_index[x['index']]<best_direct_key for x in rows):
+        eligible=[r for r in rows if direct_rank_by_index[r['index']]==best_direct_key]
+        recovery=_guaranteed_recovery_choice(eligible,goal=goal)
+        late_break_info={'threshold':break_threshold,'threshold_day':break_day,'current_day':current_day}
+    else:
+        recovery=_guaranteed_recovery_choice(rows,goal=goal)
+        best_target_key=max(rank_by_index[x['index']] for x in rows)
+        eligible=[r for r in rows if rank_by_index[r['index']]==best_target_key]
     # Equal unknown rewards (e.g. both branches' unquantified cut chance)
     # cancel. Do not invent probabilities or claim a reward was acquired.
     unknown=lambda row:json.dumps(row['unknown_effects'],sort_keys=True,ensure_ascii=False)
@@ -610,7 +705,11 @@ def score_library_event(match,state,goal,context,mood):
                 'expected_event':None,'event_id':event['event_id'],'candidates':rows,
                 'non_deck_wild_support':is_wild,'chain_consequences_ignored':is_wild}
     best=recovery if recovery is not None else max(eligible,key=lambda r:(r['priority'],r['score'],-r['index']))
-    return {'status':'selected','reason':'usable_recovery_saves_future_turn' if recovery is not None else 'positive_unknown_dominance' if unknown_comparison else 'target_skill_route' if best['target_priority'] else 'library_current_and_future_value',
+    reason=('positive_unknown_dominance' if unknown_comparison
+        else 'target_skill_late_break_chain' if late_break_info is not None
+        else 'usable_recovery_saves_future_turn' if recovery is not None
+        else 'target_skill_route' if best['target_priority'] else 'library_current_and_future_value')
+    return {'status':'selected','reason':reason,
         'choice_index':best['index'],'event_id':event['event_id'],'story_id':event['story_id'],
         'expected_event':(_compact(match['title']),*[f'option:{i}' for i in range(1,len(rows)+1)]),
         'effect_basis':'existing_offline_library_reference_not_observed','identity_basis':match['identity_basis'],
@@ -619,4 +718,5 @@ def score_library_event(match,state,goal,context,mood):
         'non_deck_wild_support':is_wild,'chain_consequences_ignored':is_wild,
         'event_policy_version':'larc_events_v5','learned_skills_written':False,
         'recovery_priority_basis':'real_body_deficit; safe_recovery_in_every_reference_branch; manual_choices_first' if recovery is not None else None,
+        **({'late_break_chain':late_break_info} if late_break_info is not None else {}),
         **({'unknown_effect_comparison':unknown_comparison} if unknown_comparison is not None else {})}

@@ -9,7 +9,7 @@ from core.event_knowledge_lookup import (
     PERSONAL_PATH,
 )
 from core.support_card_knowledge import default_library
-from core.auto_trainer.larc_event_library import title_key
+from core.auto_trainer.larc_event_library import support_cn_alias_titles, title_key
 
 
 def _titles(raw):
@@ -112,8 +112,11 @@ def event_catalog():
         stage=event.get('stage');stage_text={1:'第一段',2:'第二段',3:'第三段',4:'第四段',5:'第五段'}.get(stage,'')
         types={'speed':'速度','stamina':'耐力','power':'力量','guts':'根性','intelligence':'智力','friend':'友人','group':'小组'}
         owner=f"{card.get('rarity','')} {types.get(card.get('type'),'')} {card['name_zh_cn']}".strip()
+        row_titles=_titles(event['titles'])
+        for alias in support_cn_alias_titles(row_titles):
+            row_titles.append(alias)
         add({'key':event['event_id'],'source':'support_library','title':event['titles'].get('zh_cn') or event['titles']['ja'],
-            'titles':_titles(event['titles']),'owner':owner,'scope_kind':'support','support_card_id':event['support_card_id'],
+            'titles':row_titles,'owner':owner,'scope_kind':'support','support_card_id':event['support_card_id'],
             'character_id':event['owner_character_id'],'stage':stage,'story_id':event['story_id'],
             'aliases':[*card.get('aliases',[]),stage_text,*(['根成'] if event['support_card_id']=='30153' else [])],
             'scope_label':'对应支援卡的同名事件','options':options,'reference_basis':event.get('selected_history_period')})
@@ -154,9 +157,14 @@ def event_catalog():
             effects=' / '.join(_effects(option.get('effects',[])+branch.get('effects',[])) for branch in branches)
             options.append({'index':option['index'],'text':option.get('texts',{}).get('zh_cn') or '', 'effects':effects})
         card=library.cards.get(oid,{})
+        rev_titles=_titles(event['titles'])
+        rev_scope='support' if namespace in {'support_card_id','support_chara_id'} else 'character' if namespace=='trainee_id' else 'scenario'
+        if rev_scope=='support':
+            for alias in support_cn_alias_titles(rev_titles):
+                rev_titles.append(alias)
         add({'key':'reviewed:'+event['event_id'],'source':'reviewed','title':event['titles'].get('zh_cn') or event['titles'].get('ja'),
-            'titles':_titles(event['titles']),'owner':card.get('name_zh_cn') or character_names.get(oid) or '已整理事件',
-            'scope_kind':'support' if namespace in {'support_card_id','support_chara_id'} else 'character' if namespace=='trainee_id' else 'scenario',
+            'titles':rev_titles,'owner':card.get('name_zh_cn') or character_names.get(oid) or '已整理事件',
+            'scope_kind':rev_scope,
             'support_card_id':oid if namespace=='support_card_id' else None,
             'character_id':oid if namespace in {'trainee_id','support_chara_id'} else card.get('character_id'),
             'story_id':str(event.get('story_id') or event['event_id'].split(':',1)[1]) if event['event_id'].startswith('jp.single_mode_story:') else event.get('story_id'),

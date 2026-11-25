@@ -13,6 +13,7 @@ STATE = 'session/career_workflow_state.json'
 CONTEXT = 'session/career_workflow_context.json'
 SS_SIEVE_FAILURE = 'ss_sieve_confirmed_failure'
 CONTINUATION_GATE_FAILURE = 'continuation_gate_failed'
+MEI_UNLOCK_FAILURE = 'mei_unlock_failed'
 
 
 def read(path):
@@ -65,6 +66,23 @@ def authorized_continuation_restart(store, run_root, report):
         return False
     saved = store.data.get('ace_continuation_checks', {}).get(run_root.name, {}).get(packet.get('node'))
     return packet == saved and sieve_source_matches(packet.get('source'), run_root, packet['turn'])
+
+
+def authorized_mei_unlock_restart(store, run_root, report):
+    from types import SimpleNamespace
+    from core.auto_trainer.larc_mei_unlock_policy import failed_mei_gamble
+
+    run_root = Path(run_root).resolve()
+    progress = read(run_root / 'progress.json')
+    if (report.get('stop_reason') != MEI_UNLOCK_FAILURE
+            or report.get('run_session_id') != run_root.name
+            or (ss_sieve_node(store.document) is None and ace_cycle_node(store.document) is None)
+            or store.data.get('run_id') != run_root.name or store.data.get('attempt_root') != str(run_root)
+            or progress.get('run_session_id') != run_root.name or progress.get('device') != store.data.get('endpoint')
+            or read(run_root / DOCUMENT) != store.document):
+        return False
+    failure = failed_mei_gamble(SimpleNamespace(root=run_root, run_id=run_root.name, progress=progress))
+    return isinstance(failure, dict)
 
 
 def screening_node(store):

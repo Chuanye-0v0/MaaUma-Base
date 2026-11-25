@@ -105,6 +105,36 @@ public sealed class EventPreferenceEditor:Expander
         var ignored=new EventSkillPicker("EventIgnoredSkills",skillCatalog);
         var conserve=new CheckBox {Name="EventConserveEnergy",Content="事件里优先节约额外体力",IsChecked=(bool?)saved?["conserve_energy"] ?? true};
         var preserve=new CheckBox {Name="EventPreserveTargets",Content="优先保留目标技能路线",IsChecked=(bool?)saved?["prioritize_target_routes"] ?? true};
+        var breakChainOptions=new (string Key,string Label)[]{
+            ("senior_4_second","资深级 4 月下起（第三年，推荐）"),
+            ("off","关闭（按原规则等后续阶段）"),
+            ("senior_1_first","资深级 1 月上起（第三年初）"),
+            ("senior_6_first","资深级 6 月上起（二远征前）"),
+            ("classic_10_second","经典级 10 月下起（首凯后）"),
+            ("always","任意时间（碰到即断事件保底）")
+        };
+        var breakChainCombo=new ComboBox {
+            Name="EventTargetBreakChainFrom",
+            ItemsSource=breakChainOptions.Select(x=>x.Label).ToArray(),
+            HorizontalAlignment=HorizontalAlignment.Stretch,
+            Height=32,MinHeight=0,
+            IsEnabled=preserve.IsChecked==true
+        };
+        string? customBreakChainValue=null;
+        void LoadBreakChain(JObject? src)
+        {
+            var raw=(string?)src?["target_skill_break_chain_from"];
+            var key=string.IsNullOrWhiteSpace(raw) ? "senior_4_second" : raw.Trim().ToLowerInvariant();
+            var idx=Array.FindIndex(breakChainOptions,x=>x.Key==key);
+            if(idx>=0){customBreakChainValue=null;breakChainCombo.SelectedIndex=idx;}
+            else{customBreakChainValue=key;breakChainCombo.SelectedIndex=-1;}
+        }
+        string SelectedBreakChainKey()=>breakChainCombo.SelectedIndex is >=0 and var i && i<breakChainOptions.Length
+            ? breakChainOptions[i].Key : (customBreakChainValue ?? "senior_4_second");
+        LoadBreakChain(saved);
+        var breakChainRow=new StackPanel {Spacing=4};
+        breakChainRow.Children.Add(new TextBlock {Text="目标技能防沉底断事件起始时间",FontSize=12});
+        breakChainRow.Children.Add(breakChainCombo);
         var preset=new Button {Name="EventMilePreset",Content="填入本次英里LOH取向"};
         var meiPolicy=saved?["mei_unlock_policy"] as JObject;
         var meiGamble=new CheckBox {Name="MeiUnlockGamble",Content="黄帽解锁低体力时选2，确认失败后重开",
@@ -194,7 +224,7 @@ public sealed class EventPreferenceEditor:Expander
             CornerRadius=new CornerRadius(10),
             BorderThickness=new Thickness(1),
             Padding=new Thickness(12),
-            Child=new StackPanel {Spacing=8,Children={needleHeadRow,needleCombo,needleStatus,conserve,preserve,meiGamble,meiThresholdRow,meiScopeNote}}
+            Child=new StackPanel {Spacing=8,Children={needleHeadRow,needleCombo,needleStatus,conserve,preserve,breakChainRow,meiGamble,meiThresholdRow,meiScopeNote}}
         };
         guardCard.Bind(Border.BorderBrushProperty,new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("SukiControlBorderBrush"));
 
@@ -245,6 +275,7 @@ public sealed class EventPreferenceEditor:Expander
         JObject CaptureForm()=>new() {
             ["target_skills"]=targets.Values,["ignored_skills"]=ignored.Values,
             ["conserve_energy"]=conserve.IsChecked==true,["prioritize_target_routes"]=preserve.IsChecked==true,
+            ["target_skill_break_chain_from"]=SelectedBreakChainKey(),
             ["manual_choices"]=rules.DeepClone(),["mei_gamble"]=meiGamble.IsChecked==true,
             ["mei_threshold"]=meiThreshold.Value ?? 50,
             ["with_priority"]=new JArray(withPriorityList),
@@ -257,6 +288,7 @@ public sealed class EventPreferenceEditor:Expander
             preferences["ignored_skills"]=ignored.Values;
             preferences["conserve_energy"]=conserve.IsChecked==true;
             preferences["prioritize_target_routes"]=preserve.IsChecked==true;
+            preferences["target_skill_break_chain_from"]=SelectedBreakChainKey();
             preferences["manual_choices"]=rules.DeepClone();
             preferences["with_priority"]=new JArray(withPriorityList);
             preferences.Remove("with_target");
@@ -609,7 +641,9 @@ public sealed class EventPreferenceEditor:Expander
             Changed();
         };
         targets.Changed+=()=>Changed();ignored.Changed+=()=>Changed();
-        conserve.IsCheckedChanged+=(_,_)=>Changed();preserve.IsCheckedChanged+=(_,_)=>Changed();
+        conserve.IsCheckedChanged+=(_,_)=>Changed();
+        preserve.IsCheckedChanged+=(_,_)=>{breakChainCombo.IsEnabled=preserve.IsChecked==true;Changed();};
+        breakChainCombo.SelectionChanged+=(_,_)=>{if(!updating){customBreakChainValue=null;Changed();}};
         meiGamble.IsCheckedChanged+=(_,_)=>{meiThreshold.IsEnabled=meiSupported&&meiGamble.IsChecked==true;Changed();};meiThreshold.ValueChanged+=(_,_)=>Changed();
         clear.Click+=(_,_)=>{rules.RemoveAll();RefreshActiveOverrides();ShowEvent();Changed();message("事件指定已清空，点击保存生效。");};
         preset.Click+=(_,_)=>{targets.SetValues(new JArray("斗志高昂"));ignored.SetValues(new JArray("777","准备突围"));conserve.IsChecked=true;preserve.IsChecked=true;Changed();message("已填入自动取舍；点击保存生效，事件指定仍然优先。");};
@@ -622,6 +656,8 @@ public sealed class EventPreferenceEditor:Expander
                 PersistPortableFallback(preferences);
                 saved=(JObject)preferences.DeepClone();
                 updating=true;
+                LoadBreakChain(saved);
+                breakChainCombo.IsEnabled=preserve.IsChecked==true;
                 LoadWithList(saved);
                 RefreshWithList();
                 inlineAcupuncture=AcupuncturePolicyWindow.PolicyFromPreferences(saved);
@@ -648,6 +684,8 @@ public sealed class EventPreferenceEditor:Expander
                     foreach(var p in mc.Properties()) rules[p.Name]=p.Value.DeepClone();
                 conserve.IsChecked=(bool?)source["conserve_energy"] ?? true;
                 preserve.IsChecked=(bool?)source["prioritize_target_routes"] ?? true;
+                LoadBreakChain(source);
+                breakChainCombo.IsEnabled=preserve.IsChecked==true;
                 var mp=source["mei_unlock_policy"] as JObject;
                 meiGamble.IsChecked=(string?)mp?["mode"]=="gamble_when_low";
                 meiThreshold.Value=(decimal?)mp?["below_vitality_percent"] ?? 50;
