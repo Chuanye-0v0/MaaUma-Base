@@ -840,7 +840,7 @@ def score_training_value(state, candidate, goal, *, future_reference=None):
     sta_deficit = stamina_deficit_scarcity(state, candidate, goal, result)
     if sta_deficit["score"]:
         components["stamina_deficit_scarcity"] = sta_deficit["score"]
-    trade_adj = high_hp_wisdom_stamina_trade(state, candidate, goal, features)
+    trade_adj = high_hp_wisdom_stamina_trade(state, candidate, goal, features, gain_result=result)
     if trade_adj["score"]:
         components["high_hp_stamina_wisdom_trade"] = trade_adj["score"]
     # Net delta already includes cost reduction: never count both.

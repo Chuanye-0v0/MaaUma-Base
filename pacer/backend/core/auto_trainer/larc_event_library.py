@@ -156,6 +156,9 @@ _CN_SUPPORT_TITLE_ALIASES={
     title_key('你是速度精确的行板'):title_key('你是节奏恰到好处的行板'),
     title_key('从高十五度恢复原位但是'):title_key('从十五度音程转回原位......但是'),
     title_key('从高十五度恢复原位但是一'):title_key('从十五度音程转回原位......但是'),
+    title_key('理应挥洒的汗水'):title_key('应该流的这滴汗'),
+    title_key('理应追逐的背影'):title_key('应该追逐的背影'),
+    title_key('理应追赶的背影'):title_key('应该追逐的背影'),
 }
 
 
@@ -213,7 +216,29 @@ def _resolve_known_deck_support_drift(scope,count,library):
         prev=by_group.get(gk)
         if prev is None or (ratio,-dist)>(prev[0],-prev[1]):
             by_group[gk]=(ratio,dist,event)
-    if not by_group:return None
+    if not by_group:
+        vol_m = re.match(r'^(vol\d+)', obs_key)
+        if vol_m:
+            vol_prefix = vol_m.group(1)
+            vol_groups = {}
+            for event in library.events.values():
+                if str(event.get('support_card_id') or '') not in speaker_cards or len(event['options']) != count:
+                    continue
+                titles = event.get('titles') or {}
+                if any(
+                    isinstance(titles.get(f), str) and title_key(titles[f]).startswith(vol_prefix)
+                    for f in ('zh_cn', 'zh_tw', 'ja')
+                ):
+                    vol_groups.setdefault(_outcome_key(event), event)
+            if len(vol_groups) == 1:
+                event = next(iter(vol_groups.values()))
+                return (
+                    obs_line,
+                    event,
+                    'known_deck_card_vol_prefix_unique',
+                    {'mode': 'known_deck_card_vol_prefix', 'observed_title': obs_line, 'vol_prefix': vol_prefix},
+                )
+        return None
     ranked=sorted(by_group.values(),key=lambda item:(item[0],-item[1]),reverse=True)
     if len(ranked)>1 and ranked[0][0]-ranked[1][0]<0.15:
         return None

@@ -273,6 +273,8 @@ class StrategyExtensionProvider:
         candidate: Any,
         goal: Any,
         features: dict[str, Any] | None = None,
+        *,
+        gain_result: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {"score": 0.0, "mode": "inactive"}
 

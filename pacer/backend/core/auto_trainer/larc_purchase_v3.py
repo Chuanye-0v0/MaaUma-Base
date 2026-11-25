@@ -17,6 +17,14 @@ from core.auto_trainer.thresholds import SCORE_TIE_EPSILON
 VERSION = 'larc_purchase_plan.v3'
 PHASES = {slot: phase for phase, slot in GROWTH_PHASE_SLOTS.items()}
 BEAM = 12
+_ROUTE_FORCED_RACE_AP = {40: 50.0, 42: 50.0, 64: 50.0}
+
+
+def _route_income_at(day, branch, share):
+    """Realistic AP priors for full-career DP routing (preserving legacy income_at)."""
+    if is_overseas(day):
+        return 100.0 if branch == 'conservative' else 140.0
+    return 15.0 if branch == 'conservative' else 22.0
 
 
 def _cost(slot, level):
@@ -344,7 +352,9 @@ def _route(now, points, original, days, utility, *, initial, initial_cost, curre
             if bal < worst:
                 worst = bal
             if d in indices:
-                bal += income_at(d, branch, share)
+                bal += _route_income_at(d, branch, share)
+            elif d in _ROUTE_FORCED_RACE_AP:
+                bal += _ROUTE_FORCED_RACE_AP[d]
         return -worst
 
     for day in range(now + 1, 67):
@@ -373,7 +383,8 @@ def _route(now, points, original, days, utility, *, initial, initial_cost, curre
                      'shortfall': round(shortage, 3)}))
                 continue
             if day not in indices:
-                updated.append((cash, tuple(owned), value, gap, actions, deadline_gap))
+                extra = _ROUTE_FORCED_RACE_AP.get(day, 0.0)
+                updated.append((cash + extra, tuple(owned), value, gap, actions, deadline_gap))
                 continue
             options = _same_day_upgrades(owned,cash,day,multiple=same_day_purchases)
             if same_day_purchases:
@@ -391,7 +402,7 @@ def _route(now, points, original, days, utility, *, initial, initial_cost, curre
                 amount = utility(indices[day], tuple(target)) * share
                 goal_gap = ((_cost(7, target[7]) or (500 if target[7] == 0 else 0))
                             if day == 43 and friendship_deadline else deadline_gap)
-                updated.append((cash - price + income_at(day, branch, share), tuple(target), value + amount, gap, log, goal_gap))
+                updated.append((cash - price + _route_income_at(day, branch, share), tuple(target), value + amount, gap, log, goal_gap))
         # Merge states with the same owned levels, keeping solvent/value tradeoffs.
         if not updated:
             states = []

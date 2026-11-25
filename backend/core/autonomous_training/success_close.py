@@ -96,10 +96,10 @@ def close_skill_purchase_success(*, device: Any, child_plan_path: str | Path, fi
         promotion = child['execution_promotion']
         state.update({'fresh': True, 'plan_id': child['plan_id'], 'sample_id': promotion['sample_id'], 'session_id': promotion['session_id'], 'capture_batch_id': promotion['fresh_capture_id'], 'frame_capture_id': f'success-close-{frame_sequence}', 'frame_sequence': frame_sequence, 'frame_sha256': _sha256_file(Path(frame)), 'planned_item_ids': child_ids, 'auto_included_item_ids': auto_included_ids})
         return state
-    for attempt in range(24):
+    for attempt in range(48):
         attempt_frame_start = len(adb.captured_paths)
         execution = SkillPurchaseExecutor(child, adb=adb, parse_fresh_state=parse_fresh_state, mode='live', execute=True, safety_token=SKILL_PURCHASE_SAFETY_TOKEN, stage=_close_stage(child_ids), expected_action_id=_CLOSE_ACTION).run()
-        if execution.actions or execution.tap_count or execution.stop_reason not in {'success_dialog_page_mismatch', 'batch_success_dialog_page_mismatch'} or (attempt == 23):
+        if execution.actions or execution.tap_count or execution.stop_reason not in {'success_dialog_page_mismatch', 'batch_success_dialog_page_mismatch'} or (attempt == 47):
             break
         time.sleep(0.5)
     performed = execution.stop_reason == _close_complete_stop(child_ids) and execution.actions == (_CLOSE_ACTION,) and (execution.tap_count == 1)

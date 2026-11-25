@@ -274,6 +274,36 @@ class TestStrategyExtensionSPI(unittest.TestCase):
         self.assertEqual(sel_blocked["choice_index"], 1)
         self.assertFalse(gamble_selection(sel_blocked))
 
+    def test_high_hp_wisdom_stamina_trade_gain_result_passthrough_and_fallback(self) -> None:
+        from core.auto_trainer import larc_strategy_rules as sr
+        from core.auto_trainer.larc_strategy_extension import StrategyExtensionProvider, get_registry
+
+        reg = get_registry()
+        seen: list[dict | None] = []
+
+        class _NewProvider(StrategyExtensionProvider):
+            def high_hp_wisdom_stamina_trade(self, params, state, candidate, goal, features=None, *, gain_result=None):
+                seen.append(gain_result)
+                return {"score": 1.5, "mode": "new_with_gain_result"}
+
+        class _LegacyProvider(StrategyExtensionProvider):
+            def high_hp_wisdom_stamina_trade(self, params, state, candidate, goal, features=None):
+                return {"score": 0.5, "mode": "legacy_without_gain_result"}
+
+        prev = reg.provider
+        try:
+            reg.set_provider(_NewProvider())
+            payload = {"attribute_plan": {"attributes": {"wisdom": {"current": 900.0}}}}
+            out_new = sr.high_hp_wisdom_stamina_trade(None, None, None, gain_result=payload)
+            self.assertEqual(out_new["mode"], "new_with_gain_result")
+            self.assertEqual(seen, [payload])
+
+            reg.set_provider(_LegacyProvider())
+            out_old = sr.high_hp_wisdom_stamina_trade(None, None, None, gain_result=payload)
+            self.assertEqual(out_old["mode"], "legacy_without_gain_result")
+        finally:
+            reg.set_provider(prev)
+
 
 if __name__ == "__main__":
     unittest.main()

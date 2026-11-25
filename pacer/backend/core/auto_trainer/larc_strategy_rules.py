@@ -900,15 +900,29 @@ def high_hp_wisdom_stamina_trade(
     candidate: Any,
     goal: Any,
     features: dict[str, Any] | None = None,
+    *,
+    gain_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Delegate optional high-HP Wisdom/Stamina trade rule to the active strategy extension."""
-    return active_provider().high_hp_wisdom_stamina_trade(
-        params_for_goal(goal),
-        state,
-        candidate,
-        goal,
-        features=features,
-    )
+    provider = active_provider()
+    params = params_for_goal(goal)
+    try:
+        return provider.high_hp_wisdom_stamina_trade(
+            params,
+            state,
+            candidate,
+            goal,
+            features=features,
+            gain_result=gain_result,
+        )
+    except TypeError:
+        return provider.high_hp_wisdom_stamina_trade(
+            params,
+            state,
+            candidate,
+            goal,
+            features=features,
+        )
 
 
 def apply_weak_training_recovery_comparison(
