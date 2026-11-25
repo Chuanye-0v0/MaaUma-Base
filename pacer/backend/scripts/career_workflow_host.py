@@ -265,6 +265,9 @@ def dispatch(host, request, *, endpoint):
             initial=by_id[target]
         policy = document['policies'][initial.get('policy','default')]
         options = deepcopy(policy.get('cut_options' if mode == 'cut' else 'career_options', {}))
+        if mode == 'career' and isinstance(options.get('continuation'), dict):
+            from core.auto_trainer.larc_continuation import enforce_pause_only
+            options['continuation'] = enforce_pause_only(options['continuation'])
         if mode == 'cut' and (options.get('cut') or {}).get('discard_found_for_validation'):
             raise ValueError('工作流找到切后不支持耐久测试弃养。')
         if mode=='cut':

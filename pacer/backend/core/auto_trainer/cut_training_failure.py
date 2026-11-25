@@ -59,6 +59,22 @@ def completed_training_failure(report, run_id):
         title=matches[0]
         return {'run_id':run_id,'title':title,'family':FAMILIES[title],
             'selected_option':choice,'action_turn':training.get('turn_index') if bound_training else None,
+            'training_type':training.get('training_type') if bound_training else None,
             'basis':'executed_choice_on_known_training_failure_event',
             'source_sha256':(result.get('frame_safety') or {}).get('source_image_sha256')}
     return None
+
+
+def training_failure_should_restart(failure, *, ignore_wisdom=True, stop_at_senior_expedition=True, period=None):
+    """Return True only when an observed training failure qualifies for auto-restart."""
+    if not isinstance(failure, dict):
+        return False
+    if ignore_wisdom:
+        ttype = failure.get('training_type')
+        if ttype == 'wisdom' or ttype is None:
+            return False
+    if stop_at_senior_expedition and isinstance(period, dict):
+        year, month = period.get('year_index'), period.get('month')
+        if type(year) is int and type(month) is int and (year > 3 or (year == 3 and month >= 7)):
+            return False
+    return True

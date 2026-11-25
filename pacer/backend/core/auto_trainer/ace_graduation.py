@@ -30,9 +30,24 @@ def normalize_ace_cycle(value=None):
             'target_graduates': 1,
             'graduation': {'enabled': False, 'min_stats': {}, 'min_stat_sum': None, 'distances': {}, 'surfaces': {}},
             'ss_sieve': None,
+            'restart_after_training_failure': False,
+            'training_failure_ignore_wisdom': True,
+            'training_failure_stop_at_senior_expedition': True,
         }
-    if not isinstance(value, dict) or set(value) - {'target_graduates', 'graduation', 'ss_sieve'}:
+    allowed_keys = {
+        'target_graduates', 'graduation', 'ss_sieve',
+        'restart_after_training_failure',
+        'training_failure_ignore_wisdom',
+        'training_failure_stop_at_senior_expedition',
+    }
+    if not isinstance(value, dict) or set(value) - allowed_keys:
         raise ValueError('成品马循环配置包含未知参数。')
+    tf_restart = value.get('restart_after_training_failure', False)
+    tf_ignore_wisdom = value.get('training_failure_ignore_wisdom', True)
+    tf_stop_senior = value.get('training_failure_stop_at_senior_expedition', True)
+    if (type(tf_restart) is not bool or type(tf_ignore_wisdom) is not bool
+            or type(tf_stop_senior) is not bool):
+        raise ValueError('训练失败自动重开开关必须是布尔值。')
     target_graduates = value.get('target_graduates', 1)
     if type(target_graduates) is not int or not 1 <= target_graduates <= MAX_TARGET_GRADUATES:
         raise ValueError(f'目标成品数量请填 1～{MAX_TARGET_GRADUATES} 的整数。')
@@ -86,6 +101,9 @@ def normalize_ace_cycle(value=None):
             'surfaces': surfaces,
         },
         'ss_sieve': ss_sieve,
+        'restart_after_training_failure': tf_restart,
+        'training_failure_ignore_wisdom': tf_ignore_wisdom,
+        'training_failure_stop_at_senior_expedition': tf_stop_senior,
     }
 
 

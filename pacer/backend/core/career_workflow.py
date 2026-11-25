@@ -112,7 +112,7 @@ def validate_start_document(document):
     cut_restart_active = has_cut and sieve is None and ace is None and not any(
         (n.get('screening') or {}).get('enabled') is True for n in nodes if n['kind'] == 'cut'
     )
-    mei_gamble_active = (sieve is None and ace is None) and (not has_cut or cut_restart_active)
+    mei_gamble_active = (sieve is not None or ace is not None) or (not has_cut or cut_restart_active)
     checked_prefs = [
         container['event_preferences']
         for container in (career_opts, cut_opts, cut_inner)

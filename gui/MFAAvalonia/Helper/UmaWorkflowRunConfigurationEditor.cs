@@ -28,9 +28,11 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
     private readonly Action? onPurifyCurrent;
     private readonly Func<IReadOnlyList<PurityReport>>? readPurity;
     private readonly Control? extraCycleControl;
+    private readonly bool postCutContinueCareer;
     private UmaKnowledgeToolsClient? toolboxClient;
     private long toolboxEditEpoch;
     private bool building;
+    private Action<JObject?>? applyScreeningTrainingFailure;
     private UmaTraineeChoice[] characters=Array.Empty<UmaTraineeChoice>();
     private UmaSupportChoice[] supports=Array.Empty<UmaSupportChoice>();
     private readonly List<UmaAttributeGoalEditor> attributeEditors=new();
@@ -43,12 +45,13 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
     public event Action? RaceScheduleRequested;
     public event Action<string,string?,string>? RevisionSwitchedWithOverrides;
     public event Action<string>? RevisionSwitchPurified;
+    public event Action<bool>? CutPostActionChanged;
     public bool TryCommitPending(){foreach(var editor in attributeEditors)if(!editor.TryCommitPending())return false;foreach(var editor in supportDeckEditors)if(!editor.TryCommitPending())return false;foreach(var commit in handoffCommits)if(!commit())return false;return true;}
 
-    public UmaWorkflowRunConfigurationEditor(JObject value,Action<JObject> onChanged,Func<JObject,Task<JObject>>? bridge=null,string? section=null,string? stepId=null,JObject? newPolicyDefaults=null,UmaKnowledgeToolsClient? toolboxClient=null,Action? onOpenPurityDrawer=null,Action? onPurifyCurrent=null,Func<IReadOnlyList<PurityReport>>? readPurity=null,Control? extraCycleControl=null)
+    public UmaWorkflowRunConfigurationEditor(JObject value,Action<JObject> onChanged,Func<JObject,Task<JObject>>? bridge=null,string? section=null,string? stepId=null,JObject? newPolicyDefaults=null,UmaKnowledgeToolsClient? toolboxClient=null,Action? onOpenPurityDrawer=null,Action? onPurifyCurrent=null,Func<IReadOnlyList<PurityReport>>? readPurity=null,Control? extraCycleControl=null,bool postCutContinueCareer=false)
     {
         Name="WorkflowRunConfigurationEditor";Spacing=12;document=(JObject)value.DeepClone();originalDocument=(JObject)value.DeepClone();changed=onChanged;this.bridge=bridge;this.section=section;this.newPolicyDefaults=newPolicyDefaults==null?null:(JObject)newPolicyDefaults.DeepClone();boundStepId=stepId;this.toolboxClient=toolboxClient;
-        this.onOpenPurityDrawer=onOpenPurityDrawer;this.onPurifyCurrent=onPurifyCurrent;this.readPurity=readPurity;this.extraCycleControl=extraCycleControl;
+        this.onOpenPurityDrawer=onOpenPurityDrawer;this.onPurifyCurrent=onPurifyCurrent;this.readPurity=readPurity;this.extraCycleControl=extraCycleControl;this.postCutContinueCareer=postCutContinueCareer;
         PendingChanged+=()=>toolboxEditEpoch++;
         // A rebuilt configuration owns a new editor. A response for the removed
         // editor must not be replayed into the same named configuration later.
@@ -61,7 +64,7 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
     {
         building=true;
         try {
-            Children.Clear();attributeEditors.Clear();supportDeckEditors.Clear();handoffCommits.Clear();refreshSummaries.Clear();
+            Children.Clear();attributeEditors.Clear();supportDeckEditors.Clear();handoffCommits.Clear();refreshSummaries.Clear();applyScreeningTrainingFailure=null;
             var nodes=(document["run_graph"]?["nodes"] as JArray??new()).OfType<JObject>()
                 .Where(n=>(string?)n["kind"] is "career" or "cut")
                 .Where(n=>boundStepId==null||(string?)n["id"]==boundStepId)
@@ -254,14 +257,14 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
                 Note("「✦ 一键恢复官方策略」永远不会改动自动育成的连开局数、停点计划与预算设置。")
             }});
             var modeGuideText = node["ss_sieve"] is JObject
-                ? "当前模式「SS筛局循环」：第1年末未达指定五人SS次数自动放弃重开；当前筛选与预算仅对本培养方案在此模式下生效。"
+                ? "当前模式「SS筛局循环（旧版）」：第1年末未达指定五人SS次数自动放弃重开。"
                 : hasAceCycle
-                    ? "当前模式「大赛成品马连开循环」：按以下毕业门槛连续开局并累计合格成品；门槛与预算仅对本培养方案在此模式下生效。"
-                    : kind == "cut" && downstreamCareer != null
-                        ? "当前模式「出切先停，确认后同局养完」：先按下方筛选/刷切条件与预算寻找好开局，确认出切后自动停机；点确认继续即沿用同一套培养方案自动养完。"
+                    ? "当前模式「筛选后养」：统一支持首年SS前筛、训练失败重开、多节点杀马线与终局属性/适性验货；门槛与预算仅对本培养方案生效。"
+                    : kind == "cut" && (postCutContinueCareer || downstreamCareer != null)
+                        ? "当前模式「刷切 · 出切后同局养完」：确认出切后自动停机；点确认继续即沿用同一套培养方案自动养完。"
                         : kind == "cut"
-                            ? "当前模式「刷切并保留」：按下方筛选/刷切条件与预算重开；确认出切后直接停机并保留该局。"
-                            : "当前模式「自动育成」：接管已有凯旋门育成或按当前培养方案开新局并养完（可设为连续多局，默认不自动消耗宝石/TP 药）。";
+                            ? "当前模式「刷切 · 出切停机保留」：按下方刷切条件与预算重开；确认出切后直接停机并保留该局。"
+                            : "当前模式「自动育成」：接管已有凯旋门育成或按当前培养方案开新局并养完（支持多节点胡度/条件监控，未达标仅暂停保留）。";
             var modeGuideBanner = new Border{
                 Name=prefix+"ModeGuideBanner",
                 CornerRadius=new CornerRadius(8),
@@ -283,7 +286,18 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
             if(node["ace_cycle"] is JObject cycleAce)cycleStack.Children.Add(AceCycle(cycleAce,policy,prefix));
             if(kind=="cut") {
                 var screenSetup=new StackPanel{Spacing=10};
-                screenSetup.Children.Add(new TextBlock{Text="筛选 / 刷切局数、预算与重开判定",FontSize=14,FontWeight=FontWeight.SemiBold});
+                screenSetup.Children.Add(new TextBlock{Text="出切后行为、预算与重开判定",FontSize=14,FontWeight=FontWeight.SemiBold});
+                var postCutPicker=new ComboBox{
+                    Name=prefix+"CutPostAction",
+                    ItemsSource=new[]{"出切停机保留（保留当前这匹）","出切先停，确认后同局养完"},
+                    SelectedIndex=(postCutContinueCareer||downstreamCareer!=null)?1:0,
+                    HorizontalAlignment=HorizontalAlignment.Stretch
+                };
+                postCutPicker.SelectionChanged+=(_,_)=> {
+                    if(building||postCutPicker.SelectedIndex<0)return;
+                    CutPostActionChanged?.Invoke(postCutPicker.SelectedIndex==1);
+                };
+                screenSetup.Children.Add(Field("出切后行为",postCutPicker));
                 var budgets=new WrapPanel();
                 foreach(var item in new[]{("max_attempts","最多尝试局数"),("max_tp_items","TP药最多用几瓶"),("max_carrots","萝卜最多消耗")})
                     budgets.Children.Add(Text(settings,item.Item1,item.Item2,prefix));
@@ -315,6 +329,7 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
             cycleStack.Children.Add(RaceRetry(options,settings,kind,prefix));
             if(kind=="cut")cycleStack.Children.Add(ContinuationSettings(settings,true,prefix,ordinary:true));
             else if(hasAceCycle)cycleStack.Children.Add(ContinuationSettings(options,true,prefix,ordinary:true,aceCycle:true));
+            else if(kind=="career")cycleStack.Children.Add(ContinuationSettings(options,false,prefix,ordinary:true,aceCycle:false));
             if(kind=="career") {
                 var cycleAdvanced=new StackPanel{Spacing=9};
                 var limits=new WrapPanel();limits.Children.Add(Text(options,"failure_limit","最高训练失败率（%）",prefix));limits.Children.Add(Text(options,"max_actions","最多推进回合",prefix));cycleAdvanced.Children.Add(limits);
@@ -349,6 +364,7 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
         body.Children.Add(RaceScheduleLink(options,kind,prefix));
         if(kind=="cut")body.Children.Add(ContinuationSettings(settings,true,prefix,ordinary:true));
         else if(hasAceCycle)body.Children.Add(ContinuationSettings(options,true,prefix,ordinary:true,aceCycle:true));
+        else if(kind=="career")body.Children.Add(ContinuationSettings(options,false,prefix,ordinary:true,aceCycle:false));
         body.Children.Add(SkillLearningLink(options,kind,prefix));
         var equipment=new StackPanel{Spacing=10};
         equipment.Children.Add(AttributeGoals(options,settings,kind,prefix));
@@ -505,6 +521,7 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
         var grad=ReadObject(ace,"graduation");
         var minStats=ReadObject(grad,"min_stats");
         var distances=ReadObject(grad,"distances");
+        var surfaces=ReadObject(grad,"surfaces");
         var targetCount=new NumericUpDown{Name=prefix+"TargetGraduates",Minimum=1,Maximum=50,Increment=1,FormatString="0",Value=Math.Clamp((int?)ace["target_graduates"]??1,1,50),MinWidth=130,Height=34,MinHeight=0};
         var gradEnabled=new CheckBox{Name=prefix+"GraduationEnabled",Content="启用终局毕业验货门槛（不达标则继续下一把）",IsChecked=(bool?)grad["enabled"]==true};
         var sumBox=new TextBox{Name=prefix+"MinStatSum",Text=grad["min_stat_sum"]?.Type is JTokenType.Integer?(string?)grad["min_stat_sum"]!.ToString():"",MinWidth=120,Watermark="可留空 (0~15000)"};
@@ -516,6 +533,11 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
         var distPicker=new ComboBox{Name=prefix+"DistanceKey",ItemsSource=new[]{"短距离","英里","中距离","长距离"},SelectedIndex=firstDist!=null?Math.Max(0,Array.IndexOf(distChoices,firstDist.Name)):2,MinWidth=110};
         var rankChoices=new[]{"G","F","E","D","C","B","A","S"};
         var rankPicker=new ComboBox{Name=prefix+"DistanceRank",ItemsSource=rankChoices,SelectedIndex=firstDist!=null?Math.Max(0,Array.IndexOf(rankChoices,firstDist.Value?.ToString())):7,MinWidth=85};
+        var firstSurf=surfaces.Properties().FirstOrDefault();
+        var surfEnabled=new CheckBox{Name=prefix+"SurfaceEnabled",Content="要求终局场地适性",IsChecked=firstSurf!=null};
+        var surfChoices=new[]{"turf","dirt"};
+        var surfPicker=new ComboBox{Name=prefix+"SurfaceKey",ItemsSource=new[]{"草地","泥地"},SelectedIndex=firstSurf!=null?Math.Max(0,Array.IndexOf(surfChoices,firstSurf.Name)):0,MinWidth=100};
+        var surfRankPicker=new ComboBox{Name=prefix+"SurfaceRank",ItemsSource=rankChoices,SelectedIndex=firstSurf!=null?Math.Max(0,Array.IndexOf(rankChoices,firstSurf.Value?.ToString())):6,MinWidth=85};
         var status=Note("");
         var dirty=false;
         bool CommitAce()
@@ -543,23 +565,33 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
                 nextDist[dk]=rk;
             }
             nextGrad["distances"]=nextDist;
-            if((bool)nextGrad["enabled"]!&&nextStats.Count==0&&rawSum.Length==0&&nextDist.Count==0) {
-                status.Text="启用毕业验货后请至少填写一项五维或距离适性门槛。";return false;
+            var nextSurf=new JObject();
+            if(surfEnabled.IsChecked==true) {
+                var sk=surfChoices[Math.Clamp(surfPicker.SelectedIndex,0,surfChoices.Length-1)];
+                var srk=rankChoices[Math.Clamp(surfRankPicker.SelectedIndex,0,rankChoices.Length-1)];
+                nextSurf[sk]=srk;
+            }
+            nextGrad["surfaces"]=nextSurf;
+            if((bool)nextGrad["enabled"]!&&nextStats.Count==0&&rawSum.Length==0&&nextDist.Count==0&&nextSurf.Count==0) {
+                status.Text="启用毕业验货后请至少填写一项五维、距离或场地适性门槛。";return false;
             }
             ace["target_graduates"]=(int)tVal;
             ace["graduation"]=nextGrad;
-            dirty=false;status.Text="成品马循环与毕业门槛已更新，请保存配置。";Emit();
+            dirty=false;status.Text="筛选后养与毕业门槛已更新，请保存配置。";Emit();
             return true;
         }
         var statPanel=new WrapPanel();
         foreach(var pair in statKeys)statPanel.Children.Add(Field(pair.Item2+"最低",statBoxes[pair.Item1]));
         var distRow=new WrapPanel{Children={distEnabled,distPicker,rankPicker}};
         distEnabled.Margin=new Thickness(0,0,8,4);distPicker.Margin=new Thickness(0,0,8,4);
-        var gradPanel=new StackPanel{Spacing=8,Children={gradEnabled,statPanel,Field("五维总和最低",sumBox),distRow}};
+        var surfRow=new WrapPanel{Children={surfEnabled,surfPicker,surfRankPicker}};
+        surfEnabled.Margin=new Thickness(0,0,8,4);surfPicker.Margin=new Thickness(0,0,8,4);
+        var gradPanel=new StackPanel{Spacing=8,Children={gradEnabled,statPanel,Field("五维总和最低",sumBox),distRow,surfRow}};
         void RefreshGradEnabled() {
             var on=gradEnabled.IsChecked==true;
             sumBox.IsEnabled=on; foreach(var b in statBoxes.Values)b.IsEnabled=on;
             distEnabled.IsEnabled=on; distPicker.IsEnabled=on&&distEnabled.IsChecked==true; rankPicker.IsEnabled=on&&distEnabled.IsChecked==true;
+            surfEnabled.IsEnabled=on; surfPicker.IsEnabled=on&&surfEnabled.IsChecked==true; surfRankPicker.IsEnabled=on&&surfEnabled.IsChecked==true;
         }
         void Changed(bool commitNow=false) {
             dirty=true;RefreshGradEnabled();PendingChanged?.Invoke();
@@ -570,6 +602,9 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
         distEnabled.IsCheckedChanged+=(_,_)=>Changed(true);
         distPicker.SelectionChanged+=(_,_)=>Changed(true);
         rankPicker.SelectionChanged+=(_,_)=>Changed(true);
+        surfEnabled.IsCheckedChanged+=(_,_)=>Changed(true);
+        surfPicker.SelectionChanged+=(_,_)=>Changed(true);
+        surfRankPicker.SelectionChanged+=(_,_)=>Changed(true);
         sumBox.PropertyChanged+=(_,e)=>{if(e.Property==TextBox.TextProperty)Changed(false);};
         sumBox.LostFocus+=(_,_)=>CommitAce();
         foreach(var b in statBoxes.Values) {
@@ -579,15 +614,99 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
         handoffCommits.Add(CommitAce);
         RefreshGradEnabled();
 
+        // Embedded SS Sieve controls inside ace_cycle["ss_sieve"]
+        var existingSs=ace["ss_sieve"] as JObject;
+        var ssEnabled=new CheckBox{Name=prefix+"SsSieveEnabled",Content="嵌入首年五人SS前筛（第1年末未达标直接放弃重开）",IsChecked=existingSs!=null};
+        var ssDebut=new CheckBox{Name=prefix+"SsPreDebut",Content="出道前至少完成一次五人SS",IsChecked=(bool?)existingSs?["pre_debut"]==true};
+        var ssMin=new TextBox{Name=prefix+"SsYear1Min",Text=existingSs?["year1_min"]?.ToString()??"4",Width=110};
+        var ssReady=new CheckBox{Name=prefix+"SsAllowReadyFive",Content="年末恰少一次且五人SS已满员也通过",IsChecked=(bool?)existingSs?["allow_ready_five"]==true};
+        var ssStatus=Note("");
+        bool changingSs=false, ssCountDirty=false;
+        JObject EnsureAceSs()=>ace["ss_sieve"] as JObject ?? (JObject)(ace["ss_sieve"]=new JObject{["pre_debut"]=ssDebut.IsChecked==true,["year1_min"]=int.TryParse(ssMin.Text,out var v)&&v>=1&&v<=24?v:4,["allow_ready_five"]=ssReady.IsChecked==true});
+        bool CommitSsCount() {
+            if(!ssCountDirty||ssEnabled.IsChecked!=true)return true;
+            if(!int.TryParse(ssMin.Text,out var v)||v<1||v>24){ssStatus.Text="首年SS年末次数请填 1～24 的整数。";return false;}
+            EnsureAceSs()["year1_min"]=v;ssCountDirty=false;ssStatus.Text="";Emit();return true;
+        }
+        Button SsPreset(string name,string label,int count,bool allowReady) {
+            var b=new Button{Name=prefix+"Ss_"+name,Content=label,Margin=new Thickness(0,0,6,4)};
+            b.Click+=(_,_)=>{
+                changingSs=true;
+                ssEnabled.IsChecked=true;ssMin.Text=count.ToString();ssReady.IsChecked=allowReady;
+                changingSs=false;ssCountDirty=false;
+                var target=EnsureAceSs();target["year1_min"]=count;target["allow_ready_five"]=allowReady;
+                ssStatus.Text="";Emit();
+            };
+            return b;
+        }
+        var ssControls=new StackPanel{Spacing=6,IsVisible=existingSs!=null,Children={
+            ssDebut,
+            new WrapPanel{Children={SsPreset("Pure4","纯4",4,false),SsPreset("Standard4","标准4（差一次且满员也通过）",4,true),SsPreset("Strict5","强筛5",5,false)}},
+            Field("初级年末至少完成的五人SS次数（1—24）",ssMin),
+            ssReady,ssStatus
+        }};
+        ssEnabled.IsCheckedChanged+=(_,_)=>{
+            if(changingSs)return;
+            var on=ssEnabled.IsChecked==true;
+            ssControls.IsVisible=on;
+            if(on)EnsureAceSs();
+            else { ace["ss_sieve"]=JValue.CreateNull(); ssCountDirty=false; }
+            Emit();
+        };
+        ssDebut.IsCheckedChanged+=(_,_)=>{if(!changingSs&&ssEnabled.IsChecked==true){EnsureAceSs()["pre_debut"]=ssDebut.IsChecked==true;Emit();}};
+        ssReady.IsCheckedChanged+=(_,_)=>{if(!changingSs&&ssEnabled.IsChecked==true){EnsureAceSs()["allow_ready_five"]=ssReady.IsChecked==true;Emit();}};
+        ssMin.PropertyChanged+=(_,e)=>{if(!changingSs&&e.Property==TextBox.TextProperty){ssCountDirty=true;PendingChanged?.Invoke();}};
+        ssMin.LostFocus+=(_,_)=>CommitSsCount();
+        handoffCommits.Add(CommitSsCount);
+
+        // Training failure auto-restart controls inside ace
+        bool syncingTf=false;
+        var tfRestart=new CheckBox{Name=prefix+"TfRestart",Content="训练失败时自动弃养重开（适合凹上限）",IsChecked=(bool?)ace["restart_after_training_failure"]==true};
+        var tfIgnoreWisdom=new CheckBox{Name=prefix+"TfIgnoreWisdom",Content="容忍智力训练失败（仅体力不足失败不算致命，推荐开启）",IsChecked=(bool?)ace["training_failure_ignore_wisdom"]!=false,Margin=new Thickness(18,0,0,0)};
+        var tfStopSenior=new CheckBox{Name=prefix+"TfStopSenior",Content="进入第3年远征（7月上半）后停止因训练失败弃养（保底养完，推荐开启）",IsChecked=(bool?)ace["training_failure_stop_at_senior_expedition"]!=false,Margin=new Thickness(18,0,0,0)};
+        void RefreshTfEnabled(){var on=tfRestart.IsChecked==true;tfIgnoreWisdom.IsEnabled=on;tfStopSenior.IsEnabled=on;}
+        RefreshTfEnabled();
+        void WriteTf(){
+            if(syncingTf)return;
+            ace["restart_after_training_failure"]=tfRestart.IsChecked==true;
+            ace["training_failure_ignore_wisdom"]=tfIgnoreWisdom.IsChecked==true;
+            ace["training_failure_stop_at_senior_expedition"]=tfStopSenior.IsChecked==true;
+            RefreshTfEnabled();Emit();
+        }
+        tfRestart.IsCheckedChanged+=(_,_)=>WriteTf();
+        tfIgnoreWisdom.IsCheckedChanged+=(_,_)=>WriteTf();
+        tfStopSenior.IsCheckedChanged+=(_,_)=>WriteTf();
+        applyScreeningTrainingFailure=tf=>{
+            if(tf==null)return;
+            syncingTf=true;
+            var en=(bool?)tf["enabled"]==true;
+            var iw=(bool?)tf["ignore_wisdom"]!=false;
+            var ss=(bool?)tf["stop_at_senior_expedition"]!=false;
+            tfRestart.IsChecked=en;tfIgnoreWisdom.IsChecked=iw;tfStopSenior.IsChecked=ss;
+            syncingTf=false;
+            ace["restart_after_training_failure"]=en;
+            ace["training_failure_ignore_wisdom"]=iw;
+            ace["training_failure_stop_at_senior_expedition"]=ss;
+            RefreshTfEnabled();Emit();
+        };
+        var tfPanel=new StackPanel{Spacing=4,Children={tfRestart,tfIgnoreWisdom,tfStopSenior}};
+
         var settings=ReadObject(ReadObject(policy,"cut_options"),"cut");
         var budgets=new WrapPanel{Children={Text(settings,"max_attempts","最多尝试局数",prefix),Text(settings,"max_tp_items","TP药最多用几瓶",prefix),Text(settings,"max_carrots","萝卜最多消耗",prefix)}};
-        var body=new StackPanel{Spacing=8,Children={Field("目标毕业成品数（1～50 只）",targetCount),budgets,gradPanel,status,
-            Note("年幼末与经典4月继承后若开启续养筛选，未达标将授权自动放弃重开；终局若未能读清适性或属性，将保底保留马匹。"),
-            Note("提示：当前循环模式暂不启用「黄帽低体选2重开」与「训练失败重开」（将在下期统一重开授权后开放）。")}};
-        return CommonGroup(prefix+"Group","大赛成品连开与毕业门槛",()=> {
+        var body=new StackPanel{Spacing=10,Children={
+            Field("目标毕业成品数（1～50 只）",targetCount),budgets,
+            new Border{CornerRadius=new CornerRadius(8),BorderThickness=new Thickness(1),BorderBrush=Brushes.Gray,Padding=new Thickness(10),Child=new StackPanel{Spacing=6,Children={ssEnabled,ssControls}}},
+            new Border{CornerRadius=new CornerRadius(8),BorderThickness=new Thickness(1),BorderBrush=Brushes.Gray,Padding=new Thickness(10),Child=tfPanel},
+            gradPanel,status,
+            Note("支持首年SS前筛、训练失败自动重开、多节点杀马线与终局属性/距离/场地验货；未识别适性或属性时保底保留马匹。")}};
+        return CommonGroup(prefix+"Group","筛选后养 · 前筛 / 杀马重开与毕业门槛",()=> {
             var targetNum=ace["target_graduates"]?.ToString()??"1";
             var gEnabled=(bool?)ace["graduation"]?["enabled"]==true;
-            return $"目标 {targetNum} 只 · "+(gEnabled?"毕业验货已开":"完整养完即毕业");
+            var parts=new List<string>{"目标 "+targetNum+" 只"};
+            if(ace["ss_sieve"] is JObject sObj)parts.Add("SS前筛"+(sObj["year1_min"]?.ToString()??"4")+"次");
+            if((bool?)ace["restart_after_training_failure"]==true)parts.Add("失败重开");
+            parts.Add(gEnabled?"毕业验货已开":"完整养完即毕业");
+            return string.Join(" · ",parts);
         },body);
     }
     private Control RaceRetry(JObject options,JObject settings,string kind,string prefix)
@@ -981,10 +1100,24 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
             if(JToken.DeepEquals(continuationProjection,next))return;
             WriteProjection(run,"continuation",continuationProjection,next);continuationProjection=next;Emit();
         }
+        continuation.TemplateApplied+=tf=>{
+            SaveContinuation();
+            if(applyScreeningTrainingFailure!=null) {
+                applyScreeningTrainingFailure(tf);
+            } else if(aceCycle&&tf!=null) {
+                var aceNode=(document["run_graph"]?["nodes"] as JArray)?.OfType<JObject>().FirstOrDefault(n=>n["ace_cycle"] is JObject)?["ace_cycle"] as JObject;
+                if(aceNode!=null) {
+                    aceNode["restart_after_training_failure"]=(bool?)tf["enabled"]==true;
+                    aceNode["training_failure_ignore_wisdom"]=(bool?)tf["ignore_wisdom"]!=false;
+                    aceNode["training_failure_stop_at_senior_expedition"]=(bool?)tf["stop_at_senior_expedition"]!=false;
+                    Emit();
+                }
+            }
+        };
         ObserveInputs(continuation,SaveContinuation);
-        return ordinary?CommonGroup(prefix+"ContinuationSection","刷切续养",
+        return ordinary?CommonGroup(prefix+"ContinuationSection",allowRestart?(aceCycle?"多节点杀马线与条件筛选":"刷切筛选与续养"):"多节点条件监控",
             ()=>continuation.EnabledForRun?"已启用":"未启用",continuation)
-            :Section(prefix+"ContinuationSection","当前配置 · 续养条件",continuation);
+            :Section(prefix+"ContinuationSection","当前配置 · 多节点条件筛选",continuation);
     }
 
     private Expander Section(string name,string label,Control content)=>SettingsExpander(name,label,content,section!=null&&section!="ordinary");

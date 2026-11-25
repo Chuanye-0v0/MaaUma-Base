@@ -454,7 +454,8 @@ public sealed class UmaWorkflowLibraryView : StackPanel
         };
         Children.Add(page);status.Name="WorkflowLibraryStatus";Children.Add(status);
         modes.SelectionChanged+=(_,_)=> {
-            if(loading||busy||modes.SelectedItem is not LibraryChoice c||c.Id==modeId)return;
+            if(loading||busy||modes.SelectedItem is not LibraryChoice c)return;
+            if(c.Id==modeId||(c.Id=="cut_preserve"&&modeId=="cut_then_career"))return;
             if(!CommitOrdinary()){RefreshPickers();return;}
             CaptureEditor();
             modeId=c.Id;
@@ -534,6 +535,7 @@ public sealed class UmaWorkflowLibraryView : StackPanel
 
     private void InitSelectionFromLoadedLibrary()
     {
+        UmaWorkflowLibraryModel.MigrateLegacySsSieveIntoAce(library);
         isV2 = UmaWorkflowLibraryModel.IsV2(library);
         buildDrafts.Clear(); buildNames.Clear(); dirtyBuilds.Clear(); purityUndoBuilds.Clear();
         drafts.Clear(); profileNames.Clear(); dirty.Clear(); purityUndo.Clear();
@@ -675,7 +677,8 @@ public sealed class UmaWorkflowLibraryView : StackPanel
                     ? visibleBuiltins.Concat(Modes.Select(m => new LibraryChoice((string)m["id"]!, (string?)m["name"] ?? "自定义流程")))
                     : visibleBuiltins).ToArray();
                 modes.ItemsSource=modeChoices;
-                modes.SelectedItem=modeChoices.FirstOrDefault(x=>x.Id==modeId) ?? modeChoices.FirstOrDefault();
+                var pickerModeId=modeId=="cut_then_career"?"cut_preserve":modeId;
+                modes.SelectedItem=modeChoices.FirstOrDefault(x=>x.Id==pickerModeId) ?? modeChoices.FirstOrDefault();
                 if(v2BuiltinMode) {
                     var bs=Builds.Select(b=>new LibraryChoice((string)b["id"]!,(string?)b["name"]??"方案")).ToArray();
                     profiles.ItemsSource=bs;
@@ -1112,9 +1115,25 @@ public sealed class UmaWorkflowLibraryView : StackPanel
                 onOpenPurityDrawer:RequestPurityDrawer,
                 onPurifyCurrent:()=>PurifyCurrentDraft(PurityLayer.All,recordUndo:true),
                 readPurity:()=>EvaluateCurrentPurity(),
-                extraCycleControl:section=="cycle"?careerBatchSection:null);
+                extraCycleControl:section=="cycle"?careerBatchSection:null,
+                postCutContinueCareer:capturedModeId=="cut_then_career");
                 settings.SkillLearningRequested+=RequestSkillLearning;
                 settings.RaceScheduleRequested+=RequestRaceSchedule;
+                settings.CutPostActionChanged+=continueCareer=> {
+                    if(!capturedIsV2||capturedBuildId==null)return;
+                    var fromMode=modeId;
+                    var toMode=continueCareer?"cut_then_career":"cut_preserve";
+                    if(string.Equals(fromMode,toMode,StringComparison.Ordinal))return;
+                    CommitOrdinary();
+                    CaptureEditor();
+                    var draftBuild=EnsureBuildDraft(capturedBuildId);
+                    if(fromMode is "cut_preserve" or "cut_then_career")
+                        UmaWorkflowLibraryModel.SyncCutSettingsBetweenModes(draftBuild,fromMode,toMode);
+                    modeId=toMode;
+                    library["selected_mode_id"]=toMode;
+                    LoadSelection();
+                    MarkDirty();
+                };
                 HookRunEditorEvents(settings);
                 settings.PendingChanged+=()=>{if((capturedIsV2?capturedBuildId==buildId&&capturedModeId==modeId:key==Key))MarkDirty(fromPendingInput:true);};cached.Add(choice.Id,settings);
             }

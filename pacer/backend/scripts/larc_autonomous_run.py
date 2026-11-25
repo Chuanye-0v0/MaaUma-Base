@@ -682,9 +682,48 @@ def _is_larc_exchange_hub(evidence):
     return "凯旋门代表交流赛" in compact and "比赛日" not in compact
 
 
+_PHASE_MIN_ORDINALS = {
+    "first_exchange": 22,
+    "first_expedition": 35,
+    "first_overseas_race": 36,
+    "first_overseas_race_defer_language": 36,
+    "first_overseas_race_defer_power": 36,
+    "first_overseas_race_defer_power_language": 36,
+    "speed_expedition": 36,
+    "power_expedition": 36,
+    "stamina_expedition": 36,
+    "guts_expedition": 36,
+    "french_three": 36,
+    "expedition_skill_pt": 36,
+    "courage_three": 36,
+    "willpower_three": 36,
+    "first_arc": 42,
+    "first_arc_defer_language": 42,
+    "foy_prelude": 59,
+    "final_arc": 60,
+    "champion_dream_two": 60,
+}
+
+
+def _phase_min_ordinal(phase: str) -> int:
+    return max((_PHASE_MIN_ORDINALS.get(part, 0) for part in str(phase).split("+")), default=0)
+
+
+def _valid_stats_snapshot(stats) -> dict[str, int] | None:
+    if not isinstance(stats, dict):
+        return None
+    keys = ("speed", "stamina", "power", "guts", "wisdom")
+    out = {}
+    for key in keys:
+        val = stats.get(key)
+        if type(val) is not int or val < 0:
+            return None
+        out[key] = val
+    return out
+
+
 def _clear_stale_adaptations_for_year1_takeover(ctx, summary, save_summary, *, phases=None):
-    """Invalidate stale cached adaptation completions once after a Year-1 live takeover."""
-    target_phases = tuple(PHASE_SLOT_COUNTS if phases is None else phases)
+    """Invalidate stale cached adaptation completions once after a live takeover."""
     session_dir = ctx.root / "session"
     index_path = session_dir / "larc_adaptation_ready.json"
     index = {}
@@ -700,6 +739,15 @@ def _clear_stale_adaptations_for_year1_takeover(ctx, summary, save_summary, *, p
         and index.get("run_session_id") == ctx.run_id
         and index.get("device") == ctx.progress["device"]
     )
+    if phases is None:
+        extra = (
+            list((index.get("phases") or {}).keys()) + list((index.get("partial_phases") or {}).keys())
+            if isinstance(index, dict)
+            else []
+        )
+        target_phases = tuple(dict.fromkeys([*PHASE_SLOT_COUNTS, *extra]))
+    else:
+        target_phases = tuple(phases)
     index_changed = False
     cleared = []
     archived_files = False
@@ -743,6 +791,221 @@ def _clear_stale_adaptations_for_year1_takeover(ctx, summary, save_summary, *, p
         }
         save_summary()
     return unique_cleared
+
+
+def _load_prior_career_fingerprint(ctx):
+    from core.auto_trainer.larc_calendar import period_ordinal
+
+    fp_path = ctx.root / "session/larc_career_fingerprint.json"
+    if fp_path.is_file():
+        try:
+            loaded = _read(fp_path)
+            if isinstance(loaded, dict) and loaded.get("run_session_id") == ctx.run_id:
+                return loaded
+        except (OSError, ValueError, TypeError):
+            pass
+
+    current_segment = getattr(ctx, "segment_root", None)
+    max_ordinal = None
+    last_ordinal = None
+    last_period = None
+    last_stats = None
+    last_turn = None
+    try:
+        candidates = sorted(ctx.root.glob("autonomous_*/summary.json"), key=lambda p: p.parent.name)
+    except OSError:
+        candidates = []
+    for summary_path in candidates:
+        if current_segment is not None and summary_path.parent == current_segment:
+            continue
+        try:
+            doc = _read(summary_path)
+        except (OSError, ValueError, TypeError):
+            continue
+        if not isinstance(doc, dict) or doc.get("run_session_id") != ctx.run_id:
+            continue
+        for row in doc.get("turns") or []:
+            if not isinstance(row, dict):
+                continue
+            before = row.get("before") or {}
+            per = before.get("period")
+            ord_val = period_ordinal(per) if isinstance(per, dict) else None
+            stats = _valid_stats_snapshot(before.get("current_stats"))
+            if ord_val is not None:
+                max_ordinal = ord_val if max_ordinal is None else max(max_ordinal, ord_val)
+                last_ordinal = ord_val
+                last_period = deepcopy(per)
+            if stats is not None:
+                last_stats = stats
+            if type(row.get("turn_index")) is int:
+                last_turn = row["turn_index"]
+    if max_ordinal is None and last_stats is None:
+        return None
+    return {
+        "schema_version": "larc_career_fingerprint.v1",
+        "run_session_id": ctx.run_id,
+        "max_ordinal": max_ordinal,
+        "last_ordinal": last_ordinal,
+        "last_period": last_period,
+        "last_stats": last_stats,
+        "last_turn": last_turn,
+    }
+
+
+def _record_career_fingerprint(ctx, provider):
+    from core.auto_trainer.larc_calendar import period_ordinal
+
+    period_wrap = provider.get("larc_period") or {}
+    if period_wrap.get("status") != "verified":
+        return
+    obs_period = period_wrap.get("value") or {}
+    obs_ord = period_ordinal(obs_period)
+    obs_stats = _valid_stats_snapshot((provider.get("state_context") or {}).get("current_stats"))
+    fp_path = ctx.root / "session/larc_career_fingerprint.json"
+    existing_max = None
+    if fp_path.is_file():
+        try:
+            prev = _read(fp_path)
+            if isinstance(prev, dict) and prev.get("run_session_id") == ctx.run_id:
+                existing_max = prev.get("max_ordinal")
+        except (OSError, ValueError, TypeError):
+            existing_max = None
+    if obs_ord is not None and type(existing_max) is int:
+        max_ordinal = max(existing_max, obs_ord)
+    elif obs_ord is not None:
+        max_ordinal = obs_ord
+    else:
+        max_ordinal = existing_max
+    payload = {
+        "schema_version": "larc_career_fingerprint.v1",
+        "run_session_id": ctx.run_id,
+        "device": ctx.progress["device"],
+        "max_ordinal": max_ordinal,
+        "last_ordinal": obs_ord,
+        "last_period": deepcopy(obs_period),
+        "last_stats": obs_stats,
+        "last_turn": ctx.progress.get("next_turn"),
+    }
+    _atomic_write_json(fp_path, payload)
+
+
+def _detect_career_discontinuity(ctx, provider, prior):
+    from core.auto_trainer.larc_calendar import period_ordinal
+
+    reasons = []
+    period_wrap = provider.get("larc_period") or {}
+    obs_period = (period_wrap.get("value") or {}) if period_wrap.get("status") == "verified" else {}
+    obs_ord = period_ordinal(obs_period) if obs_period else None
+    obs_stats = _valid_stats_snapshot((provider.get("state_context") or {}).get("current_stats"))
+
+    if isinstance(prior, dict):
+        prior_max = prior.get("max_ordinal")
+        prior_last_period = prior.get("last_period") or {}
+        if (type(prior_max) is int and obs_ord is not None and obs_ord < prior_max) or (
+            prior_last_period.get("pre_debut") is False and obs_period.get("pre_debut") is True
+        ):
+            reasons.append("date_regressed")
+        prev_stats = _valid_stats_snapshot(prior.get("last_stats"))
+        if prev_stats is not None and obs_stats is not None:
+            any_drop = any(obs_stats[k] <= prev_stats[k] - 60 for k in prev_stats)
+            sum_drop = sum(obs_stats.values()) <= sum(prev_stats.values()) - 80
+            same_day_jump = (
+                type(prior.get("last_ordinal")) is int
+                and obs_ord == prior["last_ordinal"]
+                and (
+                    abs(sum(obs_stats.values()) - sum(prev_stats.values())) >= 120
+                    or any(abs(obs_stats[k] - prev_stats[k]) >= 80 for k in prev_stats)
+                )
+            )
+            if any_drop or sum_drop or same_day_jump:
+                reasons.append("stats_discontinuity")
+
+    index_path = ctx.root / "session/larc_adaptation_ready.json"
+    if obs_ord is not None and index_path.is_file():
+        try:
+            index = _read(index_path)
+            if (
+                isinstance(index, dict)
+                and index.get("run_session_id") == ctx.run_id
+                and index.get("device") == ctx.progress["device"]
+            ):
+                cached_phases = list((index.get("phases") or {}).keys()) + list((index.get("partial_phases") or {}).keys())
+                if any(_phase_min_ordinal(phase) > obs_ord for phase in cached_phases):
+                    reasons.append("cached_adaptation_ahead_of_date")
+        except (OSError, ValueError, TypeError):
+            pass
+
+    if obs_period.get("year_index") == 1 or obs_period.get("pre_debut") is True:
+        reasons.append("year1_takeover")
+    return reasons
+
+
+def _reconcile_live_takeover_career_continuity(ctx, provider, summary, save_summary):
+    """Invalidate stale adaptation and outing ledgers when live-takeover detects another career or Year-1 state."""
+    prior = _load_prior_career_fingerprint(ctx)
+    reasons = _detect_career_discontinuity(ctx, provider, prior)
+    if not reasons:
+        ctx.live_takeover_year1_adapt_recheck = False
+        return None
+    cross_career = any(
+        r in {"date_regressed", "cached_adaptation_ahead_of_date", "stats_discontinuity"} for r in reasons
+    )
+    cleared_adaptations = _clear_stale_adaptations_for_year1_takeover(ctx, summary, save_summary)
+    growth_cache = getattr(ctx, "growth_checks", None)
+    if isinstance(growth_cache, set):
+        growth_cache.clear()
+    ctx.incomplete_first_arc_accepted = False
+
+    session_dir = ctx.root / "session"
+    archive_dir = session_dir / "live_takeover_history" / f"career_reset_{time_ns()}"
+    archived_other = []
+
+    def archive_file(path: Path) -> bool:
+        if not path.is_file():
+            return False
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        path.replace(archive_dir / path.name)
+        archived_other.append(path.name)
+        return True
+
+    cleared_mei_outing = False
+    outing_path = session_dir / "larc_friend_outing.json"
+    if outing_path.is_file():
+        should_reset_outing = cross_career
+        if not should_reset_outing and "year1_takeover" in reasons:
+            try:
+                outing_doc = _read(outing_path)
+                should_reset_outing = bool(
+                    isinstance(outing_doc, dict)
+                    and ((outing_doc.get("completed") or 0) > 0 or outing_doc.get("unlocked") is True)
+                )
+            except (OSError, ValueError, TypeError):
+                should_reset_outing = True
+        if should_reset_outing:
+            cleared_mei_outing = archive_file(outing_path)
+
+    if cross_career:
+        archive_file(session_dir / "larc_action_history.json")
+        archive_file(session_dir / "larc_career_fingerprint.json")
+        support_path = session_dir / "larc_support_skill_startup.json"
+        if support_path.is_file():
+            try:
+                sup_doc = _read(support_path)
+                if not isinstance(sup_doc, dict) or sup_doc.get("status") != "pending_purchase":
+                    archive_file(support_path)
+            except (OSError, ValueError, TypeError):
+                archive_file(support_path)
+
+    result = {
+        "reasons": reasons,
+        "cleared_adaptations": cleared_adaptations,
+        "cleared_mei_outing": cleared_mei_outing,
+        "archived_files": archived_other,
+        "archive": str(archive_dir) if archived_other else None,
+    }
+    summary["live_takeover_career_reset"] = result
+    save_summary()
+    return result
 
 
 def _ensure_adaptation(ctx, phase, output, summary, save_summary):
@@ -2633,6 +2896,9 @@ def _run(args):
                     break
                 ctx.expected = None
             ctx.event_state = deepcopy(state)
+            if getattr(ctx, "live_takeover_year1_adapt_recheck", False):
+                _reconcile_live_takeover_career_continuity(ctx, provider, summary, save_summary)
+            _record_career_fingerprint(ctx, provider)
             _manual_home_checkpoint(ctx, provider)
             if getattr(ctx,'cut_farming_hook',None) is not None:
                 cut_check_started = monotonic()
@@ -2669,6 +2935,44 @@ def _run(args):
                     reason = 'mei_unlock_failed'
                     save_summary()
                     break
+                binding_cfg = _read(ctx.root / 'session/ace_cycle_binding.json')
+                tf_cfg = binding_cfg.get('training_failure_restart') if isinstance(binding_cfg, dict) else None
+                if (isinstance(binding_cfg, dict)
+                        and binding_cfg.get('run_session_id') == ctx.run_id
+                        and isinstance(tf_cfg, dict)
+                        and tf_cfg.get('enabled') is True):
+                    from core.auto_trainer.cut_training_failure import completed_training_failure, training_failure_should_restart
+                    observed_tf = None
+                    for nav in reversed(summary.get('route_reports', [])):
+                        nav_path = nav.get('path') if isinstance(nav, dict) else None
+                        if nav_path and Path(nav_path).is_file():
+                            cand_tf = completed_training_failure(_read(nav_path), ctx.run_id)
+                            if cand_tf is not None:
+                                observed_tf = cand_tf
+                                break
+                    current_period = provider.get('larc_period', {}).get('value')
+                    if observed_tf is not None and training_failure_should_restart(
+                        observed_tf,
+                        ignore_wisdom=bool(tf_cfg.get('ignore_wisdom', True)),
+                        stop_at_senior_expedition=bool(tf_cfg.get('stop_at_senior_expedition', True)),
+                        period=current_period,
+                    ):
+                        _write_json(ctx.root / 'session/ace_training_failure.json', {
+                            'schema_version': 'larc.ace_training_failure.v1',
+                            'run_id': ctx.run_id,
+                            'endpoint': ctx.progress.get('device'),
+                            'turn': turn,
+                            'period': current_period,
+                            'failure': observed_tf,
+                        })
+                        summary.update(
+                            status='training_failure_restart',
+                            stop_reason='training_failure_restart',
+                            training_failure_event=observed_tf,
+                        )
+                        reason = 'training_failure_restart'
+                        save_summary()
+                        break
             continuation = getattr(ctx, 'continuation_runtime', None)
             if continuation is not None:
                 ctx.continuation_return_menu = lambda folder: _route_to_menu(ctx, folder, summary, save_summary)

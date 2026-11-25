@@ -6,7 +6,16 @@ from pathlib import Path
 import time
 
 from core.auto_trainer.cut_farming import atomic_json
-from core.auto_trainer.larc_continuation import normalize, evaluate_junior, evaluate_inheritance, feature_available
+from core.auto_trainer.larc_continuation import (
+    custom_date_entry,
+    evaluate_custom_date,
+    evaluate_inheritance,
+    evaluate_inheritance2,
+    evaluate_junior,
+    evaluate_pre_expedition,
+    feature_available,
+    normalize,
+)
 from core.auto_trainer.runtime_control import current
 
 OPTIONS = 'session/larc_continuation_options.json'
@@ -70,6 +79,8 @@ class ContinuationRuntime:
             raise ValueError('continuation_state_run_mismatch')
         self.inspect, self.notify = inspect, notify
         self.state.setdefault('inheritance_seen', False)
+        self.state.setdefault('inheritance2_seen', False)
+        self.state.setdefault('last_seen_year', 0)
         self.sync_career_flow()
 
     def save(self):
@@ -86,9 +97,16 @@ class ContinuationRuntime:
             return any(walk(item) for item in value.values() if isinstance(item, dict)) or any(
                 walk(item) for values in value.values() if isinstance(values, list)
                 for item in values if isinstance(item, dict))
-        if not self.state['inheritance_seen'] and walk(report):
-            self.state['inheritance_seen'] = True
-            self.save()
+        if walk(report):
+            changed = False
+            if not self.state['inheritance_seen']:
+                self.state['inheritance_seen'] = True
+                changed = True
+            if self.state.get('last_seen_year', 0) >= 3 and not self.state['inheritance2_seen']:
+                self.state['inheritance2_seen'] = True
+                changed = True
+            if changed:
+                self.save()
 
     def _cut_handoff_required(self):
         # Only CutFarmingController injects this owner. Ordinary PacerHost
@@ -124,10 +142,18 @@ class ContinuationRuntime:
 
     def sync_career_flow(self, period=None):
         """Keep the cut owner for preservation/budgets, not first-year routing."""
-        if period and type(period.get('year_index')) is int and period['year_index'] >= 2:
-            if 'junior' not in self.state['nodes']:
+        if period and type(period.get('year_index')) is int:
+            year = period['year_index']
+            dirty = False
+            if year > self.state.get('last_seen_year', 0):
+                self.state['last_seen_year'] = year
+                dirty = True
+            if year >= 2 and 'junior' not in self.state['nodes']:
                 self.state['nodes']['junior'] = {'flow_status': 'historical_not_observed',
                     'reason': 'attached_after_year1; earlier_snapshot_not_invented'}
+                dirty = True
+            if dirty:
+                self.save()
         full_career = self.can_continue_junior()
         hook = getattr(self.ctx, 'cut_farming_hook', None)
         if hook is not None:
@@ -137,6 +163,16 @@ class ContinuationRuntime:
             self.state['career_flow'] = flow
             self.save()
         return full_career
+
+    def _section_active(self, name):
+        section = self.config[name]
+        if name == 'pre_expedition':
+            return section['mode'] == 'filter' or bool(section['conditions'])
+        if name == 'inheritance2':
+            return section['mode'] == 'filter' or bool(
+                section['conditions'] or section['distances'] or section['skills']
+            )
+        return True
 
     def due(self, period):
         year, month, half = (period.get(key) for key in ('year_index', 'month', 'half'))
@@ -154,7 +190,46 @@ class ContinuationRuntime:
                 self.save()
         if 'inheritance' not in nodes and year >= 2 and (
                 self.state['inheritance_seen'] or year > 2 or month >= 5):
-            return 'inheritance'
+            if ((year >= 3 and self._section_active('inheritance2'))
+                    or (year == 2 and month >= 6 and self._section_active('pre_expedition')
+                        and self.config['inheritance']['mode'] == 'observe'
+                        and not self.config['inheritance']['distances']
+                        and not self.config['inheritance']['skills'])):
+                nodes['inheritance'] = {'flow_status': 'historical_not_observed',
+                    'reason': 'attached_after_inheritance; earlier_snapshot_not_invented'}
+                self.save()
+            else:
+                return 'inheritance'
+        if (not self._cut_handoff_required() and self._section_active('pre_expedition')
+                and 'pre_expedition' not in nodes):
+            if (year, month, half) == (2, 6, 'second'):
+                return 'pre_expedition'
+            if year > 2 or (year == 2 and month >= 7):
+                nodes['pre_expedition'] = {'flow_status': 'historical_not_observed',
+                    'reason': 'attached_after_pre_expedition; earlier_snapshot_not_invented'}
+                self.save()
+        if (not self._cut_handoff_required() and self._section_active('inheritance2')
+                and 'inheritance2' not in nodes and (year > 3 or (year == 3 and month >= 4))):
+            return 'inheritance2'
+        if not self._cut_handoff_required() and self.config.get('custom_dates'):
+            actual = (year - 1) * 24 + (month - 1) * 2 + (1 if half == 'second' else 0)
+            ordered = sorted(
+                self.config['custom_dates'],
+                key=lambda row: (row['year'] - 1) * 24 + (row['month'] - 1) * 2 + (1 if row['half'] == 'second' else 0),
+            )
+            for item in ordered:
+                cid = item['id']
+                if cid in nodes or not (item['mode'] == 'filter' or item['conditions']):
+                    continue
+                planned = (item['year'] - 1) * 24 + (item['month'] - 1) * 2 + (1 if item['half'] == 'second' else 0)
+                if actual == planned:
+                    return cid
+                if actual > planned:
+                    nodes[cid] = {
+                        'flow_status': 'historical_not_observed',
+                        'reason': 'attached_after_custom_date; earlier_snapshot_not_invented',
+                    }
+                    self.save()
         if self._cut_handoff_required() and (
                 year > 2 or (year == 2 and (month > 6 or month == 6 and half == 'second'))):
             return 'handoff'
@@ -226,8 +301,12 @@ class ContinuationRuntime:
             return {'status': 'collection_failed', 'stop_reason': 'continuation_collection_failed',
                     'detail': collected.get('reason')}
         facts = collected['facts']
+        custom_entry = custom_date_entry(self.config, node)
         result = (evaluate_junior(self.config, facts) if node == 'junior' else
+                  evaluate_pre_expedition(self.config, facts) if node == 'pre_expedition' else
                   evaluate_inheritance(self.config, facts) if node == 'inheritance' else
+                  evaluate_inheritance2(self.config, facts) if node == 'inheritance2' else
+                  evaluate_custom_date(custom_entry, facts) if custom_entry is not None else
                   {'node': 'handoff', 'status': 'handoff', 'on_fail': 'pause'})
         entry = {'result': result, 'facts': facts, 'config': deepcopy(self.config),
                  'period': deepcopy(period), 'turn_index': self.ctx.progress['next_turn'], 'at': time.time()}

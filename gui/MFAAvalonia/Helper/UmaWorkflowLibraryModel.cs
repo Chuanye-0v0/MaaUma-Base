@@ -259,10 +259,17 @@ public static class UmaWorkflowLibraryModel
     public static readonly (string Id, string Name)[] BuiltinModes =
     {
         ("direct_career", "自动育成"),
-        ("cut_preserve", "刷切并保留"),
-        ("cut_then_career", "出切先停，确认后同局养完"),
-        ("ss_sieve_cycle", "SS筛局循环"),
-        ("ace_career_cycle", "大赛成品马连开循环"),
+        ("cut_preserve", "刷切"),
+        ("cut_then_career", "刷切（出切后同局养完）"),
+        ("ss_sieve_cycle", "SS筛局循环（旧版）"),
+        ("ace_career_cycle", "筛选后养"),
+    };
+
+    public static readonly (string Id, string Name)[] ConsolidatedModes =
+    {
+        ("direct_career", "自动育成"),
+        ("cut_preserve", "刷切"),
+        ("ace_career_cycle", "筛选后养"),
     };
 
     public static readonly (string Id, string Name)[] PublicVisibleModes =
@@ -271,7 +278,50 @@ public static class UmaWorkflowLibraryModel
     };
 
     public static (string Id, string Name)[] VisibleModes() =>
-        BuiltinModes.Where(m => StrategyPackCatalog.IsWorkflowModeUnlocked(m.Id)).ToArray();
+        ConsolidatedModes.Where(m => StrategyPackCatalog.IsWorkflowModeUnlocked(m.Id)).ToArray();
+
+    public static void MigrateLegacySsSieveIntoAce(JObject library)
+    {
+        if (library["builds"] is JArray builds)
+        {
+            foreach (var b in builds.OfType<JObject>())
+            {
+                if (b["mode_settings"] is not JObject ms) continue;
+                if (ms["ss_sieve_cycle"] is not JObject oldSieve) continue;
+                if (ms["ace_career_cycle"] is not JObject aceSetting)
+                {
+                    aceSetting = (JObject)DefaultModeSettings()["ace_career_cycle"]!.DeepClone();
+                    ms["ace_career_cycle"] = aceSetting;
+                }
+                if (aceSetting["ace_cycle"] is not JObject aceCycle)
+                {
+                    aceCycle = (JObject)DefaultModeSettings()["ace_career_cycle"]!["ace_cycle"]!.DeepClone();
+                    aceSetting["ace_cycle"] = aceCycle;
+                }
+                if (aceCycle["ss_sieve"] is not JObject && oldSieve["ss_sieve"] is JObject srcSieve)
+                    aceCycle["ss_sieve"] = srcSieve.DeepClone();
+                if (oldSieve["continuation"] is JObject srcCont && aceSetting["continuation"] is not JObject)
+                    aceSetting["continuation"] = srcCont.DeepClone();
+                ms.Remove("ss_sieve_cycle");
+            }
+        }
+        if (string.Equals((string?)library["selected_mode_id"], "ss_sieve_cycle", StringComparison.Ordinal))
+            library["selected_mode_id"] = "ace_career_cycle";
+    }
+
+    public static void SyncCutSettingsBetweenModes(JObject build, string fromMode, string toMode)
+    {
+        if (string.Equals(fromMode, toMode, StringComparison.Ordinal)) return;
+        if (build["mode_settings"] is not JObject ms || ms[fromMode] is not JObject src) return;
+        var defAll = DefaultModeSettings();
+        if (defAll[toMode] is not JObject defTarget) return;
+        var dst = ms[toMode] as JObject ?? (JObject)(ms[toMode] = defTarget.DeepClone());
+        foreach (var k in new[] { "cut_params", "continuation", "screening", "check_at" })
+        {
+            if (src.Property(k) != null) dst[k] = src[k]!.DeepClone();
+            else dst.Remove(k);
+        }
+    }
 
     private static readonly string[] SetupKeys =
     {
@@ -385,8 +435,12 @@ public static class UmaWorkflowLibraryModel
                     ["min_stats"] = new JObject(),
                     ["min_stat_sum"] = JValue.CreateNull(),
                     ["distances"] = new JObject(),
+                    ["surfaces"] = new JObject(),
                 },
                 ["ss_sieve"] = JValue.CreateNull(),
+                ["restart_after_training_failure"] = false,
+                ["training_failure_ignore_wisdom"] = true,
+                ["training_failure_stop_at_senior_expedition"] = true,
             },
             ["cycle_budget"] = new JObject { ["max_attempts"] = 10, ["max_tp_items"] = 10, ["max_carrots"] = 0 },
         },

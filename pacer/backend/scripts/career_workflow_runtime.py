@@ -14,6 +14,7 @@ CONTEXT = 'session/career_workflow_context.json'
 SS_SIEVE_FAILURE = 'ss_sieve_confirmed_failure'
 CONTINUATION_GATE_FAILURE = 'continuation_gate_failed'
 MEI_UNLOCK_FAILURE = 'mei_unlock_failed'
+TRAINING_FAILURE_RESTART = 'training_failure_restart'
 
 
 def read(path):
@@ -83,6 +84,37 @@ def authorized_mei_unlock_restart(store, run_root, report):
         return False
     failure = failed_mei_gamble(SimpleNamespace(root=run_root, run_id=run_root.name, progress=progress))
     return isinstance(failure, dict)
+
+
+def authorized_training_failure_restart(store, run_root, report):
+    from core.auto_trainer.cut_training_failure import training_failure_should_restart
+
+    run_root = Path(run_root).resolve()
+    progress = read(run_root / 'progress.json')
+    if (report.get('stop_reason') != TRAINING_FAILURE_RESTART
+            or report.get('run_session_id') != run_root.name
+            or (ss_sieve_node(store.document) is None and ace_cycle_node(store.document) is None)
+            or store.data.get('run_id') != run_root.name or store.data.get('attempt_root') != str(run_root)
+            or progress.get('run_session_id') != run_root.name or progress.get('device') != store.data.get('endpoint')
+            or read(run_root / DOCUMENT) != store.document):
+        return False
+    packet = read(run_root / 'session/ace_training_failure.json')
+    if (not isinstance(packet, dict) or packet.get('run_id') != run_root.name
+            or packet.get('endpoint') != progress.get('device')):
+        return False
+    binding = read(run_root / 'session/ace_cycle_binding.json')
+    tf_cfg = binding.get('training_failure_restart') if isinstance(binding, dict) else None
+    if not isinstance(tf_cfg, dict) or tf_cfg.get('enabled') is not True:
+        return False
+    failure = packet.get('failure')
+    return (isinstance(failure, dict)
+            and failure.get('run_id') == run_root.name
+            and training_failure_should_restart(
+                failure,
+                ignore_wisdom=bool(tf_cfg.get('ignore_wisdom', True)),
+                stop_at_senior_expedition=bool(tf_cfg.get('stop_at_senior_expedition', True)),
+                period=packet.get('period'),
+            ))
 
 
 def screening_node(store):

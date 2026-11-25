@@ -15,7 +15,7 @@ from core.auto_trainer.runtime_control import RunStopped, bind, current_page_res
 from core.career_workflow import ace_cycle_node, ss_sieve_node, validate_start_document
 from scripts.career_workflow_runtime import (DOCUMENT, SS_SIEVE_FAILURE, WorkflowState,
     authorized_continuation_restart, authorized_mei_unlock_restart, authorized_sieve_failure,
-    load_for_run, read)
+    authorized_training_failure_restart, load_for_run, read)
 
 CYCLE = 'ss_sieve_cycle'
 _ACTIVE_CAREER_TAKEOVER_STATES = frozenset({
@@ -127,11 +127,18 @@ def _ordinary_attempt(session, endpoint):
     if options.get('continuation') is not None:
         from scripts.larc_continuation_runtime import save_options
         save_options(root, options['continuation'])
+    ace_config = cycle.get('ace_config') or {}
+    tf_restart = {
+        'enabled': bool(ace_config.get('restart_after_training_failure', False)),
+        'ignore_wisdom': bool(ace_config.get('training_failure_ignore_wisdom', True)),
+        'stop_at_senior_expedition': bool(ace_config.get('training_failure_stop_at_senior_expedition', True)),
+    }
     atomic_json(root / 'session/ace_cycle_binding.json', {
         'run_session_id': root.name,
         'endpoint': endpoint,
         'batch_root': str(session.root),
         'allow_continuation_restart': True,
+        'training_failure_restart': tf_restart,
     })
     WorkflowState(session.root, endpoint=endpoint).bind(root)
     return root
@@ -400,12 +407,16 @@ class SieveCycle:
                         return self._stop('stopped', reason)
                     self.session.finish_attempt(reason)
                     mei_restart = authorized_mei_unlock_restart(store, root, report)
+                    tf_restart = authorized_training_failure_restart(store, root, report)
                     if (not data.get('pending_action') and not data.get('tp_refill_pending')
                             and (authorized_sieve_failure(store, root, report)
                                  or authorized_continuation_restart(store, root, report)
-                                 or mei_restart)):
+                                 or mei_restart
+                                 or tf_restart)):
                         if mei_restart and report.get('mei_unlock_failure') is not None:
                             attempt['mei_unlock_failure'] = report.get('mei_unlock_failure')
+                        if tf_restart and report.get('training_failure_event') is not None:
+                            attempt['training_failure_event'] = report.get('training_failure_event')
                         if len(data['attempts']) >= self.session.config.max_attempts:
                             attempt.update(status='last_attempt_preserved', ss_sieve_outcome='completed')
                             self.cycle['phase'] = 'completed'
@@ -415,6 +426,9 @@ class SieveCycle:
                             return self._stop('route_failed', 'ss_sieve_abandon_unverified')
                         if mei_restart:
                             attempt['status'] = 'mei_unlock_failed'
+                            self.session.save()
+                        elif tf_restart:
+                            attempt['status'] = 'training_failed'
                             self.session.save()
                         root = None
                         continue

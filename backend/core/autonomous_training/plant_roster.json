@@ -1107,7 +1107,10 @@
       "name": "醒目飞鹰",
       "aliases": [],
       "name_source": "community",
-      "outfit": "黄昏三人组",
+      "outfit": "黄昏凯旋",
+      "outfit_aliases": [
+        "黄昏三人组"
+      ],
       "release": "2022-08-24",
       "initial_key": null,
       "icon": "104602.png"
@@ -1828,7 +1831,9 @@
       "character_id": 1091,
       "costume_id": 109101,
       "name": "比布鲁斯",
-      "aliases": [],
+      "aliases": [
+        "强击"
+      ],
       "name_source": "community; 国服译名待核实",
       "outfit": "Voyage étincelant",
       "release": "2024-01-19",

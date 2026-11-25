@@ -165,7 +165,7 @@ def inspect_aptitudes(ctx, output, *, frames=None, token_reader=None, sleeper=ti
     raise ValueError('continuation_details_page_unknown')
 
 
-def inspect_junior(ctx, source, provider, output, config, facts):
+def inspect_junior(ctx, source, provider, output, config, facts, *, section_name='junior'):
     image = cv2.imread(str(source))
     if image is not None:
         facts['supporter_points'] = supporter_points(image)
@@ -176,8 +176,10 @@ def inspect_junior(ctx, source, provider, output, config, facts):
             facts['friend_outing_unlocked'] = True
         elif hint.get('available') is True and any(card['role'] == 'friend' for card in facts['supports']):
             facts['friend_outing_unlocked'] = True
+    from core.auto_trainer.larc_continuation import custom_date_entry
+    section = custom_date_entry(config, section_name) or config.get(section_name, {})
     needs_bonds = any(row['kind'] in {'bond_ready_min', 'bond_card_min'}
-                      for row in config['junior']['conditions'])
+                      for row in section.get('conditions', []))
     visited = False
     if needs_bonds:
         from scripts.capture_ug_parent_live_tabs import main as capture
@@ -250,14 +252,17 @@ def inventory_facts(inventory, catalog):
     return result
 
 
-def inspect_inheritance(ctx, source, provider, output, config, facts):
-    section = config['inheritance']
+def inspect_inheritance(ctx, source, provider, output, config, facts, *, section_name='inheritance'):
+    section = config[section_name]
+    visited = False
     if section['distances']:
         result = inspect_aptitudes(ctx, output / 'aptitude')
         source, provider = result['source'], result['provider']
         facts['distances'] = result['distances']
-    from core.auto_trainer.larc_continuation import evaluate_inheritance
-    if section['skills'] and evaluate_inheritance(config, facts)['status'] != 'passed':
+        visited = True
+    from core.auto_trainer.larc_continuation import evaluate_inheritance, evaluate_inheritance2
+    evaluator = evaluate_inheritance2 if section_name == 'inheritance2' else evaluate_inheritance
+    if section['skills'] and evaluator(config, facts)['status'] != 'passed':
         from core.auto_trainer.larc_skill_driver import load_driver
         from scripts.larc_autonomy_support_skills import StartupNavigation
         from core.auto_trainer.controlled_process import run_controlled_process
@@ -267,6 +272,7 @@ def inspect_inheritance(ctx, source, provider, output, config, facts):
         nav = StartupNavigation(ctx)
         if not nav.open(source, output / 'entry'):
             return {'ok': False, 'reason': 'continuation_skill_entry_unknown'}
+        visited = True
         folder = Path(ctx.root) / 'ci' / f'{time.time_ns():x}'[-8:]
         argv = [sys.executable, '-B', '-X', 'utf8', str(Path(__file__).with_name('larc_continuation_skill_worker.py')),
             '--run-root', str(ctx.root), '--output-dir', str(folder),
@@ -288,4 +294,4 @@ def inspect_inheritance(ctx, source, provider, output, config, facts):
         facts['skills_unresolved_count'] = max(0, count - len(facts['skills']))
         facts['skills_complete'] = (result.get('complete') is True
             and not facts['skills_abstentions'] and facts['skills_unresolved_count'] == 0)
-    return {'ok': True, 'source': source, 'provider': provider, 'visited': True}
+    return {'ok': True, 'source': source, 'provider': provider, 'visited': visited}

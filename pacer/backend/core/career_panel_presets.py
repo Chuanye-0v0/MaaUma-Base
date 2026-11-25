@@ -92,7 +92,8 @@ def sanitize_settings(value,root=None,*,new_configuration=False,allow_continuati
         continuation=normalize(value['continuation'])
         if continuation['enabled']:
             if not feature_available(root):raise ValueError('当前版本未包含续养执行功能。')
-            if not allow_continuation_restart and any(continuation[key]['on_fail']=='restart' for key in ('junior','inheritance')):
+            from core.auto_trainer.larc_continuation import any_restart_requested
+            if not allow_continuation_restart and any_restart_requested(continuation):
                 raise ValueError('普通育成没有刷切批次预算，续养条件未达时请选择暂停保留。')
         result['continuation']=continuation
     from core.auto_trainer.race_retry_budget import normalize as normalize_retry

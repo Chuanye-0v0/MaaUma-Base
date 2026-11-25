@@ -24,6 +24,14 @@ public sealed record SkillLadderPresetEntry(
     string PackId
 );
 
+public sealed record ScreeningPresetEntry(
+    string Id,
+    string Name,
+    string Summary,
+    string ConfigJson,
+    string PackId
+);
+
 public sealed record StrategyRevisionEntry(
     string Revision,
     string Label,
@@ -90,7 +98,8 @@ public static class StrategyPackCatalog
         HashSet<string> UnlockedWorkflowModeSet,
         bool AllowCustomWorkflowModes,
         WeightPresetEntry[] WeightPresets,
-        SkillLadderPresetEntry[] SkillLadderPresets
+        SkillLadderPresetEntry[] SkillLadderPresets,
+        ScreeningPresetEntry[] ScreeningPresets
     );
 
     public static bool HasExternalPack { get { lock (SyncRoot) return _current.HasExternalPack; } }
@@ -102,6 +111,7 @@ public static class StrategyPackCatalog
     public static bool AllowCustomWorkflowModes { get { lock (SyncRoot) return _current.AllowCustomWorkflowModes; } }
     public static WeightPresetEntry[] WeightPresets { get { lock (SyncRoot) return _current.WeightPresets; } }
     public static IReadOnlyList<SkillLadderPresetEntry> SkillLadderPresets { get { lock (SyncRoot) return _current.SkillLadderPresets; } }
+    public static IReadOnlyList<ScreeningPresetEntry> ScreeningPresets { get { lock (SyncRoot) return _current.ScreeningPresets; } }
 
     public static bool IsWorkflowModeUnlocked(string? modeId)
     {
@@ -359,6 +369,8 @@ public static class StrategyPackCatalog
         var seenPresetIds = new HashSet<string>(StringComparer.Ordinal);
         var skillLadderPresets = new List<SkillLadderPresetEntry>();
         var seenLadderPresetIds = new HashSet<string>(StringComparer.Ordinal);
+        var screeningPresets = new List<ScreeningPresetEntry>();
+        var seenScreeningPresetIds = new HashSet<string>(StringComparer.Ordinal);
         string? packDefaultRevision = null;
 
         foreach (var manifestPath in DiscoverManifestPaths())
@@ -480,6 +492,46 @@ public static class StrategyPackCatalog
                     }
                 }
 
+                if (obj["screening_presets"] is JArray screenList)
+                {
+                    var packRootFull = Path.GetFullPath(packDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                    foreach (var sItem in screenList.OfType<JObject>())
+                    {
+                        var sid = ((string?)sItem["id"] ?? "").Trim();
+                        var sname = ((string?)sItem["name"] ?? "").Trim();
+                        if (string.IsNullOrEmpty(sid) || string.IsNullOrEmpty(sname) || seenScreeningPresetIds.Contains(sid))
+                            continue;
+                        string? configJson = null;
+                        if (sItem["file"] is JValue { Type: JTokenType.String } sFileTok)
+                        {
+                            var rel = (sFileTok.Value<string>() ?? "").Trim();
+                            if (!string.IsNullOrEmpty(rel))
+                            {
+                                var targetFull = Path.GetFullPath(Path.Combine(packDir, rel));
+                                if (targetFull.StartsWith(packRootFull, StringComparison.OrdinalIgnoreCase) && File.Exists(targetFull))
+                                {
+                                    var parsedCfg = JObject.Parse(File.ReadAllText(targetFull));
+                                    configJson = parsedCfg.ToString(Newtonsoft.Json.Formatting.None);
+                                }
+                            }
+                        }
+                        else if (sItem["config"] is JObject inlineCfg)
+                        {
+                            configJson = inlineCfg.ToString(Newtonsoft.Json.Formatting.None);
+                        }
+                        if (string.IsNullOrWhiteSpace(configJson))
+                            continue;
+                        seenScreeningPresetIds.Add(sid);
+                        screeningPresets.Add(new ScreeningPresetEntry(
+                            sid,
+                            sname,
+                            ((string?)sItem["summary"] ?? "").Trim(),
+                            configJson,
+                            packId ?? packKey
+                        ));
+                    }
+                }
+
                 if (obj["ui_revisions"] is JArray uiList)
                 {
                     foreach (var item in uiList.OfType<JObject>())
@@ -563,7 +615,8 @@ public static class StrategyPackCatalog
             unlockedModes,
             allowCustomModes,
             weightPresets.ToArray(),
-            skillLadderPresets.ToArray()
+            skillLadderPresets.ToArray(),
+            screeningPresets.ToArray()
         );
     }
 

@@ -1,6 +1,7 @@
 """Read-only, run-owned collectors for continuation checkpoints."""
 from copy import deepcopy
 import json
+import math
 from pathlib import Path
 import re
 
@@ -161,16 +162,81 @@ def bond_facts_from_pages(cards, observations):
     return result
 
 
+def _collect_realtime_luck(ctx, facts):
+    try:
+        from core.pacer_luck_records import read_current_review
+        from core.pacer_realtime_luck import summarize_realtime_luck
+
+        review = read_current_review(ctx.root)
+        res = summarize_realtime_luck(review)
+        score = res.get('score')
+        dates = res.get('scored_dates')
+        if (res.get('status') == 'recorded'
+                and not isinstance(score, bool)
+                and type(score) in (int, float)
+                and math.isfinite(score)
+                and type(dates) is int and dates >= 3):
+            facts['realtime_luck'] = float(score)
+            facts['realtime_luck_detail'] = {
+                'score': float(score),
+                'scored_dates': dates,
+                'mood': res.get('mood'),
+                'components': deepcopy(res.get('components')),
+            }
+            return
+    except Exception:
+        pass
+    facts['realtime_luck'] = None
+
+
 def inspect_node(ctx, node, source, provider, output, config):
+    from core.auto_trainer.larc_continuation import custom_date_entry, _evaluate_condition_section
+
     output.mkdir(parents=True, exist_ok=True)
     facts = base_facts(ctx, provider)
     visited = False
+    custom_entry = custom_date_entry(config, node)
+    if node in ('junior', 'pre_expedition', 'inheritance2') or custom_entry is not None:
+        section = custom_entry if custom_entry is not None else config.get(node, {})
+        if any(row.get('kind') == 'realtime_luck_min' for row in section.get('conditions', [])):
+            _collect_realtime_luck(ctx, facts)
     if node == 'junior':
         from scripts.larc_continuation_inspection import inspect_junior
-        result = inspect_junior(ctx, source, provider, output, config, facts)
+        result = inspect_junior(ctx, source, provider, output, config, facts, section_name='junior')
+    elif node == 'pre_expedition':
+        needs_menu = any(
+            row.get('kind') in {'supporter_points_min', 'friend_outing_unlocked', 'bond_ready_min', 'bond_card_min'}
+            for row in config['pre_expedition'].get('conditions', [])
+        )
+        if needs_menu:
+            from scripts.larc_continuation_inspection import inspect_junior
+            result = inspect_junior(ctx, source, provider, output, config, facts, section_name='pre_expedition')
+        else:
+            result = {'ok': True, 'source': source, 'provider': provider, 'visited': False}
     elif node == 'inheritance':
         from scripts.larc_continuation_inspection import inspect_inheritance
-        result = inspect_inheritance(ctx, source, provider, output, config, facts)
+        result = inspect_inheritance(ctx, source, provider, output, config, facts, section_name='inheritance')
+    elif node == 'inheritance2':
+        from scripts.larc_continuation_inspection import inspect_inheritance
+        section2 = config['inheritance2']
+        if section2['mode'] == 'filter' and section2.get('conditions'):
+            pre_cond = _evaluate_condition_section('inheritance2', section2, facts)
+            if pre_cond['status'] == 'failed':
+                result = {'ok': True, 'source': source, 'provider': provider, 'visited': False}
+            else:
+                result = inspect_inheritance(ctx, source, provider, output, config, facts, section_name='inheritance2')
+        else:
+            result = inspect_inheritance(ctx, source, provider, output, config, facts, section_name='inheritance2')
+    elif custom_entry is not None:
+        needs_menu = any(
+            row.get('kind') in {'supporter_points_min', 'friend_outing_unlocked', 'bond_ready_min', 'bond_card_min'}
+            for row in custom_entry.get('conditions', [])
+        )
+        if needs_menu:
+            from scripts.larc_continuation_inspection import inspect_junior
+            result = inspect_junior(ctx, source, provider, output, config, facts, section_name=node)
+        else:
+            result = {'ok': True, 'source': source, 'provider': provider, 'visited': False}
     else:
         result = {'ok': True, 'source': source, 'provider': provider, 'visited': False}
         from scripts.larc_autonomy_growth import completed_levels
