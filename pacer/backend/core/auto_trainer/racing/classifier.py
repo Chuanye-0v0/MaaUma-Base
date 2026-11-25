@@ -77,7 +77,7 @@ class RaceClassifierMixin:
         for button in perception.get("buttons", []):
             cx, cy = button.get("center", [0, 0])
             x, _y, w, h = button.get("bbox", [0, 0, 0, 0])
-            if cy / max(height, 1) < min_y_ratio:
+            if cy / max(height, 1) < min_y_ratio or cy / max(height, 1) > 0.94:
                 continue
             if not (width * 0.22 <= cx <= width * 0.78):
                 continue
@@ -125,7 +125,7 @@ class RaceClassifierMixin:
                 continue
             cx, cy = button.get("center", [0, 0])
             _x, _y, w, h = button.get("bbox", [0, 0, 0, 0])
-            if cy / max(height, 1) < min_y_ratio:
+            if cy / max(height, 1) < min_y_ratio or cy / max(height, 1) > 0.94:
                 continue
             if not (width * 0.22 <= cx <= width * 0.88):
                 continue

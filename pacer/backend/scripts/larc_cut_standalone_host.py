@@ -1,5 +1,6 @@
 """Private standalone Pacer host; legacy packages remain cut-only."""
 import argparse
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
@@ -330,22 +331,33 @@ def make_host(config):
                             from scripts.larc_umaa_host import read_json,entry_diagnostics
                             from scripts.pacer_stop_diagnostics import extract_stop_diagnostics
                             summary_path=max(summaries,key=lambda path:path.stat().st_mtime)
-                            summary=read_json(summary_path)
-                            if isinstance(summary,dict) and summary:
-                                diagnostic={'diagnostic_run_id':diagnostic_root.name}
-                                if isinstance(summary.get('status'),str):diagnostic['summary_status']=summary['status']
-                                if summary.get('status') not in {'running','dry_run','completed','batch_limit_reached',
-                                        'year_checkpoint','continuation_checkpoint','cut_farming_checkpoint','reattach'}:
-                                    for key in ('stop_reason','error','error_type'):
-                                        if isinstance(summary.get(key),str):diagnostic[key]=summary[key]
-                                diagnostic['entry_diagnostics']=entry_diagnostics(summary)
-                                diagnostic['stop_diagnostics']=extract_stop_diagnostics(summary,summary_path)
-                                try:
-                                    from desktop.native_stop_diagnostics import augment_stop_record
-                                    augment_stop_record(diagnostic,summary,summary_path)
-                                except Exception:
-                                    pass  # History remains display-only if a diagnostic is unavailable.
-                                result['record']=diagnostic
+                            try:
+                                st=summary_path.stat()
+                                diag_key=(str(summary_path),st.st_mtime_ns,st.st_size)
+                            except OSError:
+                                diag_key=None
+                            diag_cache=getattr(self,'_history_diagnostic_cache',None)
+                            if diag_key is not None and isinstance(diag_cache,tuple) and diag_cache[0]==diag_key:
+                                result['record']=deepcopy(diag_cache[1])
+                            else:
+                                summary=read_json(summary_path)
+                                if isinstance(summary,dict) and summary:
+                                    diagnostic={'diagnostic_run_id':diagnostic_root.name}
+                                    if isinstance(summary.get('status'),str):diagnostic['summary_status']=summary['status']
+                                    if summary.get('status') not in {'running','dry_run','completed','batch_limit_reached',
+                                            'year_checkpoint','continuation_checkpoint','cut_farming_checkpoint','reattach'}:
+                                        for key in ('stop_reason','error','error_type'):
+                                            if isinstance(summary.get(key),str):diagnostic[key]=summary[key]
+                                    diagnostic['entry_diagnostics']=entry_diagnostics(summary)
+                                    diagnostic['stop_diagnostics']=extract_stop_diagnostics(summary,summary_path)
+                                    try:
+                                        from desktop.native_stop_diagnostics import augment_stop_record
+                                        augment_stop_record(diagnostic,summary,summary_path)
+                                    except Exception:
+                                        pass  # History remains display-only if a diagnostic is unavailable.
+                                    if diag_key is not None:
+                                        self._history_diagnostic_cache=(diag_key,diagnostic)
+                                    result['record']=deepcopy(diagnostic)
                 except Exception:
                     pass  # Display-only report reads must not affect the existing snapshot.
             if (self._realtime_luck is not None and selected_run_root is None

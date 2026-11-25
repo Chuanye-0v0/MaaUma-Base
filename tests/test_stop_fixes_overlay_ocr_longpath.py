@@ -228,6 +228,37 @@ class TestStopFixesOverlayOcrLongpath(unittest.TestCase):
             self.assertEqual(loaded.run_session_id, "test_longpath_run")
             self.assertEqual(loaded.phase, "first_overseas_race")
 
+    def test_larc_rank_points_overlay_rejects_main_menu_and_bottom_skip_bar(self) -> None:
+        from core.auto_trainer.racing.planner import RaceRoutePlanner
+        from core.auto_trainer.safe_advance import SafeAdvancePlanner
+
+        menu_img = _synthetic_overlay_frame()
+        # Paint bottom main-menu chrome bands (> 0.70 * height) so SafeAdvancePlanner identifies main menu.
+        menu_img[900:1040, :] = (40, 200, 40)    # green band
+        menu_img[1040:1120, :] = (210, 90, 20)   # blue band
+        menu_img[1120:1200, :] = (20, 150, 250)  # orange/yellow band
+        self.assertTrue(SafeAdvancePlanner._looks_like_main_training_menu(menu_img))
+        self.assertIsNone(RaceRoutePlanner._larc_rank_points_overlay(menu_img, ""))
+
+        skip_only_perception = {
+            "buttons": [
+                {"kind": "primary_green", "bbox": (181, 1226, 312, 45), "center": (337, 1248), "area": 12533},
+            ]
+        }
+        self.assertIsNone(
+            RaceRoutePlanner._bottom_center_green_button(skip_only_perception, menu_img, min_y_ratio=0.72)
+        )
+        valid_perception = {
+            "buttons": [
+                {"kind": "primary_green", "bbox": (181, 1226, 312, 45), "center": (337, 1248), "area": 12533},
+                {"kind": "primary_green", "bbox": (210, 1080, 300, 64), "center": (360, 1112), "area": 10000},
+            ]
+        }
+        self.assertEqual(
+            RaceRoutePlanner._bottom_center_green_button(valid_perception, menu_img, min_y_ratio=0.72),
+            (360, 1112),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

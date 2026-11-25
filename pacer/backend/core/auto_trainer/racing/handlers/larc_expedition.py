@@ -161,6 +161,8 @@ class LarcExpeditionHandlerMixin:
         height, width = img.shape[:2]
         if width >= height or width * 16 != height * 9:
             return None
+        if SafeAdvancePlanner._looks_like_main_training_menu(img):
+            return None
         text=''.join(str(visible_text).split())
         if not visual_only and any(
             word in text

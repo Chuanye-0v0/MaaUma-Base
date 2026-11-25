@@ -182,39 +182,41 @@ public sealed class UmaPacerBridge : IUmaPacerBridge
                 if(broken)throw new InvalidOperationException("原后台正在停止，未发送新的控制请求。");
                 pendingRead = pendingReply = process.StandardOutput.ReadLineAsync();
             }
-            // A read-only ZIP export must not trigger a control timeout stop.
-            try { line = (string?)request["action"]=="export_stop_diagnostics"
-                ? await pendingRead : await pendingRead.WaitAsync(TimeSpan.FromSeconds(30)); }
+            // A read-only ZIP export must not trigger a control timeout stop; read-only snapshot polls tolerate heavy OCR/CPU load.
+            var actionName = (string?)request["action"];
+            try { line = actionName == "export_stop_diagnostics"
+                ? await pendingRead
+                : await pendingRead.WaitAsync(TimeSpan.FromSeconds(actionName == "snapshot" ? 120 : 30)); }
             catch (TimeoutException)
             {
-                if((string?)request["action"]!="export_stop_diagnostics")BreakProtocol(pendingRead,"timeout");
+                if(actionName!="export_stop_diagnostics")BreakProtocol(pendingRead,"timeout");
                 throw new InvalidOperationException("后台响应超时，已请求安全停止；不会重复开始或购买。 " + protocolFailure);
             }
             if (line == null)
             {
-                if((string?)request["action"]!="export_stop_diagnostics")BreakProtocol(kind:"eof");
+                if(actionName!="export_stop_diagnostics")BreakProtocol(kind:"eof");
                 throw new InvalidOperationException("育成后台已退出，请先查看原记录中的停点。 " + protocolFailure);
             }
             JObject response;
             try { response = JObject.Parse(line); }
             catch(JsonReaderException)
             {
-                if((string?)request["action"]!="export_stop_diagnostics")BreakProtocol(kind:"non_json");
+                if(actionName!="export_stop_diagnostics")BreakProtocol(kind:"non_json");
                 throw new InvalidOperationException("后台输出不是控制回执，已请求安全停止；不会重放指令。 " + protocolFailure);
             }
             if ((string?)response["request_id"] != (string?)request["request_id"])
             {
-                if((string?)request["action"]!="export_stop_diagnostics")BreakProtocol(kind:"id_mismatch");
+                if(actionName!="export_stop_diagnostics")BreakProtocol(kind:"id_mismatch");
                 throw new InvalidOperationException("控制回执不匹配，已请求安全停止。 " + protocolFailure);
             }
             if ((bool?)response["ok"] != true)
                 throw new InvalidOperationException((string?)response["error"] ?? "控制请求被拒绝。");
             var result=(JObject)response["result"]!;
-            if(allowCareer && (string?)request["action"]!="export_stop_diagnostics") {
+            if(allowCareer && actionName!="export_stop_diagnostics") {
                 var actual=(string?)result["mode"]??(string?)result["snapshot"]?["mode"];
                 DefaultMode=actual is "cut" or "career" ? actual : (string?)request["mode"]??DefaultMode;
             }
-            if(!detachedForExit && (string?)request["action"]!="export_stop_diagnostics")SnapshotReceived?.Invoke(result);
+            if(!detachedForExit && actionName!="export_stop_diagnostics")SnapshotReceived?.Invoke(result);
             return result;
         }
         finally { lock(protocolSync)pendingReply=null; gate.Release(); }
