@@ -1152,7 +1152,8 @@ def compile_tiered_skill_profile(
         bonus = _within_bonus(sid)
         if t_idx < len(tier_defs):
             band = 100_000 * (12 ** max(0, num_explicit - 1 - t_idx))
-            step_utilities[sid] = int(band + bonus)
+            gold_bonus = 10_000 if (not classic and rows.get(sid, {}).get("rarity") == "gold") else 0
+            step_utilities[sid] = int(band + bonus + gold_bonus)
         else:
             r = cand_ratings[sid]
             step_utilities[sid] = int(max(1, min(150, round(r.utility))))

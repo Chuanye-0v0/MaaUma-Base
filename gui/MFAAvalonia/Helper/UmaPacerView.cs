@@ -1864,10 +1864,6 @@ public sealed partial class UmaPacerView : UserControl
             : sieveCounts==null?"":$"SS筛局 · 淘汰 {sieveCounts["screened_out"] ?? 0} · 失败 {sieveCounts["failed"] ?? 0} · 成品 {sieveCounts["completed"] ?? 0}";
         workflowRoot = flowSnapshot?["state"] is JObject && snapshot["control"] is JObject ? (string?)flowSnapshot["root"] : null;
         var workflowStatus=(string?)flowSnapshot?["state"]?["status"];
-        var workflowControl=(string?)snapshot["control"]?["state"];
-        resumeWorkflowSnapshot.IsVisible=workflowRoot!=null&&workflowStatus is not ("completed" or "preserved");
-        resumeWorkflowSnapshot.IsEnabled=resumeWorkflowSnapshot.IsVisible&&!submitting&&!presetBusy&&!NewCareerSelected(current)
-            &&!(IsSieveRun&&(ManualHandoffWaiting||ManualHandoffTerminal))&&workflowControl is "idle" or "stopped" or "paused";
         aiStatus.Render(snapshot["ai_status"] as JObject);
         aiStatus.SetSelectedMode((string?)aiOptions.Read()["mode"]);
         var control=snapshot["control"]!; var state=(string?)control["state"] ?? "idle";
@@ -1920,9 +1916,39 @@ public sealed partial class UmaPacerView : UserControl
         start.Content=state=="paused" ? (IsCut ? "继续识别" : "继续育成") : IsCut ? (selectedBatch ? "续跑本批次" : "开始刷切") : "开始育成";
         if(standaloneCutProfiles)start.Content=state=="paused" ? (IsCut?"继续本轮":"继续当前局") : IsCut?"开始新一轮":"按当前配置开始";
         if(workflowLibrary?.LibraryReady==true&&state!="paused")start.Content="按所选配置开始新一轮";
-        resumeRecord.IsVisible=pacerCenter&&!IsCut&&!active&&currentRecord?["path"]?.Type==JTokenType.String;
-        resumeRecord.IsEnabled=editable&&!busy&&!pending&&!ManualHandoffWaiting&&!ManualHandoffTerminal&&(bool?)currentRecord?["can_resume"]==true;
-        ToolTip.SetTip(resumeRecord,(string?)currentRecord?["resume_reason"]??"续跑已保存的原局，不使用当前表单覆盖原设置。");
+        var workflowCanResumeToken = flowSnapshot?["can_resume"];
+        var sameWorkflowCutBatch = workflowRoot != null && string.Equals(workflowRoot, (string?)snapshot["run_root"], StringComparison.OrdinalIgnoreCase);
+        var workflowCanResume = workflowRoot != null
+            && workflowStatus is not ("completed" or "preserved")
+            && (workflowCanResumeToken?.Type == JTokenType.Boolean
+                ? (bool)workflowCanResumeToken
+                : !sameWorkflowCutBatch || (bool?)cut?["can_resume"] != false);
+        var legacyCareerCanResume = workflowRoot == null && !IsCut && currentRecord?["path"]?.Type == JTokenType.String
+            && (bool?)currentRecord?["can_resume"] == true;
+        if(workflowLibrary!=null) {
+            resumeRecord.IsVisible=false;
+            var canUnifiedResume=!active&&!ManualHandoffWaiting&&!ManualHandoffTerminal&&(workflowCanResume||legacyCareerCanResume);
+            resumeUsesLegacyRecord=!workflowCanResume&&legacyCareerCanResume;
+            resumeWorkflowSnapshot.IsVisible=canUnifiedResume;
+            var flowExecMode=(string?)flowSnapshot?["execution_mode"];
+            var isCycleResume=workflowCanResume&&(sieveCounts!=null||aceCounts!=null||flowExecMode=="cut");
+            resumeWorkflowSnapshot.Content=isCycleResume?"继续本轮":"继续原局";
+            resumeWorkflowSnapshot.IsEnabled=canUnifiedResume&&editable&&!busy&&!pending&&!NewCareerSelected(current);
+            ToolTip.SetTip(resumeWorkflowSnapshot,resumeUsesLegacyRecord
+                ? (string?)currentRecord?["resume_reason"]??"续跑已保存的原局，不使用当前表单覆盖原设置。"
+                : (string?)flowSnapshot?["resume_reason"]??(isCycleResume
+                    ? "沿用上次停机前的本轮配置、计数与资源额度继续运行。"
+                    : "沿用上次停机前的原局配置继续运行，不新开局。"));
+        } else {
+            resumeUsesLegacyRecord=false;
+            resumeWorkflowSnapshot.IsVisible=workflowCanResume&&!active&&!ManualHandoffWaiting&&!ManualHandoffTerminal;
+            resumeWorkflowSnapshot.Content="继续原工作流";
+            resumeWorkflowSnapshot.IsEnabled=resumeWorkflowSnapshot.IsVisible&&editable&&!busy&&!pending&&!NewCareerSelected(current);
+            ToolTip.SetTip(resumeWorkflowSnapshot,(string?)flowSnapshot?["resume_reason"]??"沿用原工作流配置、次数和资源额度继续运行。");
+            resumeRecord.IsVisible=pacerCenter&&!IsCut&&!active&&currentRecord?["path"]?.Type==JTokenType.String;
+            resumeRecord.IsEnabled=editable&&!busy&&!pending&&!ManualHandoffWaiting&&!ManualHandoffTerminal&&(bool?)currentRecord?["can_resume"]==true;
+            ToolTip.SetTip(resumeRecord,(string?)currentRecord?["resume_reason"]??"续跑已保存的原局，不使用当前表单覆盖原设置。");
+        }
         continueFound.IsVisible=pacerCenter&&IsCut&&!active&&
             ((bool?)snapshot["can_continue_as_career"]??(bool?)currentRecord?["can_continue_as_career"]??false);
         continueFound.IsEnabled=editable&&!busy&&!pending;

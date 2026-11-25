@@ -21,6 +21,10 @@ from core.training_menu_precheck import TrainingMenuPrechecker
 from core.execution_frames import ExecutionFrames
 
 
+MEI_OUTING_LOADING_EXTRA_WAITS = 20
+MEI_OUTING_LOADING_WAIT_SECONDS = 0.6
+
+
 def menu_identity(state):
     return {key: state.get(key) for key in ("current_stats", "remaining_turns", "target_text", "vitality")} | {
         "period": state.get("scenario_state", {}).get("larc_period", {}).get("value"),
@@ -593,9 +597,16 @@ class MeiOutingRoute:
                 tap("mei_outing.select", choice.get("select"), "mei_outing_chooser",
                     POST_ACTION_ROUTE_SUCCESSORS, path, source, reserve=True)
                 path, image, source = capture()
+                from core.auto_trainer.transition_wait import (
+                    career_comic_loading_visible,
+                    connecting_overlay_visible,
+                )
                 confirmation_waits = (.15, .15, .25, .35, .5, .7, .9)
                 report["confirmation_read_budget"] = len(confirmation_waits) + 1
-                for attempt in range(report["confirmation_read_budget"]):
+                report["confirmation_loading_extra_waits"] = 0
+                normal_used = 0
+                extra_loading_used = 0
+                while True:
                     report["stage"] = "reading_confirmation"
                     confirmation = self.reader.read(image) or {}
                     if confirmation.get("screen") not in {"mei_outing_confirm", "mei_outing_chooser"}:
@@ -632,13 +643,28 @@ class MeiOutingRoute:
                                 direct_start_observation=started, page_handoff=started['screen'],
                                 handoff_stage='after_selection', handoff_source=source)
                             return report
-                    if attempt == report["confirmation_read_budget"] - 1:
+                    is_loading = image is not None and (
+                        connecting_overlay_visible(image) or career_comic_loading_visible(image)
+                    )
+                    if is_loading and extra_loading_used < MEI_OUTING_LOADING_EXTRA_WAITS:
+                        extra_loading_used += 1
+                        observation['loading_overlay'] = True
+                        observation['loading_extra_attempt'] = extra_loading_used
+                        observation['wait_seconds'] = MEI_OUTING_LOADING_WAIT_SECONDS
+                        report['confirmation_loading_extra_waits'] = extra_loading_used
+                        self.sleep(MEI_OUTING_LOADING_WAIT_SECONDS)
+                        path, image, source = capture()
+                        continue
+                    normal_used += 1
+                    report['confirmation_loading_extra_waits'] = extra_loading_used
+                    if normal_used >= report["confirmation_read_budget"]:
                         raise ValueError("mei_outing_confirmation_unverified")
                     # A fast renderer can return multiple frames before the
                     # confirmation body fades in. Wait only on an unreadable
                     # frame; never replay the selection or confirmation tap.
-                    observation['wait_seconds'] = confirmation_waits[attempt]
-                    self.sleep(confirmation_waits[attempt])
+                    wait_seconds = confirmation_waits[normal_used - 1]
+                    observation['wait_seconds'] = wait_seconds
+                    self.sleep(wait_seconds)
                     path, image, source = capture()
                 tap(f"outing.satake_mei.{candidate['completed']+1}", confirmation.get("confirm"),
                     "modal", POST_ACTION_ROUTE_SUCCESSORS, path, source, consume=True)

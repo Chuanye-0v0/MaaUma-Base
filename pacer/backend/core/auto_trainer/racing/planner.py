@@ -660,8 +660,25 @@ class RaceRoutePlanner(
             1 for label in ("基础能力", "速度", "耐力", "力量", "毅力", "智力", "属性", "技能")
             if label in preview_text
         )
+        main_menu_marker = (
+            any(
+                marker in preview_text
+                for marker in (
+                    "休息",
+                    "海外适应性",
+                    "凯旋门信息",
+                    "训练/群星赛",
+                    "医务室",
+                    "距离代表交流赛还剩",
+                    "距离出赛",
+                    "距离经典赛",
+                )
+            )
+            or ("养成" in preview_text and "回合" in preview_text and "体力" in preview_text)
+        )
         preview_fade_in = (
-            "赛事一览" not in preview_text
+            not main_menu_marker
+            and "赛事一览" not in preview_text
             and "赛事详情" not in preview_text
             and "取消" not in preview_text
             and (

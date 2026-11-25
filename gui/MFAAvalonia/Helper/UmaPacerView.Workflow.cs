@@ -25,6 +25,7 @@ public sealed partial class UmaPacerView
     public Control? WorkflowStrategyTargetsPage => workflowStrategyTargetsPage ??= workflowLibrary?.CreateConfigurationPage("strategy_targets");
     public Control? WorkflowCyclePage => workflowCyclePage ??= workflowLibrary?.CreateConfigurationPage("cycle");
     private readonly Button resumeWorkflowSnapshot = new() {Name="PacerResumeWorkflowSnapshot",Content="继续原工作流",IsVisible=false};
+    private bool resumeUsesLegacyRecord;
 
     private Control BuildWorkflowPage()
     {
@@ -144,10 +145,11 @@ public sealed partial class UmaPacerView
     }
     private async Task ResumeWorkflowSnapshot()
     {
-        if(workflowRoot==null||NewCareerSelected(context())||IsSieveRun&&(ManualHandoffWaiting||ManualHandoffTerminal))return;
+        if(resumeUsesLegacyRecord){await ResumeSavedCareer();return;}
+        if(workflowRoot==null||NewCareerSelected(context())||ManualHandoffWaiting||ManualHandoffTerminal)return;
         try {
             var result=await RequestWorkflow(new JObject{["action"]="start_workflow",["workflow_root"]=workflowRoot});
-            AcceptWorkflowSnapshot(result);hint.Text="已继续原工作流，沿用原局配置、次数和资源额度。";
+            AcceptWorkflowSnapshot(result);hint.Text="已继续原局，沿用上次停机前的配置、次数和资源额度。";
         }catch(Exception error){commandError=error.Message;hint.Text=error.Message;}
         finally{await Refresh();}
     }

@@ -151,6 +151,39 @@ class PacerHost:
             result['continuation'] = continuation.get('config')
         return result
 
+    def _cached_summary_fields(self, summary_path: Path):
+        try:
+            st = summary_path.stat()
+            cache_key = (str(summary_path), st.st_mtime_ns, st.st_size)
+        except OSError:
+            cache_key = None
+        cache = getattr(self, '_summary_snapshot_cache', None)
+        if cache_key is not None and isinstance(cache, tuple) and cache[0] == cache_key:
+            return cache[1]
+        summary = read_json(summary_path)
+        turns = summary.get('turns') or []
+        fields = {
+            'last_turn': turns[-1] if turns else {},
+            'summary_status': summary.get('status'),
+            'stop_reason': summary.get('stop_reason'),
+            'error': summary.get('error'),
+            'elapsed_seconds': summary.get('elapsed_seconds'),
+            'entry_diagnostics': entry_diagnostics(summary),
+        }
+        try:
+            from scripts.pacer_stop_diagnostics import extract_stop_diagnostics
+            fields['stop_diagnostics'] = extract_stop_diagnostics(summary, summary_path)
+        except Exception:
+            fields['stop_diagnostics'] = {'not_recorded': True}
+        try:
+            from desktop.native_stop_diagnostics import augment_stop_record
+            augment_stop_record(fields, summary, summary_path)
+        except Exception:
+            pass  # Diagnostic reads never affect the task or its ordinary snapshot.
+        if cache_key is not None:
+            self._summary_snapshot_cache = (cache_key, fields)
+        return fields
+
     def snapshot(self, endpoint=None, mode=None, selected_run_root=None):
         state = self.service.snapshot() if self.service else {'state': 'idle', 'runtime': None}
         mode = self.mode if state['state'] in ACTIVE else mode or self.mode
@@ -199,25 +232,7 @@ class PacerHost:
             summaries = list(record_root.glob('autonomous_*/summary.json'))
             if summaries:
                 summary_path = max(summaries, key=lambda path: path.stat().st_mtime)
-                summary = read_json(summary_path)
-                turns = summary.get('turns') or []
-                record['last_turn'] = turns[-1] if turns else {}
-                record['summary_status'] = summary.get('status')
-                record['stop_reason'] = summary.get('stop_reason')
-                record['error'] = summary.get('error')
-                record['elapsed_seconds'] = summary.get('elapsed_seconds')
-                record['entry_diagnostics'] = entry_diagnostics(summary)
-                try:
-                    from scripts.pacer_stop_diagnostics import extract_stop_diagnostics
-                    record['stop_diagnostics'] = extract_stop_diagnostics(summary, summary_path)
-                except Exception:
-                    record['stop_diagnostics'] = {'not_recorded': True}
-        if record_root and summaries:
-            try:
-                from desktop.native_stop_diagnostics import augment_stop_record
-                augment_stop_record(record,summary,summary_path)
-            except Exception:
-                pass  # Diagnostic reads never affect the task or its ordinary snapshot.
+                record.update(deepcopy(self._cached_summary_fields(summary_path)))
         pending_path = self.umaa_root / 'runs/mfa-live/active.json'
         pending = read_json(pending_path)
         luck_session = getattr(self, '_realtime_luck', None)

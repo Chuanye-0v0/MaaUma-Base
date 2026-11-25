@@ -4,7 +4,22 @@ import json
 from pathlib import Path
 import re
 
-CATALOG = Path(__file__).resolve().parents[2]/'runs/support-card-library/catalog.json'
+def _resolve_catalog():
+    base = Path(__file__).resolve()
+    candidates = [
+        base.parents[2] / 'runs/support-card-library/catalog.json',
+        base.parents[2] / 'bridges/skills/backend/runs/support-card-library/catalog.json',
+    ]
+    for ancestor in base.parents:
+        candidates.append(ancestor / 'runs/support-card-library/catalog.json')
+        candidates.append(ancestor / 'backend/runs/support-card-library/catalog.json')
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return base.parents[2] / 'runs/support-card-library/catalog.json'
+
+
+CATALOG = _resolve_catalog()
 OPTION_KEYS = {'support_deck', 'borrow_card_id', 'borrow_min_level', 'borrow_min_break'}
 TYPE_LABELS = dict(speed='速度', stamina='耐力', power='力量', guts='毅力',
                    intelligence='智力', friend='友人', group='小组')
@@ -27,7 +42,8 @@ NEXT_PAGES.update(support_open_friend={'support_friend'}, support_select_friend=
 
 @lru_cache(maxsize=1)
 def catalog():
-    data = json.loads(CATALOG.read_text(encoding='utf8'))
+    cat = CATALOG if CATALOG.is_file() else _resolve_catalog()
+    data = json.loads(cat.read_text(encoding='utf8'))
     if data.get('schema') != 'uma.support_card_art.v1':
         raise ValueError('support_catalog_invalid')
     return {int(c['card_id']): c for c in data['cards'] if c.get('image_status') == 'ready'}
@@ -36,7 +52,8 @@ def catalog():
 @lru_cache(maxsize=1)
 def matcher():
     from core.support_library.art_matcher import CardArtMatcher
-    return CardArtMatcher.from_catalog(CATALOG)
+    cat = CATALOG if CATALOG.is_file() else _resolve_catalog()
+    return CardArtMatcher.from_catalog(cat)
 
 
 def validate(options):

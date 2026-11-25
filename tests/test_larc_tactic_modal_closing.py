@@ -223,6 +223,29 @@ class TacticModalClosingTests(unittest.TestCase):
             self.assertEqual(d["action"], "wait")
             self.assertEqual(d["reason"], "loading")
 
+    def test_post_entry_larc_main_menu_does_not_trigger_preview_fade_in_wait(self):
+        frame = np.full((1280, 720, 3), 180, dtype=np.uint8)
+        with TemporaryDirectory() as tmp:
+            p = Path(tmp) / "main_menu.png"
+            cv2.imwrite(str(p), frame)
+            planner = RaceRoutePlanner()
+            d = planner.plan(
+                p,
+                policy=RaceRoutePolicy(
+                    scenario="larc",
+                    allow_enter_race=False,
+                    allow_enter_race_from_main_menu=False,
+                    allow_confirm_race=False,
+                    post_entry_only=True,
+                    visible_text=(
+                        "经典级 1月上半月 体力 干劲 极佳 "
+                        "速度 384 耐力 234 力量 244 毅力 182 智力 237 技能 Pt 360 "
+                        "休息 训练/群星赛 技能 海外适应性 凯旋门信息 医务室 外出 比赛"
+                    ),
+                ),
+            )
+            self.assertFalse(d["action"] == "wait" and d["reason"] == "loading")
+
 
 if __name__ == "__main__":
     unittest.main()

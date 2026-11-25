@@ -151,6 +151,10 @@ public sealed class UmaWorkflowLibraryView : StackPanel
         var graph = document?["run_graph"] as JObject;
         var nodes = (graph?["nodes"] as JArray)?.OfType<JObject>().ToArray() ?? Array.Empty<JObject>();
         var edges = (graph?["edges"] as JArray)?.OfType<JObject>().ToArray() ?? Array.Empty<JObject>();
+        var templateId = (string?)document?["template_id"] ?? selectedModeId ?? "";
+        if (templateId is "ss_sieve_cycle" or "ace_career_cycle"
+            || nodes.Any(n => n.Property("ss_sieve") != null || n.Property("ace_cycle") != null))
+            return "cut";
         if (nodes.Length > 0)
         {
             var byId = new Dictionary<string, JObject>(StringComparer.Ordinal);
@@ -171,7 +175,6 @@ public sealed class UmaWorkflowLibraryView : StackPanel
             var firstExec = nodes.FirstOrDefault(n => (string?)n["kind"] is "career" or "cut");
             if ((string?)firstExec?["kind"] is ("career" or "cut") and var firstKind) return firstKind;
         }
-        var templateId = (string?)document?["template_id"] ?? selectedModeId ?? "";
         if (templateId is "cut_preserve" or "cut_then_career" || templateId.StartsWith("cut", StringComparison.OrdinalIgnoreCase))
             return "cut";
         if (selectedModeName?.Contains("刷切", StringComparison.Ordinal) == true)

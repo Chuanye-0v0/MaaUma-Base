@@ -30,6 +30,56 @@ def _endpoint_pointer(root: Path, endpoint: str | None) -> Path:
     return Path(root) / CURRENT
 
 
+def _workflow_resume_status(host, store, root, endpoint, sieve, ace):
+    """Pure read-only check mirroring dispatch(..., workflow_root=...) without writing."""
+    status = store.data.get('status')
+    if status == 'completed':
+        return False, '该工作流已完成，不会重复执行。'
+    if status == 'preserved':
+        return False, '当前育成已保留。'
+    try:
+        if sieve or ace:
+            from scripts.larc_umaa_cut import checked_batch, resume_status
+            batch, data, config = checked_batch(root, root=host.root, endpoint=endpoint)
+            return resume_status(batch, data, config)
+        run_root = Path(store.data.get('attempt_root', root)).resolve()
+        from scripts.career_workflow_runtime import checkpoint_restart_permission, checkpoint_restart_record
+        restart_permission = checkpoint_restart_permission(store, run_root)
+        if (store.node['kind'] == 'restart' and checkpoint_restart_record(store, run_root) is not None
+                and restart_permission is None and status != 'manual_career'):
+            return False, '原局配置或重开授权已改变，或上次提交尚未确认，请先处理原记录。'
+        if restart_permission is not None:
+            return True, None
+        from core.career_panel_presets import RUN_MARKER, record_for_path
+        if (run_root != root and (run_root / RUN_MARKER).is_file()) or (
+                run_root == root and not (root / 'cut_farming.json').is_file()):
+            rec = record_for_path(run_root, root=host.root, endpoint=endpoint, include_settings=False)
+            if rec.get('can_resume'):
+                return True, None
+            batch = store.data.get('career_batch')
+            if isinstance(batch, dict):
+                max_careers = int(batch.get('max_careers') or 1)
+                completed = int(batch.get('completed') or 0)
+                manual_terminal = bool((rec.get('manual_handoff') or {}).get('terminal'))
+                if max_careers > 1 and not manual_terminal:
+                    rows = batch.get('runs') or []
+                    last_done = bool(rows and rows[-1].get('status') == 'completed')
+                    effective_completed = completed if last_done else completed + 1
+                    if effective_completed < max_careers:
+                        return True, None
+                    return False, '该工作流已完成，不会重复执行。'
+            return False, rec.get('resume_reason') or '当前记录不能续跑。'
+        from scripts.larc_umaa_cut import checked_batch, resume_status
+        batch, data, config = checked_batch(root, root=host.root, endpoint=endpoint)
+        data_copy = deepcopy(data)
+        if (data_copy.get('status') == 'handoff' and (data_copy.get('stop') or {}).get('reason') == 'continuation_hold'
+                and not data_copy.get('pending_action') and store.data.get('waiting_on')):
+            data_copy['status'] = 'stopped'
+        return resume_status(batch, data_copy, config)
+    except (ValueError, OSError, KeyError, TypeError) as error:
+        return False, str(error)
+
+
 def snapshot(host):
     endpoint = getattr(host, 'endpoint', None)
     pointer_path = _endpoint_pointer(host.root, endpoint)
@@ -46,10 +96,13 @@ def snapshot(host):
         return None
     if not (root / DOCUMENT).is_file():
         return None
-    store = WorkflowState(root, endpoint=endpoint or pointer.get('endpoint'))
+    effective_endpoint = endpoint or pointer.get('endpoint')
+    store = WorkflowState(root, endpoint=effective_endpoint)
     sieve = ss_sieve_node(store.document) is not None
     ace = ace_cycle_node(store.document) is not None
+    can_resume, resume_reason = _workflow_resume_status(host, store, root, effective_endpoint, sieve, ace)
     result = {'root': str(root), 'document': store.document, 'state': store.data,
+              'can_resume': can_resume, 'resume_reason': resume_reason,
               'execution_mode': 'career' if not (sieve or ace) and (not any(node['kind'] in {'cut', 'restart'} for node in store.nodes.values())
                                   or store.node['kind'] == 'career'
                                   or store.data.get('status') == 'manual_career') else 'cut'}

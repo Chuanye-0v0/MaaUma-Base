@@ -31,8 +31,20 @@ def support_api():
     if not support_path.is_file():
         support_path = d1 / 'bridges/skills/backend/core/autonomous_training/plant_support.py'
     api = _leaf('_cut_d1_plant_support', support_path)
-    if not api.CATALOG.is_file() and (d1 / 'runs/support-card-library/catalog.json').is_file():
-        api.CATALOG = d1 / 'runs/support-card-library/catalog.json'
+    if not api.CATALOG.is_file():
+        catalog_candidates = [
+            d1 / 'runs/support-card-library/catalog.json',
+            d1 / 'bridges/skills/backend/runs/support-card-library/catalog.json',
+            root / 'runs/support-card-library/catalog.json',
+            root / 'bridges/skills/backend/runs/support-card-library/catalog.json',
+        ]
+        for ancestor in Path(__file__).resolve().parents:
+            catalog_candidates.append(ancestor / 'backend/runs/support-card-library/catalog.json')
+            catalog_candidates.append(ancestor / 'runs/support-card-library/catalog.json')
+        for candidate in catalog_candidates:
+            if candidate.is_file():
+                api.CATALOG = candidate
+                break
     @lru_cache(maxsize=1)
     def matcher():
         art_path = d1 / 'core/support_library/art_matcher.py'
