@@ -3,6 +3,9 @@ from copy import deepcopy
 import math
 import json
 from pathlib import Path
+import re
+
+_INT_STR_RE = re.compile(r'^[+-]?\d+$')
 
 VERSION = 'larc_continuation.v1'
 NODES = ('junior', 'inheritance', 'pre_expedition', 'inheritance2')
@@ -66,16 +69,102 @@ def defaults():
     }
 
 
-def _integer(value, label, low=0, high=1000000000):
-    if type(value) is not int or not low <= value <= high:
-        raise ValueError(f'续养配置：{label}应为{low}～{high}的整数。')
+def _coerce_int_opt(value):
+    if type(value) is int:
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if _INT_STR_RE.match(text):
+            try:
+                return int(text)
+            except ValueError:
+                return None
+    return None
+
+
+def _coerce_float_opt(value):
+    if isinstance(value, bool):
+        return None
+    if type(value) is int:
+        return value
+    if type(value) is float:
+        return value if math.isfinite(value) else None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if _INT_STR_RE.match(text):
+            try:
+                return int(text)
+            except ValueError:
+                return None
+        try:
+            parsed = float(text)
+            return parsed if math.isfinite(parsed) else None
+        except ValueError:
+            return None
+    return None
+
+
+def _coerce_section_numbers(section):
+    if not isinstance(section, dict):
+        return
+    for key in ('min_pass', 'min_skills'):
+        if key in section:
+            coerced = _coerce_int_opt(section[key])
+            if coerced is not None:
+                section[key] = coerced
+    for key in ('year', 'month'):
+        if key in section:
+            coerced = _coerce_int_opt(section[key])
+            if coerced is not None:
+                section[key] = coerced
+    conditions = section.get('conditions')
+    if isinstance(conditions, list):
+        for condition in conditions:
+            if not isinstance(condition, dict):
+                continue
+            if condition.get('kind') == 'realtime_luck_min':
+                coerced = _coerce_float_opt(condition.get('minimum'))
+            else:
+                coerced = _coerce_int_opt(condition.get('minimum'))
+            if coerced is not None:
+                condition['minimum'] = coerced
+            if 'bond_threshold' in condition:
+                coerced_bond = _coerce_int_opt(condition['bond_threshold'])
+                if coerced_bond is not None:
+                    condition['bond_threshold'] = coerced_bond
+
+
+def coerce_continuation_numbers(value):
+    """Best-effort in-place-safe conversion of legacy numeric strings in continuation config."""
+    if not isinstance(value, dict):
+        return value
+    for name in NODES:
+        _coerce_section_numbers(value.get(name))
+    custom_dates = value.get('custom_dates')
+    if isinstance(custom_dates, list):
+        for entry in custom_dates:
+            _coerce_section_numbers(entry)
     return value
 
 
-def _validate_conditions_section(section, label, *, require_non_empty):
+def _integer(value, label, low=0, high=1000000000):
+    coerced = _coerce_int_opt(value)
+    if coerced is None or not low <= coerced <= high:
+        raise ValueError(f'续养配置：{label}应为{low}～{high}的整数。')
+    return coerced
+
+
+def _validate_conditions_section(section, label, *, require_non_empty, enabled=True):
     if section['combine'] not in {'all', 'at_least'}:
         raise ValueError(f'{label}组合请选择全部达标或至少N项达标。')
-    _integer(section['min_pass'], '最低达标项数', 1, 100)
+    if enabled:
+        section['min_pass'] = _integer(section['min_pass'], f'{label}·最低达标项数', 1, 100)
+    else:
+        coerced_pass = _coerce_int_opt(section.get('min_pass'))
+        if coerced_pass is not None:
+            section['min_pass'] = coerced_pass
     if not isinstance(section['conditions'], list) or len(section['conditions']) > 100:
         raise ValueError(f'{label}筛选条件应为最多100项的列表。')
     for condition in section['conditions']:
@@ -85,48 +174,68 @@ def _validate_conditions_section(section, label, *, require_non_empty):
         if set(condition) - allowed:
             raise ValueError(f'{label}筛选条件包含未知参数。')
         kind = condition['kind']
-        if kind == 'realtime_luck_min':
-            val = condition.get('minimum')
-            if isinstance(val, bool) or type(val) not in {int, float} or not math.isfinite(val) or not -30.0 <= float(val) <= 30.0:
-                raise ValueError('续养配置：胡度值最低门槛应为-30～30的数值。')
-        elif kind in {'stat_min', 'stat_sum_min', 'adaptation_points_min', 'supporter_points_min',
-                      'bond_ready_min', 'bond_card_min', 'chain_stage_min'}:
-            _integer(condition.get('minimum'), '条件最低值')
         if kind == 'stat_min' and condition.get('stat') not in STATS:
             raise ValueError('请选择正确的五维属性。')
-        if kind == 'bond_ready_min':
-            _integer(condition['minimum'], '达线支援张数', 1, 6)
-            _integer(condition.get('bond_threshold', 80), '羁绊线', 0, 100)
         if kind in {'bond_card_min', 'chain_stage_min', 'chain_complete'}:
             if not isinstance(condition.get('card_id'), str) or not condition['card_id'].isdigit():
                 raise ValueError('关键卡条件需要本局支援卡ID。')
-        if kind == 'bond_card_min':
-            _integer(condition['minimum'], '关键卡羁绊线', 0, 100)
-        if kind == 'chain_stage_min':
-            _integer(condition['minimum'], '事件段数', 1, 20)
         if kind == 'cut_event_completed' and condition.get('event_kind') not in {'big', 'small'}:
             raise ValueError('切事件请选择大切或小切。')
+        if not enabled:
+            if kind == 'realtime_luck_min':
+                coerced_min = _coerce_float_opt(condition.get('minimum'))
+                if coerced_min is not None:
+                    condition['minimum'] = coerced_min
+            elif 'minimum' in condition:
+                coerced_min = _coerce_int_opt(condition.get('minimum'))
+                if coerced_min is not None:
+                    condition['minimum'] = coerced_min
+            if kind == 'bond_ready_min' and 'bond_threshold' in condition:
+                coerced_bond = _coerce_int_opt(condition['bond_threshold'])
+                if coerced_bond is not None:
+                    condition['bond_threshold'] = coerced_bond
+            continue
+        if kind == 'realtime_luck_min':
+            val = _coerce_float_opt(condition.get('minimum'))
+            if val is None or not -30.0 <= float(val) <= 30.0:
+                raise ValueError(f'续养配置：{label}·胡度值最低门槛应为-30～30的数值。')
+            condition['minimum'] = val
+        elif kind == 'bond_ready_min':
+            condition['minimum'] = _integer(condition.get('minimum'), f'{label}·达线支援张数', 1, 6)
+            condition['bond_threshold'] = _integer(condition.get('bond_threshold', 80), f'{label}·羁绊线', 0, 100)
+        elif kind == 'bond_card_min':
+            condition['minimum'] = _integer(condition.get('minimum'), f'{label}·关键卡羁绊线', 0, 100)
+        elif kind == 'chain_stage_min':
+            condition['minimum'] = _integer(condition.get('minimum'), f'{label}·事件段数', 1, 20)
+        elif kind in {'stat_min', 'stat_sum_min', 'adaptation_points_min', 'supporter_points_min'}:
+            condition['minimum'] = _integer(condition.get('minimum'), f'{label}·条件最低值')
     count = len(section['conditions'])
-    if require_non_empty and not count:
-        raise ValueError(f'{label}筛选至少选择一项条件，或改为仅记录。')
-    if count and section['combine'] == 'at_least' and section['min_pass'] > count:
-        raise ValueError('最低达标项数不能超过已启用条件数。')
+    if enabled:
+        if require_non_empty and not count:
+            raise ValueError(f'{label}筛选至少选择一项条件，或改为仅记录。')
+        if count and section['combine'] == 'at_least' and section['min_pass'] > count:
+            raise ValueError(f'续养配置：{label}·最低达标项数不能超过已启用条件数。')
 
 
-def _validate_inheritance_targets(section, label, *, require_non_empty):
+def _validate_inheritance_targets(section, label, *, require_non_empty, enabled=True):
     skills = section['skills']
     if not isinstance(skills, list) or len(skills) > 200 or any(
             not isinstance(item, str) or not item.strip() or len(item) > 150 for item in skills):
         raise ValueError('目标技能应为名称或ID列表。')
     section['skills'] = list(dict.fromkeys(item.strip() for item in skills))
-    _integer(section['min_skills'], '技能最低命中数', 1, 200)
-    if skills and section['min_skills'] > len(section['skills']):
-        raise ValueError('技能最低命中数不能超过去重后的名单项数。')
     distances = section['distances']
     if not isinstance(distances, dict) or any(
             key not in DISTANCES or not isinstance(rank, str) or len(rank) != 1 or rank not in RANKS
             for key, rank in distances.items()):
         raise ValueError('目标距离适性需要距离类型及G～S等级。')
+    if not enabled:
+        coerced_skills = _coerce_int_opt(section.get('min_skills'))
+        if coerced_skills is not None:
+            section['min_skills'] = coerced_skills
+        return
+    section['min_skills'] = _integer(section['min_skills'], f'{label}·技能最低命中数', 1, 200)
+    if skills and section['min_skills'] > len(section['skills']):
+        raise ValueError(f'续养配置：{label}·技能最低命中数不能超过去重后的名单项数。')
     if require_non_empty and not skills and not distances:
         raise ValueError(f'{label}至少配置技能或距离路线，或改为仅记录。')
 
@@ -137,8 +246,8 @@ def _normalize_custom_date(entry, seen_ids, enabled):
     allowed = {'id', 'label', 'year', 'month', 'half', 'mode', 'combine', 'min_pass', 'conditions', 'on_fail'}
     if set(entry) - allowed:
         raise ValueError('自定义筛选节点包含未知参数。')
-    year = _integer(entry.get('year'), '年份', 1, 3)
-    month = _integer(entry.get('month'), '月份', 1, 12)
+    year = _integer(entry.get('year'), '自定义筛选节点·年份', 1, 3)
+    month = _integer(entry.get('month'), '自定义筛选节点·月份', 1, 12)
     half = entry.get('half', 'second')
     if half not in {'first', 'second'}:
         raise ValueError('自定义筛选节点上下半月请选择 first 或 second。')
@@ -169,6 +278,7 @@ def _normalize_custom_date(entry, seen_ids, enabled):
     _validate_conditions_section(
         normalized, label,
         require_non_empty=(enabled and normalized['mode'] == 'filter'),
+        enabled=enabled,
     )
     return normalized
 
@@ -200,22 +310,27 @@ def normalize(value):
     _validate_conditions_section(
         result['junior'], '首年',
         require_non_empty=(result['enabled'] and result['junior']['mode'] == 'filter'),
+        enabled=result['enabled'],
     )
     _validate_conditions_section(
         result['pre_expedition'], '首次远征前',
         require_non_empty=(result['enabled'] and result['pre_expedition']['mode'] == 'filter'),
+        enabled=result['enabled'],
     )
     _validate_conditions_section(
         result['inheritance2'], '第二次继承后',
         require_non_empty=False,
+        enabled=result['enabled'],
     )
     _validate_inheritance_targets(
         result['inheritance'], '继承后',
         require_non_empty=(result['enabled'] and result['inheritance']['mode'] == 'filter'),
+        enabled=result['enabled'],
     )
     _validate_inheritance_targets(
         result['inheritance2'], '第二次继承后',
         require_non_empty=False,
+        enabled=result['enabled'],
     )
     inheritance2 = result['inheritance2']
     if (result['enabled'] and inheritance2['mode'] == 'filter'

@@ -15,11 +15,23 @@ ACE_CYCLE_MODE = 'ace_career_cycle'
 
 
 def normalize_ss_sieve(value):
-    if (not isinstance(value, dict) or set(value) != {'pre_debut', 'year1_min', 'allow_ready_five'}
-            or type(value['pre_debut']) is not bool or type(value['allow_ready_five']) is not bool
-            or type(value['year1_min']) is not int or not 1 <= value['year1_min'] <= 24):
+    if not isinstance(value, dict) or set(value) != {'pre_debut', 'year1_min', 'allow_ready_five'}:
         raise ValueError('SS筛局需要出道开关、1～24次五人SS门槛及允许满五的开关。')
-    return dict(value)
+    raw_min = value['year1_min']
+    if isinstance(raw_min, str) and raw_min.strip().isdigit():
+        year1_min = int(raw_min.strip())
+    elif type(raw_min) is int:
+        year1_min = raw_min
+    else:
+        year1_min = None
+    if (type(value['pre_debut']) is not bool or type(value['allow_ready_five']) is not bool
+            or year1_min is None or not 1 <= year1_min <= 24):
+        raise ValueError('SS筛局需要出道开关、1～24次五人SS门槛及允许满五的开关。')
+    return {
+        'pre_debut': value['pre_debut'],
+        'year1_min': year1_min,
+        'allow_ready_five': value['allow_ready_five'],
+    }
 
 
 def ss_sieve_node(document):
@@ -105,9 +117,30 @@ def validate_start_document(document):
             target_grad = ace['ace_cycle']['target_graduates']
             if max_attempts < target_grad:
                 errors.append(f'最多尝试局数（{max_attempts}）小于目标成品数（{target_grad}），无法完成目标。')
+        for bkey, blabel in (('max_tp_items', 'TP药最多用几瓶'), ('max_carrots', '萝卜最多消耗')):
+            if bkey in cut_inner and cut_inner[bkey] is not None:
+                raw_bval = cut_inner[bkey]
+                if isinstance(raw_bval, str) and raw_bval.strip().isdigit():
+                    bval = int(raw_bval.strip())
+                elif type(raw_bval) is int:
+                    bval = raw_bval
+                else:
+                    bval = None
+                if bval is None or bval < 0:
+                    errors.append(f'{blabel}必须为非负整数。')
     elif has_cut:
         if 'max_carrots' in cut_inner and cut_inner['max_carrots'] is None:
             warnings.append('当前刷切配置启用了无限萝卜（不封顶），请确认后再启动。')
+
+    _cont = career_opts.get('continuation')
+    if _cont is None and isinstance(cut_inner, dict):
+        _cont = cut_inner.get('continuation')
+    if _cont is not None:
+        from core.auto_trainer.larc_continuation import normalize as _norm_cont
+        try:
+            _norm_cont(_cont)
+        except ValueError as error:
+            errors.append(str(error))
 
     cut_restart_active = has_cut and sieve is None and ace is None and not any(
         (n.get('screening') or {}).get('enabled') is True for n in nodes if n['kind'] == 'cut'

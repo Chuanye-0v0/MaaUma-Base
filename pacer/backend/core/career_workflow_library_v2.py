@@ -190,6 +190,19 @@ def _clean_setup_from_dict(src: dict | None) -> dict:
     return {k: deepcopy(src[k]) for k in SETUP_KEYS if k in src}
 
 
+def _coerce_int_opt(val):
+    if type(val) is int:
+        return val
+    if isinstance(val, str):
+        text = val.strip()
+        if re.fullmatch(r'[+-]?\d+', text):
+            try:
+                return int(text)
+            except ValueError:
+                return None
+    return None
+
+
 def _clean_cycle_budget(raw_cut: dict | None, defaults_budget: dict) -> dict:
     if not isinstance(raw_cut, dict):
         return deepcopy(defaults_budget)
@@ -200,7 +213,8 @@ def _clean_cycle_budget(raw_cut: dict | None, defaults_budget: dict) -> dict:
             # Never inherit unlimited None carrots into cycle modes (N1).
             if key == 'max_carrots' and val is None:
                 val = 0
-            budget[key] = deepcopy(val)
+            coerced = _coerce_int_opt(val)
+            budget[key] = coerced if coerced is not None else deepcopy(val)
     for key, def_val in defaults_budget.items():
         budget.setdefault(key, deepcopy(def_val))
     return budget
@@ -772,6 +786,15 @@ def normalize_library_v2(value: dict) -> dict:
             if mid in BUILTIN_MODE_NAMES:
                 # Finite budget default protection for cycle modes
                 merged = deepcopy(val)
+                if isinstance(merged.get('continuation'), dict):
+                    from core.auto_trainer.larc_continuation import coerce_continuation_numbers
+                    coerce_continuation_numbers(merged['continuation'])
+                if isinstance(merged.get('cut_params'), dict):
+                    for bkey in ('max_attempts', 'max_tp_items', 'max_carrots', 'refill_operation_limit'):
+                        if bkey in merged['cut_params']:
+                            coerced = _coerce_int_opt(merged['cut_params'][bkey])
+                            if coerced is not None:
+                                merged['cut_params'][bkey] = coerced
                 if mid in (SS_SIEVE_MODE, ACE_CYCLE_MODE):
                     merged['cycle_budget'] = _clean_cycle_budget(
                         merged.get('cycle_budget'), def_settings[mid]['cycle_budget']

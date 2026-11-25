@@ -15,6 +15,19 @@ RANKS = 'GFEDCBAS'
 MAX_TARGET_GRADUATES = 50
 
 
+def _coerce_int_opt(value):
+    if type(value) is int:
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if text.isdigit():
+            try:
+                return int(text)
+            except ValueError:
+                return None
+    return None
+
+
 def _read_json(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding='utf-8-sig'))
@@ -48,8 +61,8 @@ def normalize_ace_cycle(value=None):
     if (type(tf_restart) is not bool or type(tf_ignore_wisdom) is not bool
             or type(tf_stop_senior) is not bool):
         raise ValueError('训练失败自动重开开关必须是布尔值。')
-    target_graduates = value.get('target_graduates', 1)
-    if type(target_graduates) is not int or not 1 <= target_graduates <= MAX_TARGET_GRADUATES:
+    target_graduates = _coerce_int_opt(value.get('target_graduates', 1))
+    if target_graduates is None or not 1 <= target_graduates <= MAX_TARGET_GRADUATES:
         raise ValueError(f'目标成品数量请填 1～{MAX_TARGET_GRADUATES} 的整数。')
     raw_grad = value.get('graduation')
     if raw_grad is None:
@@ -66,12 +79,17 @@ def normalize_ace_cycle(value=None):
     for stat, val in raw_min_stats.items():
         if val is None:
             continue
-        if type(val) is not int or not 0 <= val <= 3000:
+        parsed_stat = _coerce_int_opt(val)
+        if parsed_stat is None or not 0 <= parsed_stat <= 3000:
             raise ValueError(f'成品毕业门槛 {stat} 应为 0～3000 的整数。')
-        min_stats[stat] = val
-    min_stat_sum = raw_grad.get('min_stat_sum')
-    if min_stat_sum is not None and (type(min_stat_sum) is not int or not 0 <= min_stat_sum <= 15000):
-        raise ValueError('成品毕业五维总和门槛应为 0～15000 的整数或留空。')
+        min_stats[stat] = parsed_stat
+    raw_sum = raw_grad.get('min_stat_sum')
+    if raw_sum is None:
+        min_stat_sum = None
+    else:
+        min_stat_sum = _coerce_int_opt(raw_sum)
+        if min_stat_sum is None or not 0 <= min_stat_sum <= 15000:
+            raise ValueError('成品毕业五维总和门槛应为 0～15000 的整数或留空。')
     raw_distances = raw_grad.get('distances') or {}
     if not isinstance(raw_distances, dict) or set(raw_distances) - set(DISTANCES):
         raise ValueError('成品毕业距离适性门槛包含不支持的距离键。')

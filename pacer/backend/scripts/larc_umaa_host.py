@@ -299,7 +299,7 @@ class PacerHost:
         continuation = options.get('continuation') or (options.get('cut') or {}).get('continuation')
         if continuation is not None:
             try:
-                from core.auto_trainer.larc_continuation import normalize, feature_available
+                from core.auto_trainer.larc_continuation import normalize, feature_available, any_restart_requested
             except ImportError:
                 raise ValueError('当前安装版本未包含续养执行功能。')
             continuation = normalize(continuation)
@@ -308,9 +308,10 @@ class PacerHost:
             if mode == 'cut':
                 options = {**options, 'cut': {**(options.get('cut') or {}),
                     'continuation': continuation if continuation['enabled'] else None}}
-            elif continuation['enabled'] and any(continuation[key]['on_fail'] == 'restart'
-                    for key in ('junior', 'inheritance')):
-                raise ValueError('自动回刷切需要已有刷切批次及次数预算；普通育成请选择暂停保留。')
+            else:
+                options = {**options, 'continuation': continuation}
+                if continuation['enabled'] and any_restart_requested(continuation):
+                    raise ValueError('自动回刷切需要已有刷切批次及次数预算；普通育成请选择暂停保留。')
         if mode == 'cut':
             if sieve_document is not None:
                 return PacerHost.start_cut(self, request, endpoint, options, sieve_document=sieve_document)

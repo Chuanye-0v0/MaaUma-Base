@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -1115,6 +1116,15 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
             }
         };
         ObserveInputs(continuation,SaveContinuation);
+        handoffCommits.Add(()=>{
+            if(!continuation.TryValidateForSave(out var validated))return false;
+            if(validated!=null&&!JToken.DeepEquals(continuationProjection,validated)) {
+                WriteProjection(run,"continuation",continuationProjection,validated);
+                continuationProjection=validated;
+                Emit();
+            }
+            return true;
+        });
         return ordinary?CommonGroup(prefix+"ContinuationSection",allowRestart?(aceCycle?"多节点杀马线与条件筛选":"刷切筛选与续养"):"多节点条件监控",
             ()=>continuation.EnabledForRun?"已启用":"未启用",continuation)
             :Section(prefix+"ContinuationSection","当前配置 · 多节点条件筛选",continuation);
@@ -1195,7 +1205,22 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
     private Control Text(JObject target,string key,string label,string prefix)
     {
         var field=new TextBox{Name=prefix+key,Text=target[key]?.ToString(),Width=120,MinWidth=120,Watermark="沿用保存值"};
-        field.LostFocus+=(_,_)=> {if(field.Text==target[key]?.ToString())return;target[key]=field.Text??"";Emit();};return Field(label,field);
+        var numericIntKey=key is "max_attempts" or "max_tp_items" or "max_carrots" or "borrow_card_id";
+        void CommitText()
+        {
+            var raw=(field.Text??"").Trim();
+            if(numericIntKey && int.TryParse(raw,NumberStyles.Integer,CultureInfo.InvariantCulture,out var iv))
+            {
+                if(target[key]?.Type==JTokenType.Integer && (int)target[key]! == iv)return;
+                target[key]=new JValue(iv);Emit();return;
+            }
+            if(target[key]?.Type==JTokenType.String && (string?)target[key]==raw)return;
+            if(target[key]==null && string.IsNullOrEmpty(raw))return;
+            target[key]=raw;Emit();
+        }
+        field.LostFocus+=(_,_)=>CommitText();
+        handoffCommits.Add(()=>{CommitText();return true;});
+        return Field(label,field);
     }
     private Control Pick(JObject target,string key,string label,string[] values,string prefix)
     {

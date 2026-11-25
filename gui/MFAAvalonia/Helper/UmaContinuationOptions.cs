@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Newtonsoft.Json.Linq;
@@ -77,7 +78,7 @@ public sealed class UmaContinuationOptions : StackPanel
         Children.Add(BuildTemplateBar());
         Children.Add(Note("门槛由你定义；支持首年12月下、经典4月继承、经典6月远征前、高级4月二继承及任意自定义年月节点。普通育成模式下仅暂停保留并通知。"));
 
-        juniorSection = new ConditionSectionEditor("条件", defaultFilterIndex: 1, showModeAndFail: true);
+        juniorSection = new ConditionSectionEditor("条件", defaultFilterIndex: 1, showModeAndFail: true, sectionLabel: "首年");
         Children.Add(Section("第一节点 · 初级12月下", juniorSection));
 
         Children.Add(Section("第二节点 · 经典4月（首次继承后）",
@@ -88,10 +89,10 @@ public sealed class UmaContinuationOptions : StackPanel
             distanceEnabled, Labelled("目标距离", distance), Labelled("要求等级", rank),
             Labelled("明确未通过时", inheritanceFailure)));
 
-        preExpeditionSection = new ConditionSectionEditor("条件", defaultFilterIndex: 1, showModeAndFail: true);
+        preExpeditionSection = new ConditionSectionEditor("条件", defaultFilterIndex: 1, showModeAndFail: true, sectionLabel: "首次远征前");
         Children.Add(Section("第三节点 · 经典6月下（首次远征前）", preExpeditionSection));
 
-        inheritance2Conditions = new ConditionSectionEditor("二继承条件", defaultFilterIndex: 1, showModeAndFail: false);
+        inheritance2Conditions = new ConditionSectionEditor("二继承条件", defaultFilterIndex: 1, showModeAndFail: false, sectionLabel: "第二次继承后");
         Children.Add(Section("第四节点 · 高级4月（二次继承后）",
             Labelled("节点模式", inh2Mode),
             inheritance2Conditions,
@@ -259,12 +260,41 @@ public sealed class UmaContinuationOptions : StackPanel
     public JObject Read() => Read(true);
     public JObject ReadDraft() => Read(false);
 
+    public bool TryValidateForSave(out JObject? validated)
+    {
+        if (!EnabledForRun)
+        {
+            HasUnsubmittedDraft = false;
+            validation.ClearValue(TextBlock.ForegroundProperty);
+            validation.Text = "";
+            validated = ReadDraft();
+            return true;
+        }
+        try
+        {
+            validated = Read(true);
+            HasUnsubmittedDraft = false;
+            validation.ClearValue(TextBlock.ForegroundProperty);
+            validation.Text = "";
+            return true;
+        }
+        catch (FormatException error)
+        {
+            HasUnsubmittedDraft = true;
+            validation.Foreground = Brushes.IndianRed;
+            validation.Text = error.Message;
+            validated = null;
+            return false;
+        }
+    }
+
     public JObject ReadForSubmission(JObject? saved)
     {
         try
         {
             var result = Read();
             HasUnsubmittedDraft = false;
+            validation.ClearValue(TextBlock.ForegroundProperty);
             validation.Text = "";
             return result;
         }
@@ -273,10 +303,12 @@ public sealed class UmaContinuationOptions : StackPanel
             if (EnabledForRun)
             {
                 HasUnsubmittedDraft = false;
+                validation.Foreground = Brushes.IndianRed;
                 validation.Text = "续养/筛选配置未完成：" + error.Message;
                 throw;
             }
             HasUnsubmittedDraft = true;
+            validation.ClearValue(TextBlock.ForegroundProperty);
             validation.Text = "未启用筛选：未完成的草稿仅保留在本窗口，不会提交；已保存的条件保留。";
             var result = saved == null
                 ? new JObject { ["schema_version"] = "larc_continuation.v1" }
@@ -299,7 +331,7 @@ public sealed class UmaContinuationOptions : StackPanel
         var inh2Obj = inheritance2Conditions.Read(validate, includeModeAndFail: false);
         inh2Obj["mode"] = inh2Mode.SelectedIndex == 0 ? "filter" : "observe";
         inh2Obj["skills"] = new JArray((inh2Skills.Text ?? "").Split('\n').Select(s => s.Trim()).Where(s => s.Length > 0).Distinct());
-        inh2Obj["min_skills"] = Value(inh2SkillMinimum, validate, 1);
+        inh2Obj["min_skills"] = Value(inh2SkillMinimum, validate, 1, "第二次继承后·技能最低命中数", 1, 200);
         inh2Obj["distances"] = inh2Distances;
         inh2Obj["on_fail"] = _allowRestart && inh2Failure.SelectedIndex == 1 ? "restart" : "pause";
 
@@ -314,7 +346,7 @@ public sealed class UmaContinuationOptions : StackPanel
             {
                 ["mode"] = inheritanceMode.SelectedIndex == 0 ? "filter" : "observe",
                 ["skills"] = new JArray((skills.Text ?? "").Split('\n').Select(s => s.Trim()).Where(s => s.Length > 0).Distinct()),
-                ["min_skills"] = Value(skillMinimum, validate, 1),
+                ["min_skills"] = Value(skillMinimum, validate, 1, "继承后·技能最低命中数", 1, 200),
                 ["distances"] = distances,
                 ["on_fail"] = _allowRestart && inheritanceFailure.SelectedIndex == 1 ? "restart" : "pause",
             },
@@ -326,6 +358,7 @@ public sealed class UmaContinuationOptions : StackPanel
     public void Load(JObject? value)
     {
         HasUnsubmittedDraft = false;
+        validation.ClearValue(TextBlock.ForegroundProperty);
         validation.Text = "";
         value ??= new JObject();
         enabled.IsChecked = (bool?)value["enabled"] == true;
@@ -365,8 +398,8 @@ public sealed class UmaContinuationOptions : StackPanel
         customDatesPanel.Children.Clear();
         foreach (var entry in value["custom_dates"]?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
         {
-            var y = Math.Clamp((int?)entry["year"] ?? 2, 1, 3);
-            var m = Math.Clamp((int?)entry["month"] ?? 12, 1, 12);
+            var y = ParseIntToken(entry["year"], 2, 1, 3);
+            var m = ParseIntToken(entry["month"], 12, 1, 12);
             var h = (string?)entry["half"] == "first" ? "first" : "second";
             var label = (string?)entry["label"] ?? $"{(y == 1 ? "初级" : y == 2 ? "经典" : "高级")}{m}月{(h == "second" ? "下" : "上")}";
             AddCustomDate(y, m, h, label, entry);
@@ -395,10 +428,51 @@ public sealed class UmaContinuationOptions : StackPanel
         box.SelectedIndex = allowRestart ? Math.Clamp(idx, 0, 1) : 0;
     }
 
-    private static int Number(TextBox box, int fallback = 0) => string.IsNullOrWhiteSpace(box.Text) ? fallback :
-        int.TryParse(box.Text, out var n) && n >= 0 ? n : throw new FormatException("续养门槛请填写非负整数。");
-    private static JToken Value(TextBox box, bool validate, int fallback = 0) =>
-        validate ? new JValue(Number(box, fallback)) : new JValue(box.Text ?? "");
+    private static int ParseIntToken(JToken? token, int fallback, int min, int max)
+    {
+        if (token == null || token.Type == JTokenType.Null)
+            return fallback;
+        if (token.Type == JTokenType.Integer)
+            return Math.Clamp((int)token, min, max);
+        var text = token.ToString().Trim();
+        return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? Math.Clamp(parsed, min, max)
+            : fallback;
+    }
+
+    private static int Number(TextBox box, int fallback = 0, string fieldLabel = "续养门槛", int min = 0, int max = 1000000000)
+    {
+        var text = (box.Text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            if (fallback >= min && fallback <= max)
+            {
+                box.ClearValue(TemplatedControl.BorderBrushProperty);
+                return fallback;
+            }
+            box.BorderBrush = Brushes.IndianRed;
+            throw new FormatException($"续养配置：{fieldLabel}应为 {min}～{max} 的整数。");
+        }
+        if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n >= min && n <= max)
+        {
+            box.ClearValue(TemplatedControl.BorderBrushProperty);
+            return n;
+        }
+        box.BorderBrush = Brushes.IndianRed;
+        throw new FormatException($"续养配置：{fieldLabel}应为 {min}～{max} 的整数。");
+    }
+
+    private static JToken Value(TextBox box, bool validate, int fallback = 0, string fieldLabel = "续养门槛", int min = 0, int max = 1000000000)
+    {
+        if (validate)
+            return new JValue(Number(box, fallback, fieldLabel, min, max));
+        var text = (box.Text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return new JValue("");
+        return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? new JValue(parsed)
+            : new JValue(text);
+    }
     private static TextBox Input(string text, string hint) => new() { Text = text, Watermark = hint, MinWidth = 110 };
     private static ComboBox Choice(params string[] values) => new() { ItemsSource = values, SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
     private static TextBlock Note(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, FontSize = 12 };
@@ -424,8 +498,8 @@ public sealed class UmaContinuationOptions : StackPanel
         public CustomDateSection(JObject value)
         {
             NodeId = (string?)value["id"] ?? "date_2_12_second";
-            year = Math.Clamp((int?)value["year"] ?? 2, 1, 3);
-            month = Math.Clamp((int?)value["month"] ?? 12, 1, 12);
+            year = ParseIntToken(value["year"], 2, 1, 3);
+            month = ParseIntToken(value["month"], 12, 1, 12);
             half = (string?)value["half"] == "first" ? "first" : "second";
             label = (string?)value["label"] ?? $"{(year == 1 ? "初级" : year == 2 ? "经典" : "高级")}{month}月{(half == "second" ? "下" : "上")}";
 
@@ -434,7 +508,7 @@ public sealed class UmaContinuationOptions : StackPanel
             BorderThickness = new Avalonia.Thickness(1);
             BorderBrush = Brushes.Gray;
 
-            editor = new ConditionSectionEditor("日期条件", defaultFilterIndex: 0, showModeAndFail: true);
+            editor = new ConditionSectionEditor("日期条件", defaultFilterIndex: 0, showModeAndFail: true, sectionLabel: label);
             editor.Load(value, defaultObserve: false);
 
             var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8 };
@@ -467,6 +541,7 @@ public sealed class UmaContinuationOptions : StackPanel
     private sealed class ConditionSectionEditor : StackPanel
     {
         private readonly bool showModeAndFail;
+        private readonly string sectionLabel;
         private readonly ComboBox mode = Choice("筛选", "仅记录，不筛选");
         private readonly ComboBox combine = Choice("已选条件全部达标", "至少 N 项达标");
         private readonly TextBox minimum = Input("1", "最低达标项数");
@@ -475,9 +550,10 @@ public sealed class UmaContinuationOptions : StackPanel
         private readonly ComboBox onFail = Choice("暂停保留并通知", "结束本局后回刷切");
         private bool allowRestartFlag = true;
 
-        public ConditionSectionEditor(string addTargetName, int defaultFilterIndex, bool showModeAndFail)
+        public ConditionSectionEditor(string addTargetName, int defaultFilterIndex, bool showModeAndFail, string sectionLabel = "节点")
         {
             this.showModeAndFail = showModeAndFail;
+            this.sectionLabel = sectionLabel;
             Spacing = 8;
             if (showModeAndFail)
                 Children.Add(Labelled("节点模式", mode));
@@ -534,8 +610,8 @@ public sealed class UmaContinuationOptions : StackPanel
             var obj = new JObject
             {
                 ["combine"] = combine.SelectedIndex == 0 ? "all" : "at_least",
-                ["min_pass"] = Value(minimum, validate, 1),
-                ["conditions"] = new JArray(rows.Select(row => row.Read(validate))),
+                ["min_pass"] = Value(minimum, validate, 1, $"{sectionLabel}·最低达标项数", 1, 100),
+                ["conditions"] = new JArray(rows.Select(row => row.Read(validate, sectionLabel))),
             };
             if (includeModeAndFail)
             {
@@ -600,31 +676,55 @@ public sealed class UmaContinuationOptions : StackPanel
             cut.IsVisible = key == "cut_event_completed";
         }
 
-        public JObject Read(bool validate)
+        public JObject Read(bool validate, string sectionLabel = "节点")
         {
             var key = Keys[Math.Max(0, kind.SelectedIndex)];
             var value = new JObject { ["kind"] = key };
             if (minimum.IsVisible)
             {
-                if (validate && string.IsNullOrWhiteSpace(minimum.Text))
-                    throw new FormatException("已添加条件需要填写最低值。");
+                var minText = (minimum.Text ?? "").Trim();
+                if (validate && string.IsNullOrWhiteSpace(minText))
+                {
+                    minimum.BorderBrush = Brushes.IndianRed;
+                    throw new FormatException($"续养配置：{sectionLabel}·条件最低值不能为空。");
+                }
                 if (key == "realtime_luck_min")
                 {
                     if (validate)
                     {
-                        if (!double.TryParse(minimum.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var d)
+                        if (!double.TryParse(minText, NumberStyles.Float, CultureInfo.InvariantCulture, out var d)
                             || !double.IsFinite(d) || d < -30.0 || d > 30.0)
-                            throw new FormatException("胡度值最低门槛请填写 -30 ～ 30 的数值。");
+                        {
+                            minimum.BorderBrush = Brushes.IndianRed;
+                            throw new FormatException($"续养配置：{sectionLabel}·胡度值最低门槛请填写 -30 ～ 30 的数值。");
+                        }
+                        minimum.ClearValue(TemplatedControl.BorderBrushProperty);
                         value["minimum"] = Math.Abs(d - Math.Round(d)) < 1e-9 ? new JValue((long)Math.Round(d)) : new JValue(d);
                     }
                     else
                     {
-                        value["minimum"] = new JValue(minimum.Text ?? "");
+                        if (double.TryParse(minText, NumberStyles.Float, CultureInfo.InvariantCulture, out var d)
+                            && double.IsFinite(d))
+                            value["minimum"] = Math.Abs(d - Math.Round(d)) < 1e-9 ? new JValue((long)Math.Round(d)) : new JValue(d);
+                        else
+                            value["minimum"] = new JValue(minText);
                     }
+                }
+                else if (key == "bond_ready_min")
+                {
+                    value["minimum"] = Value(minimum, validate, -1, $"{sectionLabel}·达线支援张数", 1, 6);
+                }
+                else if (key == "bond_card_min")
+                {
+                    value["minimum"] = Value(minimum, validate, -1, $"{sectionLabel}·关键卡羁绊线", 0, 100);
+                }
+                else if (key == "chain_stage_min")
+                {
+                    value["minimum"] = Value(minimum, validate, -1, $"{sectionLabel}·事件段数", 1, 20);
                 }
                 else
                 {
-                    value["minimum"] = Value(minimum, validate);
+                    value["minimum"] = Value(minimum, validate, -1, $"{sectionLabel}·条件最低值");
                 }
             }
             if (stat.IsVisible)
@@ -632,7 +732,7 @@ public sealed class UmaContinuationOptions : StackPanel
             if (card.IsVisible)
                 value["card_id"] = card.Text?.Trim() ?? "";
             if (bond.IsVisible)
-                value["bond_threshold"] = Value(bond, validate, 80);
+                value["bond_threshold"] = Value(bond, validate, 80, $"{sectionLabel}·羁绊线", 0, 100);
             if (chain.IsVisible && !string.IsNullOrWhiteSpace(chain.Text))
                 value["chain_id"] = chain.Text.Trim();
             if (cut.IsVisible)
