@@ -277,6 +277,12 @@ def plan_larc_ss_preview(
     has_ss_header = (
         text.startswith(("群星赛", "超星赛"))
         or any(line.startswith(("群星赛", "超星赛")) for line in header_lines[:4])
+        or (
+            not any(line.startswith(("训练", "养成")) for line in header_lines[:4])
+            and ("群星赛" in text or "超星赛" in text or "全胜时" in text)
+            and "决定" in text
+            and "胜率" in text
+        )
     )
     count = re.search(r"(?<!\d)([1-5])\s*人", raw_text)
     if (not has_ss_header
