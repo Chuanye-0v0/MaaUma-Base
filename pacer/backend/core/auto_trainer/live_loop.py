@@ -824,16 +824,25 @@ class UGParentTrainingLoop:
         if not isinstance(col, dict):
             return False
         rows = col.get("rows")
+        def _is_zero_or_absent_row(row: Any) -> bool:
+            if not isinstance(row, dict):
+                return False
+            if row.get("occupancy") == "absent" and row.get("status") == "absent":
+                return True
+            val = row.get("value")
+            return (
+                row.get("status") == "accepted"
+                and type(val) is int
+                and val == 0
+            )
         if (
-            col.get("reason") == "gain_rows_not_found"
+            (
+                col.get("reason") == "gain_rows_not_found"
+                or col.get("status") in {"abstained", "accepted", "empty"}
+            )
             and isinstance(rows, list)
             and len(rows) > 0
-            and all(
-                isinstance(r, dict)
-                and r.get("occupancy") == "absent"
-                and r.get("status") == "absent"
-                for r in rows
-            )
+            and all(_is_zero_or_absent_row(r) for r in rows)
         ):
             return True
         return col.get("status") == "empty" and col.get("reason") == "no_components"

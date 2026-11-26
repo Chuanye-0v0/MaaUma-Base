@@ -9,7 +9,7 @@ from copy import deepcopy
 
 
 SETTLEMENT_ACTIONS = frozenset({
-    "select_skill_evolution", "confirm_skill_evolution_selection", "confirm_skill_evolution", "advance_skill_evolution",
+    "select_skill_evolution", "scroll_skill_evolution", "confirm_skill_evolution_selection", "confirm_skill_evolution", "advance_skill_evolution",
     "confirm_training_rating", "confirm_factors", "confirm_factor_choice",
     "close_trained_detail", "continue_score_record", "continue_scenario_record",
     "confirm_title_notice", "next_training_summary", "next_affinity_result",
@@ -41,7 +41,9 @@ def _settlement_action(observed, result_actions):
         actions = observed.get("actions") or {}
         if "confirm_skill_evolution_selection" in actions:
             return "confirm_skill_evolution_selection"
-        return "select_skill_evolution" if "select_skill_evolution" in actions else None
+        if "select_skill_evolution" in actions:
+            return "select_skill_evolution"
+        return "scroll_skill_evolution" if "scroll_skill_evolution" in actions else None
     return {
         "training_complete": "close_completed_training",
         "character_story_unlock": "close_character_story_unlock",

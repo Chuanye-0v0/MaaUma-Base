@@ -104,6 +104,8 @@ def run_larc_terminal_skills(*, run_root, output_dir, d1_root, external_skill_db
                 "--d1-root", str(d1), "--run-root", str(root), "--output-dir", str(batch),
                 "--turn-id", turn_id, "--resolver-catalog", str(resolver), "--planner-catalog", str(planner),
                 "--external-skill-db-path", str(database), "--endpoint", report["device"], "--execute"]
+            if identity is not None:
+                argv.extend(["--prior-identity-json", json.dumps(identity, ensure_ascii=False)])
             if pending_return is not None:
                 argv.append("--resume-confirmed-return")
             if readonly_recovery is not None:

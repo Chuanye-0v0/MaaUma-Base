@@ -183,27 +183,94 @@ def _learn_race_skills(api, device, output, context, preference, initial_points,
             if owned_remaining != remaining else {})}
 
 
-def _terminal(device, api, *, expected_endpoint=ENDPOINT):
-    observed = device.capture()
-    if (observed.get("endpoint") != expected_endpoint or observed.get("page") != "finish_ready"
-            or type(observed.get("current_skill_points")) is not int
-            or observed["current_skill_points"] < 0):
-        raise ValueError("fresh_terminal_not_verified")
-    captured = observed.get("captured_at_unix_ms")
-    if type(captured) is not int or not 0 <= time.time()*1000-captured <= 10000:
-        raise ValueError("terminal_capture_not_fresh")
-    frame = Path(observed["screenshot_path"])
-    if hashlib.sha256(frame.read_bytes()).hexdigest() != observed.get("frame_sha256"):
-        raise ValueError("terminal_source_sha_mismatch")
-    identity = api.canonical_finish_evidence(observed)
-    if not identity:
-        raise ValueError("terminal_identity_unverified")
-    before = {key: observed[key] for key in (
-        "endpoint", "page", "current_skill_points", "screenshot_path", "frame_sha256",
-        "captured_at_unix_ms")}
-    if isinstance(observed.get("current_stats"), dict):
-        before["current_stats"] = observed["current_stats"]
-    return before, identity
+def _merge_prior_finish_identity(observed, prior_identity):
+    """Reuse prior verified identity only on finish_ready with >=3 agreeing styles and no conflict."""
+    if not isinstance(prior_identity, dict):
+        return None
+    name = prior_identity.get("name")
+    prior_styles = prior_identity.get("run_styles")
+    if not isinstance(name, str) or not name or not isinstance(prior_styles, dict):
+        return None
+    expected_styles = {"领跑", "跟前", "居中", "后追"}
+    valid_grades = {"G", "F", "E", "D", "C", "B", "A", "S", "SS"}
+    if set(prior_styles) != expected_styles or any(
+        not isinstance(prior_styles.get(k), str) or prior_styles.get(k) not in valid_grades
+        for k in expected_styles
+    ):
+        return None
+    if observed.get("page") != "finish_ready":
+        return None
+    actions = observed.get("actions")
+    control = actions.get("finish_training") if isinstance(actions, dict) else None
+    point = control.get("point") if isinstance(control, dict) else None
+    if not (
+        isinstance(point, list) and len(point) == 2
+        and all(type(item) is int for item in point)
+        and (0 <= point[0] < 720) and (0 <= point[1] < 1280)
+        and control.get("enabled") is not False
+    ):
+        return None
+    summary = observed.get("finish_summary")
+    if not isinstance(summary, dict) or summary.get("name") != name:
+        return None
+    obs_styles = summary.get("run_styles")
+    if not isinstance(obs_styles, dict) or not (set(obs_styles) <= expected_styles):
+        return None
+    non_null = {k: v for k, v in obs_styles.items() if v is not None}
+    if len(non_null) < 3:
+        return None
+    if any(v != prior_styles.get(k) for k, v in non_null.items()):
+        return None
+    return {"name": name, "run_styles": dict(prior_styles)}
+
+
+def _terminal(device, api, *, expected_endpoint=ENDPOINT, prior_identity=None,
+              max_attempts=6, retry_delay=0.35):
+    observed = None
+    for attempt in range(max_attempts):
+        observed = device.capture()
+        if observed.get("endpoint") != expected_endpoint:
+            raise ValueError("fresh_terminal_not_verified")
+        if (observed.get("page") != "finish_ready"
+                or type(observed.get("current_skill_points")) is not int
+                or observed["current_skill_points"] < 0):
+            if attempt + 1 < max_attempts and observed.get("page") in {"finish_ready", "unknown", "loading", None}:
+                time.sleep(retry_delay)
+                continue
+            raise ValueError("fresh_terminal_not_verified")
+        captured = observed.get("captured_at_unix_ms")
+        if type(captured) is not int or not 0 <= time.time()*1000-captured <= 10000:
+            raise ValueError("terminal_capture_not_fresh")
+        frame = Path(observed["screenshot_path"])
+        if hashlib.sha256(frame.read_bytes()).hexdigest() != observed.get("frame_sha256"):
+            raise ValueError("terminal_source_sha_mismatch")
+        identity = api.canonical_finish_evidence(observed)
+        if identity:
+            before = {key: observed[key] for key in (
+                "endpoint", "page", "current_skill_points", "screenshot_path", "frame_sha256",
+                "captured_at_unix_ms")}
+            if isinstance(observed.get("current_stats"), dict):
+                before["current_stats"] = observed["current_stats"]
+            if attempt > 0:
+                before["terminal_capture_attempts"] = attempt + 1
+            return before, identity
+        if attempt + 1 < max_attempts:
+            time.sleep(retry_delay)
+            continue
+        fallback = _merge_prior_finish_identity(observed, prior_identity)
+        if fallback:
+            synthetic = {**observed, "finish_summary": {**(observed.get("finish_summary") or {}), "run_styles": fallback["run_styles"]}}
+            verified_fallback = api.canonical_finish_evidence(synthetic)
+            if verified_fallback:
+                before = {key: observed[key] for key in (
+                    "endpoint", "page", "current_skill_points", "screenshot_path", "frame_sha256",
+                    "captured_at_unix_ms")}
+                if isinstance(observed.get("current_stats"), dict):
+                    before["current_stats"] = observed["current_stats"]
+                before["terminal_capture_attempts"] = attempt + 1
+                before["identity_fallback"] = "prior_batch_verified_partial_match"
+                return before, verified_fallback
+    raise ValueError("terminal_identity_unverified")
 
 
 def confirmed_return_state(worker_path: Path, *, run_root: Path, endpoint: str,
@@ -291,6 +358,7 @@ def run_skill_batch(*, d1_root: Path, run_root: Path, output_dir: Path, turn_id:
                     external_skill_db_path: Path, endpoint: str = ENDPOINT,
                     adb_path: str | None = None, execute: bool = False,
                     current_speed: int | None = None,
+                    prior_identity: dict | None = None,
                     resume_confirmed_return: bool = False, resume_readonly_prepare: Path | None = None) -> dict:
     report = {"schema_version": "larc_d1_skill_batch.v1", "ok": False,
               "reason": "dry_run_no_device_actions", "endpoint": endpoint,
@@ -382,7 +450,9 @@ def run_skill_batch(*, d1_root: Path, run_root: Path, output_dir: Path, turn_id:
             report.update(ok=True, stage="complete", reason=report["learning_result"]["reason"])
             save()
             return report
-        before, identity = _terminal(device, api, expected_endpoint=endpoint)
+        before, identity = _terminal(
+            device, api, expected_endpoint=endpoint, prior_identity=prior_identity,
+        )
         report.update(before=before, finish_identity=identity)
         policy_dir = root / "skill_policy"
         race_policy = policy_dir / "race_build_context.json"
@@ -508,9 +578,13 @@ def main() -> int:
     parser.add_argument("--adb-path")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--current-speed", type=int)
+    parser.add_argument("--prior-identity-json")
     parser.add_argument("--resume-confirmed-return", action="store_true")
     parser.add_argument("--resume-readonly-prepare", type=Path)
-    report = run_skill_batch(**vars(parser.parse_args()))
+    parsed = vars(parser.parse_args())
+    prior_raw = parsed.pop("prior_identity_json", None)
+    parsed["prior_identity"] = json.loads(prior_raw) if prior_raw else None
+    report = run_skill_batch(**parsed)
     print(json.dumps(report, ensure_ascii=False))
     return 0 if report["ok"] or report["reason"] == "dry_run_no_device_actions" else 2
 
