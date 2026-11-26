@@ -387,6 +387,42 @@ def _stop(summary, reason):
         summary.update(status="handoff", handoff="terminal")
 
 
+def _sanitize_error_message(exc: BaseException, ctx, backend_root: Path = ROOT) -> str:
+    """Rewrite ctx.root / backend_root prefixes so redaction keeps relative filenames."""
+    text = str(exc)
+    replacements: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for base, label in ((getattr(ctx, "root", None), "[RUN]"), (backend_root, "[BACKEND]")):
+        if not base:
+            continue
+        for cand in (Path(base), Path(base).absolute(), Path(base).resolve()):
+            raw = str(cand).rstrip("\\/")
+            if raw.startswith("\\\\?\\"):
+                raw = raw[4:]
+            norm = raw.casefold()
+            if raw and norm not in seen:
+                seen.add(norm)
+                replacements.append((raw, label))
+    # Replace longest / most-specific prefix first ([RUN] precedes [BACKEND]/runs/...).
+    replacements.sort(key=lambda item: (-len(item[0]), 0 if item[1] == "[RUN]" else 1))
+    for prefix, label in replacements:
+        parts = [re.escape(part) for part in re.split(r"[\\/]+", prefix) if part]
+        if not parts:
+            continue
+        pattern = re.compile(
+            r"(?i)(?:\\\\\?\\)?" + r"[\\/]+".join(parts) + r"(?=(?:[\\/]|$|['\"\s,;:\]\)]))",
+        )
+        text = pattern.sub(label, text)
+    for label in ("[RUN]", "[BACKEND]"):
+        token = re.escape(label)
+        text = re.sub(
+            rf"{token}([\\/]+[^\r\n'\"<>|]*)",
+            lambda m, tok=label: tok + re.sub(r"[\\/]+", "/", m.group(1)),
+            text,
+        )
+    return text
+
+
 def _record_outing_inspection_failure(summary, error):
     """Keep this failed inspection's frame, never a previous pipeline image."""
     _stop(summary, "execution_exception")
@@ -2936,7 +2972,8 @@ def _run(args):
                     reason = 'mei_unlock_failed'
                     save_summary()
                     break
-                binding_cfg = _read(ctx.root / 'session/ace_cycle_binding.json')
+                binding_path = ctx.root / 'session/ace_cycle_binding.json'
+                binding_cfg = _read(binding_path) if binding_path.is_file() else None
                 tf_cfg = binding_cfg.get('training_failure_restart') if isinstance(binding_cfg, dict) else None
                 if (isinstance(binding_cfg, dict)
                         and binding_cfg.get('run_session_id') == ctx.run_id
@@ -3453,7 +3490,23 @@ def _run(args):
             else "execution_exception"
         )
         _stop(summary, stop_reason)
-        summary["error"] = f"{type(exc).__name__}:{exc}"
+        err_payload = None
+        try:
+            from core.auto_trainer.runner_error_diagnostics import record_runner_error
+            err_payload = record_runner_error(
+                ctx.root,
+                exc,
+                reason=stop_reason,
+                mode="career" if getattr(ctx, "cut_farming_hook", None) is None else "cut",
+                run_id=ctx.run_id,
+            )
+        except Exception:
+            err_payload = None
+        safe_msg = _sanitize_error_message(exc, ctx)
+        if err_payload and err_payload.get("location") and err_payload.get("line"):
+            summary["error"] = f"{type(exc).__name__}@{err_payload['location']}:{err_payload['line']}:{safe_msg}"
+        else:
+            summary["error"] = f"{type(exc).__name__}:{safe_msg}"
         if failure:summary['capture_failure']=failure
     finally:
         # Freeze the already observed frame before closing probes/journals.

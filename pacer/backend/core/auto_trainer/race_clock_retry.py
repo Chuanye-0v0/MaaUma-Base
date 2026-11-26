@@ -369,11 +369,29 @@ def read_retry(image, text, *, reader=None):
         return None
     if proof["rank"] is None or proof["rank"] <= 1:
         return None
+    readings = {}
     for key, roi in zip(("before", "after"), rois):
         value, confidence = _line(normalized, roi, reader)
-        if not re.fullmatch(r"[0-9]{1,5}", value) or confidence < .9:
+        if not re.fullmatch(r"[0-9]{1,5}", value):
             return None
-        proof[key] = int(value)
+        readings[key] = (int(value), float(confidence))
+    before_val, before_conf = readings["before"]
+    after_val, after_conf = readings["after"]
+    min_conf = min(before_conf, after_conf)
+    max_conf = max(before_conf, after_conf)
+    paid_retry = before_val > 0 and after_val == before_val - 1
+    explicit_free = proof["free"] is True and before_val == after_val
+    inferred_free = proof["free"] is False and before_val == after_val
+    if paid_retry or explicit_free:
+        if min_conf < 0.75 or max_conf < 0.9:
+            return None
+    elif inferred_free:
+        if min_conf < 0.9:
+            return None
+    else:
+        return None
+    proof["before"] = before_val
+    proof["after"] = after_val
     # These two values are the same ready confirmation's cost preview, not
     # inventory sampled before/after a submitted retry. A verified zero-cost
     # preview can establish no stock consumption without an exact free banner.

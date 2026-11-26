@@ -189,7 +189,7 @@ def annotate(snapshot,root):
             if state=='stopped' else '后台运行心跳更新失败，已请求停止脚本；请等待后台确认。')
         message+='可提交停止报告查看已记录的异常类型。'
     runner_error=None
-    if source=='control' and reason in {'runner_error','device_busy'}:
+    if source=='control' and reason in {'runner_error','device_busy','execution_exception'}:
         runner_error=_load_runner_error(snapshot,root,batch_id,attempt_id,control.get('run_id'))
         if runner_error and not message:
             err_msg=(runner_error.get('error_message') or '')

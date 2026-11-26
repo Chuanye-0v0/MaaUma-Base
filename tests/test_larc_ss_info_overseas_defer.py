@@ -68,8 +68,10 @@ class _DummyTrainingParser:
 
 class LarcSSInfoOverseasDeferTests(unittest.TestCase):
     def test_overseas_expedition_period_detection(self) -> None:
-        for yr in (2, 3):
-            for m, h in ((7, "second"), (8, "first"), (8, "second"), (9, "first"), (9, "second")):
+        for yr, m, h in (
+            (2, 7, "second"), (2, 8, "first"), (2, 8, "second"), (2, 9, "first"), (2, 9, "second"),
+            (3, 7, "first"), (3, 7, "second"), (3, 8, "first"), (3, 8, "second"), (3, 9, "first"), (3, 9, "second"),
+        ):
                 args_top = types.SimpleNamespace(
                     _main_menu_provider_report={"larc_period": {"status": "verified", "value": {"year_index": yr, "month": m, "half": h}}}
                 )
@@ -85,6 +87,7 @@ class LarcSSInfoOverseasDeferTests(unittest.TestCase):
             (1, 8, "first", "verified"),
             (2, 7, "first", "verified"),
             (2, 10, "first", "verified"),
+            (3, 6, "second", "verified"),
             (3, 10, "second", "verified"),
             (2, 9, "second", "unverified"),
         ):
