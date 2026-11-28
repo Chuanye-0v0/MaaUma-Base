@@ -7,7 +7,7 @@ import re
 import uuid
 
 from core.auto_trainer.cut_farming import CutFarmingConfig, CutSession, atomic_json, load_event_references
-from core.auto_trainer.dashboard_control import ControlProfile, DashboardControlService
+from core.auto_trainer.dashboard_control import ControlProfile, ControlStateError, DashboardControlService
 from core.auto_trainer.dashboard_runner import RunnerHeartbeatWorker
 from core.auto_trainer.runtime_control import RunControl, RunStopped
 
@@ -304,11 +304,19 @@ def create_cut_control_service(state_dir, profiles, *, umaa_root, lease=None, co
                         f'127.0.0.1:{config.device_port}', 'pacer'):
                     result = run_controller(settings, config, control)
             status = result.get('status', 'stopped')
+            outcome = 'completed' if status in {'found', 'limit_reached', 'completed'} else 'stopped'
             reason = 'cut_' + re.sub(r'[^a-z0-9_.:-]', '_', str(status).lower())[:80]
-            port.finish(outcome='completed' if status in {'found', 'limit_reached', 'completed'} else 'stopped',
-                reason=reason, evidence_sha256=None)
+            control.finish()
+            try:
+                port.finish(outcome=outcome, reason=reason, evidence_sha256=None)
+            except ControlStateError as err:
+                if err.code == 'runner_finish_rejected' and outcome == 'completed':
+                    port.finish(outcome='stopped', reason=reason, evidence_sha256=None)
+                else:
+                    raise
         except RunStopped as exc:
             reason='runner_heartbeat_failed' if heartbeat is not None and heartbeat.failure is not None else exc.reason
+            control.finish()
             port.finish(outcome='stopped', reason=reason, evidence_sha256=None)
         except Exception as error:
             reason=('runner_heartbeat_failed' if heartbeat is not None and heartbeat.failure is not None
@@ -325,6 +333,7 @@ def create_cut_control_service(state_dir, profiles, *, umaa_root, lease=None, co
                 )
             except Exception:
                 pass
+            control.finish()
             port.finish(outcome='stopped', reason=reason, evidence_sha256=None)
             raise
         finally:
@@ -377,7 +386,8 @@ def create_cut_control_service(state_dir, profiles, *, umaa_root, lease=None, co
         return result
     service = DashboardControlService(state_dir=Path(state_dir),
         profiles={name: ControlProfile(name, dict(settings)) for name, settings in profiles.items()},
-        runner_factory=factory)
+        runner_factory=factory,
+        heartbeat_timeout=45.0)
     if service.snapshot()['state'] not in {'idle','stopped'} or (Path(state_dir)/'runner.lock').exists():
         # A backend restart leaves the old advisory control marker on disk.
         # Obtain the actual device lease before retiring it, so a live U1/D1

@@ -276,6 +276,7 @@ def launch_worker(ctx,output,request):
     catalogs=Path(getattr(ctx,'startup_skill_catalog_dir',None) or Path(ctx.d1_skill_root)/'data/skills/cn-20260916')
     runtime=resolve_tesseract_runtime();env=skill_ocr_environment(os.environ,executable=runtime.executable)
     env['PYTHONDONTWRITEBYTECODE']='1'
+    out_path = Path(output)
     argv=[sys.executable,'-B',str(Path(__file__).with_name('larc_d1_prerace_skill_worker.py')),
         '--purpose','support_startup','--year',str(request['year']), '--startup-required-count',str(request['required']),
         '--max-purchase-count',str(request.get("max_purchase_count",5)),
@@ -283,10 +284,43 @@ def launch_worker(ctx,output,request):
         '--output-dir',str(output),'--resolver-catalog',str(catalogs/'cn_skill_resolver_catalog.json'),
         '--planner-catalog',str(catalogs/'cn_skill_planner_catalog.json'),'--external-skill-db-path',str(ctx.external_skill_db_path),
         '--endpoint',ctx.progress['device'],'--execute']
-    result=run_controlled_process(argv,cwd=str(ctx.root),capture_output=True,text=True,encoding='utf-8',errors='replace',env=env)
-    _atomic_write_json(Path(output).parent/'worker_process.json',{'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr})
-    report=Path(output)/'worker_report.json'
-    return read(report) if report.is_file() else {'ok':False,'purchase_may_have_occurred':True,'reason':'worker_report_missing'}
+    probe = lambda: (out_path / 'worker_report.json').is_file() or (out_path.is_dir() and any(out_path.iterdir()))
+    result=run_controlled_process(
+        argv,
+        cwd=str(ctx.root),
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        env=env,
+        startup_timeout=35.0,
+        startup_probe=probe,
+        total_timeout=240.0,
+        diagnostics_dir=out_path.parent,
+    )
+    stalled = bool(getattr(result, 'startup_stalled', False))
+    diag_path = getattr(result, 'diagnostics_path', None)
+    _atomic_write_json(out_path.parent/'worker_process.json',{
+        'returncode':result.returncode,
+        'stdout':result.stdout,
+        'stderr':result.stderr,
+        'startup_stalled':stalled,
+        'timed_out':bool(getattr(result,'timed_out',False)),
+        'diagnostics_path':diag_path,
+    })
+    report=out_path/'worker_report.json'
+    if report.is_file():
+        return read(report)
+    zero_output = (not out_path.exists()) or (not any(out_path.iterdir()))
+    return {
+        'ok':False,
+        'purchase_may_have_occurred':not zero_output,
+        'zero_output_startup_failure':zero_output,
+        'reason':'worker_startup_stalled' if stalled else 'worker_report_missing',
+        'returncode':result.returncode,
+        'startup_stalled':stalled,
+        'diagnostics_path':diag_path,
+    }
 
 def prepare_support_skills(ctx,source,provider,output_dir,*,cut_mode=False,navigation_factory=StartupNavigation,worker=launch_worker):
     goal=load_goal_config(ctx.root/'goal.json')

@@ -104,7 +104,19 @@ class SupportPreparation:
         if self.reused_filters:self.context['support_filters_applied']=True
         self.pending = None
         self.last_observed = None
+        self._open_friend_wait_reads = 0
+        self._open_friend_retries = 0
         self.ocr = ocr
+
+    def reset_pending(self, *, clear_selection_state: bool = False) -> None:
+        self.pending = None
+        self.last_observed = None
+        self._open_friend_wait_reads = 0
+        self._open_friend_retries = 0
+        self.context.pop('support_filter_open', None)
+        if clear_selection_state:
+            for key in ('support_selected', 'support_origin_deck', 'support_scrolls', 'support_refreshes'):
+                self.context.pop(key, None)
 
     def analyze(self, image, tokens, *, scale=1., source=None):
         text = ''.join(t['text'] for t in tokens)
@@ -143,16 +155,29 @@ class SupportPreparation:
         if self.pending:
             action, before = self.pending
             if observed['page'] not in self.api.NEXT_PAGES[action]:
-                return {'state': 'wait', 'reason': 'support_preparation_transition', 'next_phase': 'setup'}
-            try:
-                self.api.after_action(action, before, observed, self.context)
-            except RuntimeError:
-                # The one input is submitted. Observe its destination; never
-                # tap the previous row/filter/deck button again during animation.
-                return {'state': 'wait', 'reason': 'support_preparation_transition', 'next_phase': 'setup'}
-            if action=='support_filter_apply' and self.context.get('support_filters_applied'):
-                self.filter_cache.update(verified=True,signature=self.filter_signature)
-            self.pending = None
+                if action == 'support_open_friend' and observed['page'] == 'support_deck':
+                    self._open_friend_wait_reads += 1
+                    if self._open_friend_wait_reads >= 4 and self._open_friend_retries < 1:
+                        self._open_friend_retries += 1
+                        self._open_friend_wait_reads = 0
+                        self.pending = None
+                    else:
+                        return {'state': 'wait', 'reason': 'support_preparation_transition', 'next_phase': 'setup'}
+                else:
+                    return {'state': 'wait', 'reason': 'support_preparation_transition', 'next_phase': 'setup'}
+            else:
+                try:
+                    self.api.after_action(action, before, observed, self.context)
+                except RuntimeError:
+                    # The one input is submitted. Observe its destination; never
+                    # tap the previous row/filter/deck button again during animation.
+                    return {'state': 'wait', 'reason': 'support_preparation_transition', 'next_phase': 'setup'}
+                self._open_friend_wait_reads = 0
+                if action == 'support_open_friend':
+                    self._open_friend_retries = 0
+                if action=='support_filter_apply' and self.context.get('support_filters_applied'):
+                    self.filter_cache.update(verified=True,signature=self.filter_signature)
+                self.pending = None
         if (observed['page'] == 'support_deck' and not self.options.get('borrow_card_id')
                 and observed.get('support_deck_index') == self.options.get('support_deck', observed.get('support_deck_index'))
                 and observed.get('owned_support_full') is True and not observed['support_full']):
@@ -164,9 +189,6 @@ class SupportPreparation:
             self.api.authorize(action, observed, self.context)
         except RuntimeError as error:
             reason = str(error)
-            if reason=='owned_support_incomplete':
-                return {'state':'unknown','reason':'support_self_cards_unreadable',
-                    'support_slots':observed.get('support_slots')}
             if reason=='requested_borrow_card_not_found' and self.reused_filters:
                 # Game settings usually persist. If the remembered filter no
                 # longer exposes a valid target, rebuild it once from this
@@ -174,11 +196,31 @@ class SupportPreparation:
                 self.reused_filters=False;self.filter_cache.clear()
                 for key in ('support_filters_applied','support_filter_reset','support_scrolls','support_refreshes'):
                     self.context.pop(key,None)
-                action=self.api.choose(observed,self.context)
-                self.api.authorize(action,observed,self.context)
-            elif reason in {'support_deck_index_unverified', 'support_friend_list_not_ready', 'support_filter_state_unverified'}:
-                return {'state': 'wait', 'reason': reason, 'next_phase': 'setup'}
-            else:
+                try:
+                    action=self.api.choose(observed,self.context)
+                    if action is None:
+                        return None
+                    self.api.authorize(action,observed,self.context)
+                    reason = None
+                except RuntimeError as retry_error:
+                    reason = str(retry_error)
+            if reason is not None:
+                if reason=='owned_support_incomplete':
+                    return {'state':'unknown','reason':'support_self_cards_unreadable',
+                        'support_slots':observed.get('support_slots')}
+                if reason in {'support_deck_index_unverified', 'support_friend_list_not_ready', 'support_filter_state_unverified'}:
+                    return {'state': 'wait', 'reason': reason, 'next_phase': 'setup'}
+                if reason == 'requested_borrow_card_not_found':
+                    return {
+                        'state': 'unknown',
+                        'reason': reason,
+                        'borrow_target': dict(self.options),
+                        'message': (
+                            f"未找到符合条件的借卡（ID={self.options.get('borrow_card_id')}，"
+                            f"等级≥{self.options.get('borrow_min_level', 1)}，"
+                            f"突破≥{self.options.get('borrow_min_break', 0)}）"
+                        ),
+                    }
                 return {'state': 'unknown', 'reason': reason}
         self.last_observed = observed
         if action == 'continue_support':
@@ -203,6 +245,7 @@ class SupportPreparation:
     def submitted(self, action):
         if action not in self.api.ACTION_PAGES or self.last_observed is None:
             raise ValueError('support_action_not_authorized')
+        self._open_friend_wait_reads = 0
         self.pending = (action, deepcopy(self.last_observed))
         # The settings destination needs this flag to recognize its own family.
         if action == 'support_settings':

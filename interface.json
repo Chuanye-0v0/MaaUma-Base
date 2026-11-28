@@ -1,7 +1,7 @@
 {
   "interface_version": 2,
   "name": "MaaUma 普通版",
-  "version": "0.6.7",
+  "version": "0.6.25",
   "rid": "umaa-public",
   "icon": "resource/umaa-hishi-miracle.png",
   "controller": [
@@ -137,6 +137,17 @@
         "最强团队招揽赛上限",
         "最强团队额外补票",
         "最强团队活动闹钟"
+      ]
+    },
+    {
+      "name": "竞速嘉年华",
+      "entry": "UmaRacingCarnival",
+      "default_check": false,
+      "description": "按轮序或指定赛道参战竞速嘉年华（默认困难、复用传奇选马），出现隐藏挑战赛可优先参战，RP不足时按次数自动消耗已有迷你胡萝卜果冻，并自动领取日常与期间限定任务奖励。严禁花宝石、兑换或进养成。",
+      "option": [
+        "嘉年华选择对手",
+        "嘉年华出现隐藏先打",
+        "嘉年华参赛次数"
       ]
     }
   ],
@@ -396,7 +407,8 @@
                 "opponent_number": 15
               }
             }
-          }
+          },
+          "label": "目白莱恩"
         },
         {
           "name": "无声铃鹿",
@@ -1346,7 +1358,8 @@
             }
           },
           "icon": "{PROJECT_DIR}/../portraits/105201.png",
-          "description": "乌拉拉一等奖♪"
+          "description": "乌菈菈一等奖♪",
+          "label": "春乌菈菈（初始）"
         },
         {
           "name": "黄金船（初始）",
@@ -1374,7 +1387,7 @@
         },
         {
           "name": "preview_100101",
-          "label": "特别周 · 特别梦想家",
+          "label": "特别周 · 特别追梦者",
           "icon": "{PROJECT_DIR}/../portraits/100101.png",
           "description": "育成版本 100101；衣装 100101；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1387,7 +1400,7 @@
         },
         {
           "name": "preview_100102",
-          "label": "特别周 · 跳躍♪富含維他命的心",
+          "label": "特别周 · 雀跃♪维他命心拍",
           "icon": "{PROJECT_DIR}/../portraits/100102.png",
           "description": "育成版本 100102；衣装 100130；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1400,7 +1413,7 @@
         },
         {
           "name": "preview_100103",
-          "label": "特别周 · 日之本一的总大将",
+          "label": "特别周 · 全国第一总大将",
           "icon": "{PROJECT_DIR}/../portraits/100103.png",
           "description": "育成版本 100103；衣装 100102；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1413,7 +1426,7 @@
         },
         {
           "name": "preview_100201",
-          "label": "无声铃鹿 · 无声无邪",
+          "label": "无声铃鹿 · 无声无瑕",
           "icon": "{PROJECT_DIR}/../portraits/100201.png",
           "description": "育成版本 100201；衣装 100201；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1426,7 +1439,7 @@
         },
         {
           "name": "preview_100202",
-          "label": "无声铃鹿 · 波浪间的绿宝石",
+          "label": "无声铃鹿 · 浪间翠玉",
           "icon": "{PROJECT_DIR}/../portraits/100202.png",
           "description": "育成版本 100202；衣装 100230；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1439,9 +1452,9 @@
         },
         {
           "name": "preview_100301",
-          "label": "东海帝王 · 无上喜悦",
+          "label": "东海帝王 · 喜乐无边",
           "icon": "{PROJECT_DIR}/../portraits/100301.png",
-          "description": "育成版本 100301；衣装 100301；开放测试，未持有或识别不符时停止。",
+          "description": "育成版本 100301；衣装 100301；开放测试，未持有或识别不符时停止。；别名：东海帝皇",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -1452,9 +1465,9 @@
         },
         {
           "name": "preview_100302",
-          "label": "东海帝王 · 超越地平线",
+          "label": "东海帝王 · 飞跃地平线",
           "icon": "{PROJECT_DIR}/../portraits/100302.png",
-          "description": "育成版本 100302；衣装 100302；开放测试，未持有或识别不符时停止。",
+          "description": "育成版本 100302；衣装 100302；开放测试，未持有或识别不符时停止。；别名：东海帝皇",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -1465,9 +1478,9 @@
         },
         {
           "name": "preview_100303",
-          "label": "东海帝王 · 梦见紫云",
+          "label": "东海帝王 · 紫云中的寻梦蝶",
           "icon": "{PROJECT_DIR}/../portraits/100303.png",
-          "description": "育成版本 100303；衣装 100343；开放测试，未持有或识别不符时停止。",
+          "description": "育成版本 100303；衣装 100343；开放测试，未持有或识别不符时停止。；别名：东海帝皇",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -1504,7 +1517,7 @@
         },
         {
           "name": "preview_100501",
-          "label": "富士奇石 · 流星之歌剧",
+          "label": "富士奇石 · 流星歌剧",
           "icon": "{PROJECT_DIR}/../portraits/100501.png",
           "description": "育成版本 100501；衣装 100501；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1517,7 +1530,7 @@
         },
         {
           "name": "preview_100502",
-          "label": "富士奇石 · 星光告捷",
+          "label": "富士奇石 · 胜利之星",
           "icon": "{PROJECT_DIR}/../portraits/100502.png",
           "description": "育成版本 100502；衣装 100520；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1530,7 +1543,7 @@
         },
         {
           "name": "preview_100601",
-          "label": "小栗帽 · 星光鼓动",
+          "label": "小栗帽 · 星光跃动",
           "icon": "{PROJECT_DIR}/../portraits/100601.png",
           "description": "育成版本 100601；衣装 100601；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1543,7 +1556,7 @@
         },
         {
           "name": "preview_100602",
-          "label": "小栗帽 · 奇迹的白星",
+          "label": "小栗帽 · 奇迹的胜利之星",
           "icon": "{PROJECT_DIR}/../portraits/100602.png",
           "description": "育成版本 100602；衣装 100646；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1556,7 +1569,7 @@
         },
         {
           "name": "preview_100702",
-          "label": "黄金船 · RUN！乱！兰彻！！",
+          "label": "黄金船 · RUN！乱！发射！！",
           "icon": "{PROJECT_DIR}/../portraits/100702.png",
           "description": "育成版本 100702；衣装 100730；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1582,7 +1595,7 @@
         },
         {
           "name": "preview_100802",
-          "label": "伏特加 · 防冻的水上维塔",
+          "label": "伏特加 · 不会结冰的生命之水",
           "icon": "{PROJECT_DIR}/../portraits/100802.png",
           "description": "育成版本 100802；衣装 100846；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1595,7 +1608,7 @@
         },
         {
           "name": "preview_100902",
-          "label": "大和赤骥 · 绯红色的纽伊·埃特瓦雷",
+          "label": "大和赤骥 · 绯红的星月之夜",
           "icon": "{PROJECT_DIR}/../portraits/100902.png",
           "description": "育成版本 100902；衣装 100946；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1608,7 +1621,7 @@
         },
         {
           "name": "preview_101001",
-          "label": "大树快车 · 狂野边境",
+          "label": "大树快车 · 狂野前线",
           "icon": "{PROJECT_DIR}/../portraits/101001.png",
           "description": "育成版本 101001；衣装 101001；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1647,7 +1660,7 @@
         },
         {
           "name": "preview_101102",
-          "label": "草上飞 · 圣翡翠治愈师",
+          "label": "草上飞 · 圣翠治愈师",
           "icon": "{PROJECT_DIR}/../portraits/101102.png",
           "description": "育成版本 101102；衣装 101116；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1660,7 +1673,7 @@
         },
         {
           "name": "preview_101201",
-          "label": "菱亚马逊 · 亚马逊战士",
+          "label": "菱亚马逊 · 亚马逊青金石",
           "icon": "{PROJECT_DIR}/../portraits/101201.png",
           "description": "育成版本 101201；衣装 101201；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1686,7 +1699,7 @@
         },
         {
           "name": "preview_101301",
-          "label": "目白麦昆 · 优雅前行",
+          "label": "目白麦昆 · 优雅曲线",
           "icon": "{PROJECT_DIR}/../portraits/101301.png",
           "description": "育成版本 101301；衣装 101301；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1699,7 +1712,7 @@
         },
         {
           "name": "preview_101302",
-          "label": "目白麦昆 · 天空的尽头",
+          "label": "目白麦昆 · 天际尽头",
           "icon": "{PROJECT_DIR}/../portraits/101302.png",
           "description": "育成版本 101302；衣装 101302；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1712,7 +1725,7 @@
         },
         {
           "name": "preview_101303",
-          "label": "目白麦昆 · 涟漪公平女士",
+          "label": "目白麦昆 · 涟漪佳人",
           "icon": "{PROJECT_DIR}/../portraits/101303.png",
           "description": "育成版本 101303；衣装 101330；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1725,7 +1738,7 @@
         },
         {
           "name": "preview_101401",
-          "label": "神鹰 · 神鹰☆Number 1",
+          "label": "神鹰 · 小鹰☆Número 1",
           "icon": "{PROJECT_DIR}/../portraits/101401.png",
           "description": "育成版本 101401；衣装 101401；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1738,7 +1751,7 @@
         },
         {
           "name": "preview_101402",
-          "label": "神鹰 · 羽蛇神武斗家",
+          "label": "神鹰 · 羽蛇武斗家",
           "icon": "{PROJECT_DIR}/../portraits/101402.png",
           "description": "育成版本 101402；衣装 101416；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1751,7 +1764,7 @@
         },
         {
           "name": "preview_101501",
-          "label": "好歌剧 · 你的太阳！",
+          "label": "好歌剧 · O sole suo！",
           "icon": "{PROJECT_DIR}/../portraits/101501.png",
           "description": "育成版本 101501；衣装 101501；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1764,7 +1777,7 @@
         },
         {
           "name": "preview_101502",
-          "label": "好歌剧 · 初晴·蓝色绚烂",
+          "label": "好歌剧 · 新春初晴·宝蓝绚烂",
           "icon": "{PROJECT_DIR}/../portraits/101502.png",
           "description": "育成版本 101502；衣装 101510；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1816,7 +1829,7 @@
         },
         {
           "name": "preview_101702",
-          "label": "鲁道夫象征 · 皓月的弓箭手",
+          "label": "鲁道夫象征 · 皓月下的神箭手",
           "icon": "{PROJECT_DIR}/../portraits/101702.png",
           "description": "育成版本 101702；衣装 101743；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1829,7 +1842,7 @@
         },
         {
           "name": "preview_101801",
-          "label": "气槽 · 皇后大道",
+          "label": "气槽 · 女帝之路",
           "icon": "{PROJECT_DIR}/../portraits/101801.png",
           "description": "育成版本 101801；衣装 101801；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1842,7 +1855,7 @@
         },
         {
           "name": "preview_101802",
-          "label": "气槽 · 橡树之冠",
+          "label": "气槽 · 橡木王冠",
           "icon": "{PROJECT_DIR}/../portraits/101802.png",
           "description": "育成版本 101802；衣装 101826；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1855,7 +1868,7 @@
         },
         {
           "name": "preview_101901",
-          "label": "爱丽数码 · 超特急！全色特殊PP",
+          "label": "爱丽数码 · 超级加急！全彩PP膜特殊加工",
           "icon": "{PROJECT_DIR}/../portraits/101901.png",
           "description": "育成版本 101901；衣装 101901；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1881,7 +1894,7 @@
         },
         {
           "name": "preview_102001",
-          "label": "青云天空 · 青云垂钓",
+          "label": "青云天空 · 青云垂钓者",
           "icon": "{PROJECT_DIR}/../portraits/102001.png",
           "description": "育成版本 102001；衣装 102001；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1894,7 +1907,7 @@
         },
         {
           "name": "preview_102002",
-          "label": "青云天空 · 小猫派对",
+          "label": "青云天空 · 星夜猫咪舞会",
           "icon": "{PROJECT_DIR}/../portraits/102002.png",
           "description": "育成版本 102002；衣装 102020；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1920,7 +1933,7 @@
         },
         {
           "name": "preview_102102",
-          "label": "玉藻十字 · 猛鸣神",
+          "label": "玉藻十字 · 轰鸣雷神",
           "icon": "{PROJECT_DIR}/../portraits/102102.png",
           "description": "育成版本 102102；衣装 102143；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1959,7 +1972,7 @@
         },
         {
           "name": "preview_102301",
-          "label": "琵琶晨光 · pf.胜利方程式...",
+          "label": "琵琶晨光 · pf.胜利公式",
           "icon": "{PROJECT_DIR}/../portraits/102301.png",
           "description": "育成版本 102301；衣装 102301；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -1972,7 +1985,7 @@
         },
         {
           "name": "preview_102302",
-          "label": "琵琶晨光 · 圣诞深红颂歌",
+          "label": "琵琶晨光 · 嫣红圣诞颂歌",
           "icon": "{PROJECT_DIR}/../portraits/102302.png",
           "description": "育成版本 102302；衣装 102346；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2050,7 +2063,7 @@
         },
         {
           "name": "preview_102602",
-          "label": "美浦波旁 · 代号：糖霜",
+          "label": "美浦波旁 · CODE：淋面装饰",
           "icon": "{PROJECT_DIR}/../portraits/102602.png",
           "description": "育成版本 102602；衣装 102613；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2063,9 +2076,9 @@
         },
         {
           "name": "preview_102701",
-          "label": "目白赖恩 · 一往无前",
+          "label": "目白莱恩 · 一往无前",
           "icon": "{PROJECT_DIR}/../portraits/102701.png",
-          "description": "育成版本 102701；衣装 102701；开放测试，未持有或识别不符时停止。；别名：目白莱恩",
+          "description": "育成版本 102701；衣装 102701；开放测试，未持有或识别不符时停止。；别名：目白赖恩",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -2076,9 +2089,9 @@
         },
         {
           "name": "preview_102702",
-          "label": "目白赖恩 · 玛格丽特·拉特",
+          "label": "目白莱恩 · 玛格丽特拿铁",
           "icon": "{PROJECT_DIR}/../portraits/102702.png",
-          "description": "育成版本 102702；衣装 102713；开放测试，未持有或识别不符时停止。",
+          "description": "育成版本 102702；衣装 102713；开放测试，未持有或识别不符时停止。；别名：目白赖恩",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -2089,7 +2102,7 @@
         },
         {
           "name": "preview_102801",
-          "label": "菱曙 · Buono☆alla moda",
+          "label": "菱曙 · Buono☆时尚",
           "icon": "{PROJECT_DIR}/../portraits/102801.png",
           "description": "育成版本 102801；衣装 102801；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2102,7 +2115,7 @@
         },
         {
           "name": "preview_102901",
-          "label": "雪之美人 · 棉胶布",
+          "label": "雪之美人 · 可可爱爱的六出冰花",
           "icon": "{PROJECT_DIR}/../portraits/102901.png",
           "description": "育成版本 102901；衣装 102901；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2115,7 +2128,7 @@
         },
         {
           "name": "preview_102902",
-          "label": "雪之美人 · 小茶点小雪精",
+          "label": "雪之美人 · 茶点雪女",
           "icon": "{PROJECT_DIR}/../portraits/102902.png",
           "description": "育成版本 102902；衣装 102913；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2128,7 +2141,7 @@
         },
         {
           "name": "preview_103001",
-          "label": "米浴 · 蔷薇之梦",
+          "label": "米浴 · 玫瑰之梦",
           "icon": "{PROJECT_DIR}/../portraits/103001.png",
           "description": "育成版本 103001；衣装 103001；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2141,7 +2154,7 @@
         },
         {
           "name": "preview_103002",
-          "label": "米浴 · Make up Vampire!",
+          "label": "米浴 · Make up Vampire！",
           "icon": "{PROJECT_DIR}/../portraits/103002.png",
           "description": "育成版本 103002；衣装 103040；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2154,9 +2167,9 @@
         },
         {
           "name": "preview_103101",
-          "label": "艾尼斯风神 · 空前狂热",
+          "label": "艾尼风神 · 全时狂欢",
           "icon": "{PROJECT_DIR}/../portraits/103101.png",
-          "description": "育成版本 103101；衣装 103101；开放测试，未持有或识别不符时停止。",
+          "description": "育成版本 103101；衣装 103101；开放测试，未持有或识别不符时停止。；别名：艾尼斯风神",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -2167,9 +2180,9 @@
         },
         {
           "name": "preview_103102",
-          "label": "艾尼斯风神 · MELTY GIFT",
+          "label": "艾尼风神 · MELTY GIFT",
           "icon": "{PROJECT_DIR}/../portraits/103102.png",
-          "description": "育成版本 103102；衣装 103113；开放测试，未持有或识别不符时停止。",
+          "description": "育成版本 103102；衣装 103113；开放测试，未持有或识别不符时停止。；别名：艾尼斯风神",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -2208,7 +2221,7 @@
           "name": "preview_103301",
           "label": "爱慕织姬 · Starry Nocturne",
           "icon": "{PROJECT_DIR}/../portraits/103301.png",
-          "description": "育成版本 103301；衣装 103301；开放测试，未持有或识别不符时停止。",
+          "description": "育成版本 103301；衣装 103301；开放测试，未持有或识别不符时停止。；别名：爱丽织姬",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -2219,7 +2232,7 @@
         },
         {
           "name": "preview_103401",
-          "label": "稻荷一 · 稻荷所缘江户紫",
+          "label": "稻荷一 · 稻荷因缘江户紫",
           "icon": "{PROJECT_DIR}/../portraits/103401.png",
           "description": "育成版本 103401；衣装 103401；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2245,7 +2258,7 @@
         },
         {
           "name": "preview_103501",
-          "label": "胜利奖券 · Go To Winning!",
+          "label": "胜利奖券 · Go To Winning！",
           "icon": "{PROJECT_DIR}/../portraits/103501.png",
           "description": "育成版本 103501；衣装 103501；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2258,7 +2271,7 @@
         },
         {
           "name": "preview_103502",
-          "label": "胜利奖券 · Dream Deliverer",
+          "label": "胜利奖券 · 梦想传递员",
           "icon": "{PROJECT_DIR}/../portraits/103502.png",
           "description": "育成版本 103502；衣装 103516；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2310,7 +2323,7 @@
         },
         {
           "name": "preview_103702",
-          "label": "荣进闪耀 · 巧克力匠人",
+          "label": "荣进闪耀 · 精确无比·巧克力大师",
           "icon": "{PROJECT_DIR}/../portraits/103702.png",
           "description": "育成版本 103702；衣装 103713；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2336,7 +2349,7 @@
         },
         {
           "name": "preview_103802",
-          "label": "真机伶 · 朔月的玛·谢利",
+          "label": "真机伶 · 朔月挚爱",
           "icon": "{PROJECT_DIR}/../portraits/103802.png",
           "description": "育成版本 103802；衣装 103826；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2349,7 +2362,7 @@
         },
         {
           "name": "preview_103901",
-          "label": "川上公主 · 粉红色的公主",
+          "label": "川上公主 · 粉红公主",
           "icon": "{PROJECT_DIR}/../portraits/103901.png",
           "description": "育成版本 103901；衣装 103901；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2401,7 +2414,7 @@
         },
         {
           "name": "preview_104102",
-          "label": "樱花进王 · 红热队长",
+          "label": "樱花进王 · 赤热☆队长",
           "icon": "{PROJECT_DIR}/../portraits/104102.png",
           "description": "育成版本 104102；衣装 104150；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2440,7 +2453,7 @@
         },
         {
           "name": "preview_104401",
-          "label": "东商变革 · 普拉塔纳斯·威奇",
+          "label": "东商变革 · 悬铃木魔女",
           "icon": "{PROJECT_DIR}/../portraits/104401.png",
           "description": "育成版本 104401；衣装 104401；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2466,7 +2479,7 @@
         },
         {
           "name": "preview_104502",
-          "label": "超级溪流 · 雪纺丝带妈咪（木乃伊）",
+          "label": "超级溪流 · 雪纺丝带木乃伊",
           "icon": "{PROJECT_DIR}/../portraits/104502.png",
           "description": "育成版本 104502；衣装 104540；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2479,7 +2492,7 @@
         },
         {
           "name": "preview_104601",
-          "label": "醒目飞鹰 · Absolute☆LOVE",
+          "label": "醒目飞鹰 · 绝对☆LOVE",
           "icon": "{PROJECT_DIR}/../portraits/104601.png",
           "description": "育成版本 104601；衣装 104601；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2492,7 +2505,7 @@
         },
         {
           "name": "preview_104602",
-          "label": "醒目飞鹰 · 黄昏三人组",
+          "label": "醒目飞鹰 · 黄昏凯旋",
           "icon": "{PROJECT_DIR}/../portraits/104602.png",
           "description": "育成版本 104602；衣装 104602；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2518,7 +2531,7 @@
         },
         {
           "name": "preview_104801",
-          "label": "岛川乔丹 · 流行乐☆Joker",
+          "label": "岛川乔丹 · 潮流☆Joker",
           "icon": "{PROJECT_DIR}/../portraits/104801.png",
           "description": "育成版本 104801；衣装 104801；开放测试，未持有或识别不符时停止。；别名：东瀛佐敦",
           "pipeline_override": {
@@ -2570,7 +2583,7 @@
         },
         {
           "name": "preview_105002",
-          "label": "成田大进 · 差分工程师",
+          "label": "成田大进 · 另类工程师",
           "icon": "{PROJECT_DIR}/../portraits/105002.png",
           "description": "育成版本 105002；衣装 105016；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2583,7 +2596,7 @@
         },
         {
           "name": "preview_105101",
-          "label": "西野花 · 层叠花瓣",
+          "label": "西野花 · 叠瓣花蕾",
           "icon": "{PROJECT_DIR}/../portraits/105101.png",
           "description": "育成版本 105101；衣装 105101；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2609,9 +2622,9 @@
         },
         {
           "name": "preview_105202",
-          "label": "乌拉拉 · 新春初晴♪绽放之樱",
+          "label": "春乌菈菈 · 明媚新春♪樱花绽放",
           "icon": "{PROJECT_DIR}/../portraits/105202.png",
-          "description": "育成版本 105202；衣装 105210；开放测试，未持有或识别不符时停止。",
+          "description": "育成版本 105202；衣装 105210；开放测试，未持有或识别不符时停止。；别名：乌拉拉、春乌拉拉",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -2622,7 +2635,7 @@
         },
         {
           "name": "preview_105301",
-          "label": "青竹回忆 · 黑铁大志",
+          "label": "青竹回忆 · 黑铁的壮志",
           "icon": "{PROJECT_DIR}/../portraits/105301.png",
           "description": "育成版本 105301；衣装 105301；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2661,7 +2674,7 @@
         },
         {
           "name": "preview_105501",
-          "label": "美丽周日 · ☆基拉★多奇☆瓦克∞马贝∞",
+          "label": "美丽周日 · ☆闪亮★心动☆雀跃∞美丽∞",
           "icon": "{PROJECT_DIR}/../portraits/105501.png",
           "description": "育成版本 105501；衣装 105501；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2687,7 +2700,7 @@
         },
         {
           "name": "preview_105602",
-          "label": "待兼福来 · 吉兆·初岚",
+          "label": "待兼福来 · 吉兆秋风",
           "icon": "{PROJECT_DIR}/../portraits/105602.png",
           "description": "育成版本 105602；衣装 105623；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2713,7 +2726,7 @@
         },
         {
           "name": "preview_105801",
-          "label": "名将怒涛 · 蓝色/怒涛",
+          "label": "名将怒涛 · 苍蓝/怒涛",
           "icon": "{PROJECT_DIR}/../portraits/105801.png",
           "description": "育成版本 105801；衣装 105801；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2739,7 +2752,7 @@
         },
         {
           "name": "preview_105901",
-          "label": "目白多伯 · 乖僻血脉",
+          "label": "目白多伯 · 宛延曲线",
           "icon": "{PROJECT_DIR}/../portraits/105901.png",
           "description": "育成版本 105901；衣装 105901；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2752,7 +2765,7 @@
         },
         {
           "name": "preview_105902",
-          "label": "目白多伯 · 巴克斯·萨菲尔",
+          "label": "目白多伯 · 假日宝石蓝",
           "icon": "{PROJECT_DIR}/../portraits/105902.png",
           "description": "育成版本 105902；衣装 105923；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2791,7 +2804,7 @@
         },
         {
           "name": "preview_106003",
-          "label": "优秀素质 · 万千祈愿",
+          "label": "优秀素质 · 重叠交织的心意",
           "icon": "{PROJECT_DIR}/../portraits/106003.png",
           "description": "育成版本 106003；衣装 106010；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2817,7 +2830,7 @@
         },
         {
           "name": "preview_106102",
-          "label": "帝王光辉 · 纯白高雅的激励装束",
+          "label": "帝王光辉 · 洁白傲气的激励之服",
           "icon": "{PROJECT_DIR}/../portraits/106102.png",
           "description": "育成版本 106102；衣装 106150；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2830,9 +2843,9 @@
         },
         {
           "name": "preview_106201",
-          "label": "待兼诗歌剧 · 锵锵～斜装登场",
+          "label": "待兼唐怀瑟 · 跌跌撞撞向前冲",
           "icon": "{PROJECT_DIR}/../portraits/106201.png",
-          "description": "育成版本 106201；衣装 106201；开放测试，未持有或识别不符时停止。",
+          "description": "育成版本 106201；衣装 106201；开放测试，未持有或识别不符时停止。；别名：待兼诗歌剧",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -2843,9 +2856,9 @@
         },
         {
           "name": "preview_106202",
-          "label": "待兼诗歌剧 · 蓝色旋风",
+          "label": "待兼唐怀瑟 · 碧蓝湍流",
           "icon": "{PROJECT_DIR}/../portraits/106202.png",
-          "description": "育成版本 106202；衣装 106250；开放测试，未持有或识别不符时停止。",
+          "description": "育成版本 106202；衣装 106250；开放测试，未持有或识别不符时停止。；别名：待兼诗歌剧",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -2869,7 +2882,7 @@
         },
         {
           "name": "preview_106402",
-          "label": "目白善信 · 赤心的驯鹿先生",
+          "label": "目白善信 · 赤诚的驯鹿小姐",
           "icon": "{PROJECT_DIR}/../portraits/106402.png",
           "description": "育成版本 106402；衣装 106446；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2882,7 +2895,7 @@
         },
         {
           "name": "preview_106501",
-          "label": "大拓太阳神 · Fun☆Fun☆不坚持",
+          "label": "大拓太阳神 · Fun☆Fun☆嗨翻天",
           "icon": "{PROJECT_DIR}/../portraits/106501.png",
           "description": "育成版本 106501；衣装 106501；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2921,7 +2934,7 @@
         },
         {
           "name": "preview_106702",
-          "label": "里见光钻 · 花形·弥荣之翠",
+          "label": "里见光钻 · 当红之星·荣兴之翠",
           "icon": "{PROJECT_DIR}/../portraits/106702.png",
           "description": "育成版本 106702；衣装 106710；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2934,7 +2947,7 @@
         },
         {
           "name": "preview_106703",
-          "label": "里见光钻 · 施瓦利埃·布鲁",
+          "label": "里见光钻 · 苍蓝骑士",
           "icon": "{PROJECT_DIR}/../portraits/106703.png",
           "description": "育成版本 106703；衣装 106702；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2947,7 +2960,7 @@
         },
         {
           "name": "preview_106801",
-          "label": "北部玄驹 · 锦上添花",
+          "label": "北部玄驹 · 锦绣·溢彩盛典",
           "icon": "{PROJECT_DIR}/../portraits/106801.png",
           "description": "育成版本 106801；衣装 106801；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2960,7 +2973,7 @@
         },
         {
           "name": "preview_106802",
-          "label": "北部玄驹 · 壓軸好戲・慶鶴之志",
+          "label": "北部玄驹 · 压轴主角·庆鹤之志",
           "icon": "{PROJECT_DIR}/../portraits/106802.png",
           "description": "育成版本 106802；衣装 106810；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2973,7 +2986,7 @@
         },
         {
           "name": "preview_106803",
-          "label": "北部玄驹 · 偿愿谢幕之花",
+          "label": "北部玄驹 · 满愿终舞花",
           "icon": "{PROJECT_DIR}/../portraits/106803.png",
           "description": "育成版本 106803；衣装 106802；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -2986,7 +2999,7 @@
         },
         {
           "name": "preview_106901",
-          "label": "樱花千代王 · 日下开山·樱花烂漫",
+          "label": "樱花千代王 · 举世无双·樱花耀夜",
           "icon": "{PROJECT_DIR}/../portraits/106901.png",
           "description": "育成版本 106901；衣装 106901；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -3025,7 +3038,7 @@
         },
         {
           "name": "preview_107101",
-          "label": "目白雅丹 · 斜绿泥石血脉",
+          "label": "目白雅丹 · 墨绿柔线",
           "icon": "{PROJECT_DIR}/../portraits/107101.png",
           "description": "育成版本 107101；衣装 107101；开放测试，未持有或识别不符时停止。；别名：目白阿尔丹",
           "pipeline_override": {
@@ -3064,7 +3077,7 @@
         },
         {
           "name": "preview_107401",
-          "label": "目白光明 · 光辉血脉",
+          "label": "目白光明 · 砺光韧线",
           "icon": "{PROJECT_DIR}/../portraits/107401.png",
           "description": "育成版本 107401；衣装 107401；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -3077,7 +3090,7 @@
         },
         {
           "name": "preview_107402",
-          "label": "目白光明 · 清澈的星光",
+          "label": "目白光明 · 澄澈星空下的白雪洛丽塔",
           "icon": "{PROJECT_DIR}/../portraits/107402.png",
           "description": "育成版本 107402；衣装 107446；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -3090,9 +3103,9 @@
         },
         {
           "name": "preview_107601",
-          "label": "樱花劳蕾尔 · Saisir le rêve",
+          "label": "樱花桂冠 · Saisir le rêve",
           "icon": "{PROJECT_DIR}/../portraits/107601.png",
-          "description": "育成版本 107601；衣装 107601；开放测试，未持有或识别不符时停止。",
+          "description": "育成版本 107601；衣装 107601；开放测试，未持有或识别不符时停止。；别名：樱花劳蕾尔",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -3142,7 +3155,7 @@
         },
         {
           "name": "preview_108302",
-          "label": "克里斯象征 · Jetblack Automation",
+          "label": "克里斯象征 · Jetblack Automaton",
           "icon": "{PROJECT_DIR}/../portraits/108302.png",
           "description": "育成版本 108302；衣装 108340；开放测试，未持有或识别不符时停止。；别名：吉兆、克莉斯耶丝象征",
           "pipeline_override": {
@@ -3168,7 +3181,7 @@
         },
         {
           "name": "preview_108501",
-          "label": "第一红宝 · 华丽的红玉",
+          "label": "第一红宝 · 华丽红玉",
           "icon": "{PROJECT_DIR}/../portraits/108501.png",
           "description": "育成版本 108501；衣装 108501；开放测试，未持有或识别不符时停止。；别名：第一红宝石",
           "pipeline_override": {
@@ -3181,7 +3194,7 @@
         },
         {
           "name": "preview_108601",
-          "label": "目白拉莫娜 · 洋葱线",
+          "label": "目白拉莫娜 · 墨瑙魅线",
           "icon": "{PROJECT_DIR}/../portraits/108601.png",
           "description": "育成版本 108601；衣装 108601；开放测试，未持有或识别不符时停止。；别名：目白高峰、目白拉茉奴",
           "pipeline_override": {
@@ -3209,7 +3222,7 @@
           "name": "preview_108801",
           "label": "里见皇冠 · 黑翠千里行",
           "icon": "{PROJECT_DIR}/../portraits/108801.png",
-          "description": "育成版本 108801；衣装 108801；开放测试，未持有或识别不符时停止。；国服译名待核实",
+          "description": "育成版本 108801；衣装 108801；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -3222,7 +3235,7 @@
           "name": "preview_108901",
           "label": "高尚骏逸 · Grand itinéraire",
           "icon": "{PROJECT_DIR}/../portraits/108901.png",
-          "description": "育成版本 108901；衣装 108901；开放测试，未持有或识别不符时停止。；国服译名待核实",
+          "description": "育成版本 108901；衣装 108901；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -3233,9 +3246,9 @@
         },
         {
           "name": "preview_109101",
-          "label": "比布鲁斯 · Voyage étincelant",
+          "label": "维普露斯 · Voyage étincelant",
           "icon": "{PROJECT_DIR}/../portraits/109101.png",
-          "description": "育成版本 109101；衣装 109101；开放测试，未持有或识别不符时停止。；别名：强击；国服译名待核实",
+          "description": "育成版本 109101；衣装 109101；开放测试，未持有或识别不符时停止。；别名：强击、比布鲁斯、维普罗斯",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -3259,7 +3272,7 @@
         },
         {
           "name": "preview_109801",
-          "label": "小林历奇 · 阴阳八卦☆开运衣",
+          "label": "小林历奇 · 阴阳八卦☆开运服",
           "icon": "{PROJECT_DIR}/../portraits/109801.png",
           "description": "育成版本 109801；衣装 109801；开放测试，未持有或识别不符时停止。",
           "pipeline_override": {
@@ -3337,9 +3350,9 @@
         },
         {
           "name": "preview_110701",
-          "label": "踢踏城市 · GLITTER！",
+          "label": "跳舞城 · GLITTER！",
           "icon": "{PROJECT_DIR}/../portraits/110701.png",
-          "description": "育成版本 110701；衣装 110701；开放测试，未持有或识别不符时停止。；别名：跳舞城；国服译名待核实",
+          "description": "育成版本 110701；衣装 110701；开放测试，未持有或识别不符时停止。；别名：踢踏城市、踢踏舞城",
           "pipeline_override": {
             "UmaPlant": {
               "custom_action_param": {
@@ -3671,6 +3684,114 @@
           }
         }
       ]
+    },
+    "嘉年华选择对手": {
+      "type": "select",
+      "default_case": "1234轮序（推荐）",
+      "cases": [
+        {
+          "name": "1234轮序（推荐）",
+          "pipeline_override": {
+            "UmaRacingCarnival": {
+              "custom_action_param": {
+                "track_strategy": "daily_rotate"
+              }
+            }
+          }
+        },
+        {
+          "name": "第1赛道（左上）",
+          "pipeline_override": {
+            "UmaRacingCarnival": {
+              "custom_action_param": {
+                "track_strategy": "single_track",
+                "target_track": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "第2赛道（右上）",
+          "pipeline_override": {
+            "UmaRacingCarnival": {
+              "custom_action_param": {
+                "track_strategy": "single_track",
+                "target_track": 2
+              }
+            }
+          }
+        },
+        {
+          "name": "第3赛道（左下）",
+          "pipeline_override": {
+            "UmaRacingCarnival": {
+              "custom_action_param": {
+                "track_strategy": "single_track",
+                "target_track": 3
+              }
+            }
+          }
+        },
+        {
+          "name": "第4赛道（右下）",
+          "pipeline_override": {
+            "UmaRacingCarnival": {
+              "custom_action_param": {
+                "track_strategy": "single_track",
+                "target_track": 4
+              }
+            }
+          }
+        }
+      ]
+    },
+    "嘉年华出现隐藏先打": {
+      "type": "select",
+      "default_case": "开启（优先打挑战赛）",
+      "cases": [
+        {
+          "name": "开启（优先打挑战赛）",
+          "pipeline_override": {
+            "UmaRacingCarnival": {
+              "custom_action_param": {
+                "challenge_enabled": true
+              }
+            }
+          }
+        },
+        {
+          "name": "关闭（跳过挑战赛）",
+          "pipeline_override": {
+            "UmaRacingCarnival": {
+              "custom_action_param": {
+                "challenge_enabled": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "嘉年华参赛次数": {
+      "type": "input",
+      "inputs": [
+        {
+          "name": "max_races",
+          "label": "嘉年华参赛次数",
+          "description": "填写本轮参赛场数上限（0–999，默认 10；填 0 表示不限场数，打完自然 RP 与已有迷你胡萝卜果冻为止）。自然 RP 用尽后会自动按剩余场数补充已有迷你果冻，果冻或补充上限耗尽后自动领奖收尾。",
+          "default": "10",
+          "pipeline_type": "int",
+          "verify": "^(?:0|[1-9]\\d{0,2})$"
+        }
+      ],
+      "pipeline_override": {
+        "UmaRacingCarnival": {
+          "custom_action_param": {
+            "max_races": "{max_races}",
+            "allow_existing_jelly": true,
+            "max_jellies": 999
+          }
+        }
+      }
     }
   }
 }

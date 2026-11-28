@@ -3,6 +3,7 @@ import hashlib
 import re
 from functools import lru_cache
 from pathlib import Path
+
 import cv2
 import numpy as np
 from core.story_event.banner import observe_banner
@@ -12,27 +13,91 @@ from core.legend_selection.observer import radio_choice
 from core.jjc.formation import _control_state
 from core.passive_popup import RISK, CONTROL
 
+
 @lru_cache(maxsize=12)
 def template(name):
     if name == 'roulette-gear-blurred':
         source = template('roulette-gear')
         return cv2.GaussianBlur(source, (0, 0), 4) if source is not None else None
     if name == 'reward-obtained':
+        # Keep only the common header, not the reward item name beneath it.
         source = template('bingo-rewards')
         return source[:34] if source is not None else None
     return cv2.imread(str(Path(__file__).with_name('assets') / (name + '.png')))
 
+
 def observe(raw, tokens):
     image = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     result = dict(page='unknown', actions={}, frame_sha256=hashlib.sha256(raw).hexdigest())
-    if image is None or image.shape[:2] != (1280, 720):
+    if image is None:
+        return result
+    if image.shape[:2] != (1280, 720):
+        good_any = [dict(t, text=re.sub(r'\s+', '', t['text'])) for t in tokens if t.get('confidence', 0) >= .80]
+        texts = ''.join(t['text'] for t in good_any)
+        if '连接中' in texts or '加载中' in texts or '正在下载' in texts:
+            result['page'] = 'loading'
+            return result
+        if image.shape[:2] == (720, 1280):
+            good_land = [t for t in good_any if t.get('confidence', 0) >= .88]
+
+            def find_land(text, box=(0, 0, 1280, 720), partial=False):
+                a, b, c, d = box
+                matches = [
+                    t for t in good_land
+                    if (text in t['text'] if partial else text == t['text'])
+                    and a <= t['bbox'][0] < t['bbox'][2] <= c
+                    and b <= t['bbox'][1] < t['bbox'][3] <= d
+                ]
+                return matches[0] if len(matches) == 1 else None
+
+            def add_land(name, token):
+                if token:
+                    a, b, c, d = token['bbox']
+                    result['actions'][name] = dict(point=[(a+c)//2, (b+d)//2])
+
+            land_close = find_land('关闭', (420, 460, 860, 660))
+            if find_land('领取成功', (420, 40, 860, 260)):
+                result['page'] = 'claim'
+                add_land('close', land_close)
+            elif find_land('获得歌曲', (420, 40, 860, 260)):
+                result['page'] = 'story_unlock'
+                add_land('close', land_close)
+            elif find_land('播放确认', (420, 40, 860, 260)):
+                result['page'] = 'story_next'
+                if (find_land('可连续播放接下来的剧情', (250, 320, 1030, 500), partial=True)
+                        or find_land('新', (250, 180, 420, 340))):
+                    add_land('play_next', find_land('播放', (640, 450, 960, 660), partial=True))
+                add_land('cancel', find_land('取消', (320, 450, 640, 660)))
+            elif (find_land('跳过确认', (420, 40, 860, 260))
+                    and (find_land('即将跳过', (400, 200, 880, 380), partial=True)
+                         or find_land('是否确认执行', (400, 200, 880, 380), partial=True))):
+                result['page'] = 'story_skip_confirm'
+                add_land('skip_confirm', (
+                    find_land('确定', (650, 480, 960, 630))
+                    or find_land('跳过', (650, 480, 960, 630))
+                ))
+            elif (find_land('跳过', (1140, 360, 1280, 470))
+                    and find_land('旋转屏幕', (1140, 460, 1280, 560))):
+                result['page'] = 'story_menu'
+                add_land('skip', find_land('跳过', (1140, 360, 1280, 470)))
+            elif (float(image.mean()) >= 25.0 and float(image.std()) >= 12.0
+                    and not any(w in texts for w in ('确定', '取消', '跳过', '关闭', '播放', '旋转', '下载', '重试'))):
+                result['page'] = 'story_playing'
+                result['landscape'] = True
+                br_button = image[605:695, 1170:1260]
+                hud_visible = bool(
+                    find_land('拍摄', (1140, 20, 1270, 130))
+                    or (br_button.size and float(((br_button > 230).all(axis=2)).mean()) >= 0.18)
+                )
+                result['actions']['menu'] = dict(point=[1211, 652] if hud_visible else [200, 180])
         return result
     ui = PageIdentity(image)
-    good = [dict(t, text=re.sub('\\s+', '', t['text'])) for t in tokens if t.get('confidence', 0) >= 0.88]
+    good = [dict(t, text=re.sub(r'\s+', '', t['text'])) for t in tokens if t.get('confidence', 0) >= .88]
 
     def find(text, box=(0, 0, 720, 1280), partial=False):
         a, b, c, d = box
-        matches = [t for t in good if (text in t['text'] if partial else text == t['text']) and a <= t['bbox'][0] < t['bbox'][2] <= c and (b <= t['bbox'][1] < t['bbox'][3] <= d)]
+        matches = [t for t in good if (text in t['text'] if partial else text == t['text'])
+                   and a <= t['bbox'][0] < t['bbox'][2] <= c and b <= t['bbox'][1] < t['bbox'][3] <= d]
         if matches:
             return matches[0] if len(matches) == 1 else None
         return ui.find(text, box, group='event')
@@ -40,7 +105,7 @@ def observe(raw, tokens):
     def add(name, token):
         if token:
             a, b, c, d = token['bbox']
-            result['actions'][name] = dict(point=[(a + c) // 2, (b + d) // 2])
+            result['actions'][name] = dict(point=[(a+c)//2, (b+d)//2])
 
     def locate(name, box):
         source = template(name)
@@ -51,35 +116,51 @@ def observe(raw, tokens):
         if region.shape[0] < source.shape[0] or region.shape[1] < source.shape[1]:
             return None
         _, score, _, point = cv2.minMaxLoc(cv2.matchTemplate(region, source, cv2.TM_CCOEFF_NORMED))
-        return [a + point[0], b + point[1]] if score >= 0.93 else None
+        return [a+point[0], b+point[1]] if score >= .93 else None
 
     def match(name, box):
         return locate(name, box) is not None
-    tutorial = detect_tutorial(image, tokens)
+
+    # Tutorials share a pager and a bottom Continue/Close button. This identifies
+    # only a dismissible overlay, never the event or feature underneath it.
+    tutorial = detect_tutorial(image,tokens)
     close = find('关闭', (120, 680, 620, 1260))
-    if find('连接中', partial=True) or find('加载中', partial=True):
+    if find('连接中', partial=True) or find('加载中', partial=True) or find('正在下载', partial=True):
         result['page'] = 'loading'
     elif pager_identity(image):
         result['page'] = 'loading'
         if tutorial:
-            result.update(page='tutorial_help', tutorial=tutorial, actions={'dismiss_tutorial': dict(point=tutorial['point'])})
+            result.update(page='tutorial_help',tutorial=tutorial,
+                          actions={'dismiss_tutorial':dict(point=tutorial['point'])})
     elif find('研究成果奖励', (40, 60, 675, 205)):
+        # These rewards arrive automatically on entry. Only dismiss their
+        # demonstrated Continue control; item names/counts do not gate progress.
         result.update(page='tachyon_rewards', activity_kind='tachyon')
         continued = find('继续', (160, 1030, 580, 1200))
-        foreground = [t for t in good if 40 <= t['bbox'][1] < t['bbox'][3] <= 1200]
-        controls = [t for t in foreground if t['text'] in CONTROL]
-        if continued and len(controls) == 1 and (controls[0]['text'] == '继续') and (not RISK.search(''.join((t['text'] for t in foreground)))) and (_control_state(image, (220, 1050, 500, 1180)) is True):
+        foreground=[t for t in good if 40<=t['bbox'][1]<t['bbox'][3]<=1200]
+        controls=[t for t in foreground if t['text'] in CONTROL]
+        if (continued and len(controls)==1 and controls[0]['text']=='继续'
+                and not RISK.search(''.join(t['text'] for t in foreground))
+                and _control_state(image,(220,1050,500,1180)) is True):
             add('tachyon_continue', continued)
-    elif find('因子研究', (0, 0, 260, 110)) and find('研究槽', (120, 580, 620, 760)) and find('积蓄进度槽', (160, 1000, 590, 1180)):
+    elif (find('因子研究', (0, 0, 260, 110))
+          and find('研究槽', (120, 580, 620, 760))
+          and find('积蓄进度槽', (160, 1000, 590, 1180))):
         result.update(page='tachyon_event', activity_kind='tachyon')
+        # Factor strengthening and progress accumulation are not this task.
         add('tachyon_back', find('返回', (0, 1000, 160, 1160)))
-    elif find('因子研究', (0, 0, 260, 110)) and find('领取期间', (260, 350, 720, 440), partial=True) and find('活动期间已结束', (180, 650, 550, 715)) and find('期间仍可进行因子强化', (180, 700, 550, 780)):
+    elif (find('因子研究', (0, 0, 260, 110))
+          and find('领取期间', (260, 350, 720, 440), partial=True)
+          and find('活动期间已结束', (180, 650, 550, 715))
+          and find('期间仍可进行因子强化', (180, 700, 550, 780))):
+        # The claim-period hub replaces both active research slots. Its identity
+        # only permits the same return; report use/strengthening is not this task.
         result.update(page='tachyon_event', activity_kind='tachyon')
         add('tachyon_back', find('返回', (0, 1000, 160, 1160)))
     elif find('领取成功', (180, 0, 560, 480)):
         result['page'] = 'claim'
         add('close', close)
-    elif find('活动剧情解锁', (140, 0, 590, 900)):
+    elif find('活动剧情解锁', (140, 0, 590, 900)) or find('获得歌曲', (180, 0, 560, 480)):
         result['page'] = 'story_unlock'
         add('close', close)
     elif find('设置完成', (170, 320, 550, 470)):
@@ -92,13 +173,14 @@ def observe(raw, tokens):
         result['page'] = 'roulette_replace'
         add('close', close)
         if not close and find('将更换为新的宾果表', (150, 500, 580, 700)):
+            # The recorded pointer can obscure the label; verify the sole button outline.
             edges = cv2.Canny(image[760:920, 160:560], 60, 140)
             contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             buttons = [cv2.boundingRect(c) for c in contours]
-            buttons = [(x, y, w, h) for x, y, w, h in buttons if 240 <= w <= 325 and 55 <= h <= 100]
+            buttons = [(x,y,w,h) for x,y,w,h in buttons if 240 <= w <= 325 and 55 <= h <= 100]
             if len(buttons) == 1:
-                x, y, w, h = buttons[0]
-                result['actions']['close'] = dict(point=[160 + x + w // 2, 760 + y + h // 2])
+                x,y,w,h = buttons[0]
+                result['actions']['close'] = dict(point=[160+x+w//2,760+y+h//2])
     elif find('停止转动', (150, 280, 570, 500)) and find('轮盘币不足', partial=True):
         result['page'] = 'roulette_empty'
         add('close', close)
@@ -117,61 +199,75 @@ def observe(raw, tokens):
         add('cancel_story', find('取消', (80, 750, 320, 920)))
     elif find('播放确认', (180, 320, 550, 480)):
         result['page'] = 'story_next'
-        if find('可连续播放接下来的剧情', (100, 600, 620, 750), partial=True) or find('新', (25, 470, 150, 570)) or match('story-new', (25, 470, 150, 570)) or match('next-new', (25, 470, 150, 570)):
+        # The game's explicit next-episode offer is sufficient without the blinking New badge.
+        if (find('可连续播放接下来的剧情', (100, 600, 620, 750), partial=True)
+                or find('新', (25, 470, 150, 570)) or match('story-new', (25, 470, 150, 570))
+                or match('next-new', (25, 470, 150, 570))):
             add('play_next', find('播放', (400, 750, 680, 920), partial=True))
-        if ui.find('播放确认', group='event') and ui.find('播放', group='event') and match('story-reward', (575, 470, 635, 620)):
+        if (ui.find('播放确认', group='event') and ui.find('播放', group='event')
+                and match('story-reward', (575, 470, 635, 620))):
             add('play_next', find('播放', (400, 750, 680, 920), partial=True))
         add('cancel', find('取消', (80, 750, 320, 920)))
     elif find('连续转动轮盘', (20, 130, 400, 330)) and find('轮盘设置', (0, 70, 300, 180)):
         result['page'] = 'roulette_settings'
         on = find('开', (550, 175, 670, 235))
         off = find('关', (550, 175, 670, 235))
-        result['continuous'] = True if on and (not off) else False if off and (not on) else None
+        result['continuous'] = True if on and not off else False if off and not on else None
         selected = radio_choice(image, ((85, 438), (85, 555), (85, 673)), radius=10, extent=27)
         result['eight_lines'] = None if selected is None else selected == 1
         result['actions']['continuous'] = dict(point=[610, 204])
         add('eight_lines', find('直到达成8行宾果', (70, 450, 590, 570)))
         add('save', find('保存', (400, 1120, 650, 1240)))
         add('cancel_settings', find('取消', (80, 1120, 320, 1240)))
-    elif find('活动任务', (0, 0, 250, 80)) and sum((bool(find(label, (0, 430, 720, 560))) for label in ('日常', '称号', '期间限定'))) >= 2:
+    elif (find('活动任务', (0, 0, 250, 80))
+          and sum(bool(find(label, (0, 430, 720, 560)))
+                  for label in ('日常', '称号', '期间限定')) >= 2):
+        # A selected tab's tap effect can obscure its label, not the whole page.
         result['page'] = 'missions'
-        surfaces = []
+        surfaces=[]
         for index, label in enumerate(('日常', '称号', '期间限定')):
-            add('tab_' + str(index), find(label, (0, 430, 720, 560)))
-            patch = image[455:520, 25 + index * 230:210 + index * 230].max(axis=2)
+            add('tab_'+str(index), find(label, (0, 430, 720, 560)))
+            patch=image[455:520,25+index*230:210+index*230].max(axis=2)
             surfaces.append(float(np.median(patch)))
-        selected = [i for i, value in enumerate(surfaces) if all((other - value >= 18 for j, other in enumerate(surfaces) if j != i)) and _control_state(image, (25 + i * 230, 455, 210 + i * 230, 520)) is not None]
-        result['tab'] = selected[0] if len(selected) == 1 else None
+        selected=[i for i,value in enumerate(surfaces)
+                  if all(other-value>=18 for j,other in enumerate(surfaces) if j!=i)
+                  and _control_state(image,(25+i*230,455,210+i*230,520)) is not None]
+        result['tab']=selected[0] if len(selected)==1 else None
         claim = find('一键领取', (200, 1000, 550, 1160))
-        if claim and _control_state(image, (230, 1040, 490, 1130)) is True:
+        if claim and _control_state(image,(230,1040,490,1130)) is True:
             add('claim', claim)
         add('back', find('返回', (0, 1000, 180, 1160)))
     elif find('活动剧情', (180, 0, 540, 120)):
         result['page'] = 'story_list'
-        episodes = sorted((t for t in good if re.fullmatch('第\\d+话', t['text']) and 230 <= t['bbox'][0] <= 350 and (110 <= t['bbox'][1] <= 1030)), key=lambda t: t['bbox'][1])
+        episodes = sorted((t for t in good if re.fullmatch(r'第\d+话', t['text'])
+                           and 230 <= t['bbox'][0] <= 350 and 110 <= t['bbox'][1] <= 1030),
+                          key=lambda t: t['bbox'][1])
         for episode in episodes:
             y = episode['bbox'][1]
-            patch = image[y + 35:y + 65, 450:550]
-            if float((patch.min(axis=2) >= 225).mean()) < 0.85:
+            # Locked rows also show rewards, but their entire card is shaded.
+            patch = image[y+35:y+65, 450:550]
+            if float((patch.min(axis=2) >= 225).mean()) < .85:
                 continue
-            reward = match('story-reward', (575, max(100, y - 20), 635, y + 50))
-            new = find('新', (20, max(100, y - 35), 100, y + 25)) or match('story-new', (25, max(100, y - 35), 100, y + 25))
+            reward = match('story-reward', (575, max(100,y-20), 635, y+50))
+            new = (find('新', (20, max(100,y-35), 100, y+25))
+                   or match('story-new', (25, max(100,y-35), 100, y+25)))
             if reward or new:
-                result['actions']['play_story'] = dict(point=[350, y + 55], episode=episode['text'])
+                result['actions']['play_story'] = dict(point=[350, y+55], episode=episode['text'])
                 break
         if 'play_story' not in result['actions']:
+            # The reward icon locates unread rows without reading episode numbers.
             source = template('story-reward')
             scores = cv2.matchTemplate(image[100:1080, 575:635], source, cv2.TM_CCOEFF_NORMED)
-            ys, xs = np.where(scores >= 0.93)
+            ys, xs = np.where(scores >= .93)
             rows = []
             for y, x in zip(ys, xs):
-                if not rows or y - rows[-1][0] > 40:
+                if not rows or y-rows[-1][0] > 40:
                     rows.append((int(y), int(x)))
             for index, (y, x) in enumerate(rows):
-                top = 100 + y
-                patch = image[top + 35:top + 65, 450:550]
-                if float((patch.min(axis=2) >= 225).mean()) >= 0.85:
-                    result['actions']['play_story'] = dict(point=[350, top + 55], episode=f'visible_reward_row_{index}')
+                top = 100+y
+                patch = image[top+35:top+65, 450:550]
+                if float((patch.min(axis=2) >= 225).mean()) >= .85:
+                    result['actions']['play_story'] = dict(point=[350, top+55], episode=f'visible_reward_row_{index}')
                     break
         add('close', close)
     elif find('跳过', (590, 850, 720, 1010)) and find('旋转屏幕', (570, 960, 720, 1090)):
@@ -180,7 +276,13 @@ def observe(raw, tokens):
     elif match('story-menu', (600, 1160, 720, 1280)) and find('自动', (510, 1160, 615, 1280)):
         result['page'] = 'story_playing'
         result['actions']['menu'] = dict(point=[653, 1220])
-    elif match('bingo-title', (90, 285, 640, 465)) or match('bingo-lines', (120, 470, 610, 810)) or ((find('获得了', (300, 675, 425, 730)) or match('reward-obtained', (300, 675, 425, 730))) and match('roulette-gear-blurred', (610, 85, 715, 190))):
+    elif (match('bingo-title', (90, 285, 640, 465))
+          or match('bingo-lines', (120, 470, 610, 810))
+          or ((find('获得了', (300, 675, 425, 730))
+               or match('reward-obtained', (300, 675, 425, 730)))
+              and match('roulette-gear-blurred', (610, 85, 715, 190)))):
+        # All reward combinations share this overlay and blurred wheel control.
+        # Neither an arbitrary obtained label nor an unknown screen permits a tap.
         result['page'] = 'bingo'
         if close:
             add('close_bingo', close)
@@ -194,12 +296,16 @@ def observe(raw, tokens):
             result['actions']['options'] = dict(point=[664, 130])
         add('back', find('返回', (0, 1000, 180, 1160)))
         if find('点击', (280, 390, 445, 505), partial=True):
-            enabled = _control_state(image, (280, 400, 445, 510))
+            # The button background dims when tickets are exhausted. Ignore the balance text.
+            enabled = _control_state(image,(280,400,445,510))
             if enabled is True:
                 result['actions']['spin'] = dict(point=[360, 460])
-            elif enabled is False and 'back' in result['actions'] and ('options' in result['actions']):
+            elif enabled is False and 'back' in result['actions'] and 'options' in result['actions']:
                 result['spin_disabled'] = True
-        elif find('跳过', (280, 400, 445, 510)) or match('roulette-obtained', (90, 270, 630, 720)):
+        elif (find('跳过', (280, 400, 445, 510))
+              or match('roulette-obtained', (90, 270, 630, 720))):
+            # The large obtained-result cards can cover the central Skip label.
+            # Keep the pending draw bound and expose only its existing animation action.
             result['page'] = 'roulette_animation'
             result['actions'] = {'skip_spin': dict(point=[360, 460])}
     elif find('剧情活动', (0, 0, 260, 90)) and find('轮盘德比', (130, 820, 355, 960)):
@@ -213,7 +319,8 @@ def observe(raw, tokens):
         banner = observe_banner(raw)
         if banner['page'] == 'home':
             result.update(banner)
-    elif find('主页', (280, 1180, 440, 1280)) and find('返回', (0, 1000, 180, 1160)) and find('强化编成', (0, 1180, 160, 1280)):
+    elif (find('主页', (280, 1180, 440, 1280)) and find('返回', (0, 1000, 180, 1160))
+          and find('强化编成', (0, 1180, 160, 1280))):
         result['page'] = 'other_event'
         add('leave_other', find('主页', (280, 1180, 440, 1280)))
     return result

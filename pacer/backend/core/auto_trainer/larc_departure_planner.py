@@ -438,7 +438,8 @@ class Planner:
         from core.auto_trainer.larc_strategy_extension import active_provider
 
         self.arc2_reserve = None
-        self._has_terminal_override = active_provider().planner_init_extras(self, request)
+        self._provider = active_provider()
+        self._has_terminal_override = self._provider.planner_init_extras(self, request)
         self.root = tuple(_parse_effect(x, request) for x in request.get("current_actions", []))
         if len({e.action.action_id for e in self.root}) != len(self.root):
             raise ValueError("duplicate_current_action_id")
@@ -937,7 +938,9 @@ class Planner:
                 last,
                 physical=self.physical(last.physical, K.Action("terminal:Mei_completed_delta", "scheduled", gain, bonus["Pt"])),
             )
-        value = K.utility(last.physical, self.valuation)
+        value = K.utility(last.physical, self.valuation) + float(
+            self._provider.planner_terminal_node_bonus(self, node, after, initial_completed, bonus)
+        )
         coefficient = self.terminal.get("legacy_coefficient")
         if self.stop < 65 and num(coefficient):
             bar = last.physical.hp * 100 / last.physical.cap

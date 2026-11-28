@@ -1,5 +1,5 @@
 """Skill-operation-local OCR reuse; never supplies state or action authority."""
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 import csv
 import copy
@@ -7,6 +7,7 @@ import hashlib
 import io
 import os
 import subprocess
+import threading
 import cv2
 _ACTIVE = ContextVar('harvest_skill_ocr', default=None)
 
@@ -16,7 +17,19 @@ def harvest_skill_ocr():
     if existing is not None:
         yield existing
         return
-    state = dict(cache={}, engine=None, rapid_calls=0, cache_hits=0, tesseract_calls=0)
+    state = dict(
+        cache={},
+        row_cache={},
+        scroll_anchor_cache={},
+        preparsed_pages={},
+        engine=None,
+        rapid_calls=0,
+        cache_hits=0,
+        row_cache_hits=0,
+        shift_row_cache_hits=0,
+        tesseract_calls=0,
+        lock=threading.RLock(),
+    )
     token = _ACTIVE.set(state)
     try:
         yield state
@@ -26,13 +39,30 @@ def harvest_skill_ocr():
 def active_harvest_ocr():
     return _ACTIVE.get()
 
+@contextmanager
+def use_harvest_ocr(state):
+    if state is None:
+        yield None
+        return
+    token = _ACTIVE.set(state)
+    try:
+        yield state
+    finally:
+        _ACTIVE.reset(token)
+
+def harvest_lock(state):
+    lock = state.get('lock') if isinstance(state, dict) else None
+    return lock if lock is not None else nullcontext()
+
 def tesseract_stdin(image, runtime, languages, psm, whitelist):
     """Avoid pytesseract's full shared-TEMP glob on every recognized field."""
     state = active_harvest_ocr()
     key = ('tesseract', str(runtime.executable), str(runtime.tessdata_dir), languages, psm, whitelist, image.shape, str(image.dtype), hashlib.sha256(image.tobytes()).digest()) if state is not None else None
-    if state is not None and key in state['cache']:
-        state['cache_hits'] += 1
-        return copy.deepcopy(state['cache'][key])
+    if state is not None:
+        with harvest_lock(state):
+            if key in state['cache']:
+                state['cache_hits'] += 1
+                return copy.deepcopy(state['cache'][key])
     encoded, png = cv2.imencode('.png', image)
     if not encoded:
         raise ValueError('ocr_image_encode_failed')
@@ -41,12 +71,14 @@ def tesseract_stdin(image, runtime, languages, psm, whitelist):
         command += ['-c', 'tessedit_char_whitelist=' + whitelist]
     command += ['-c', 'tessedit_create_tsv=1']
     if state is not None:
-        state['tesseract_calls'] += 1
+        with harvest_lock(state):
+            state['tesseract_calls'] += 1
     result = subprocess.run(command, cwd=runtime.tessdata_dir, input=png.tobytes(), capture_output=True, check=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
     rows = list(csv.DictReader(io.StringIO(result.stdout.decode('utf-8')), delimiter='\t'))
     data = {field: [row[field] for row in rows] for field in ('text', 'conf')}
     if state is not None:
-        if len(state['cache']) >= 2048:
-            state['cache'].pop(next(iter(state['cache'])))
-        state['cache'][key] = copy.deepcopy(data)
+        with harvest_lock(state):
+            if len(state['cache']) >= 2048:
+                state['cache'].pop(next(iter(state['cache'])))
+            state['cache'][key] = copy.deepcopy(data)
     return data

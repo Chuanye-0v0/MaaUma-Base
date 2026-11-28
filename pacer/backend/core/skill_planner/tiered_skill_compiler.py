@@ -24,13 +24,14 @@ _EVO_BRANCHES = frozenset({"original", "scenario", "skip"})
 _LADDER_KEYS = frozenset({
     "tiers", "avoid", "unlisted_policy", "within_tier_order", "allow_lower_fallback",
     "groundwork_gate", "stamina_gap_boost", "green_skill_quota", "accel_group_caps",
-    "combo_promotions",
+    "mutex_groups", "combo_promotions",
 })
 _TIER_KEYS = frozenset({"id", "label", "skills", "within_tier_order", "max_count"})
 _GROUNDWORK_KEYS = frozenset({"enabled", "min_sources", "reliable_active_pair"})
 _STAMINA_BOOST_KEYS = frozenset({"enabled", "min_stamina", "use_hp_gate", "promote_skills"})
-_GREEN_QUOTA_KEYS = frozenset({"enabled", "min_count", "skills", "last_resort_skills"})
+_GREEN_QUOTA_KEYS = frozenset({"enabled", "min_count", "skills", "last_resort_skills", "spillover_enabled"})
 _ACCEL_CAP_KEYS = frozenset({"group_id", "skills", "max_count", "overflow_tier_shift"})
+_MUTEX_GROUP_KEYS = frozenset({"group_id", "skills", "max_count", "order"})
 _COMBO_PROMO_KEYS = frozenset({"combo_id", "require_all", "promote_skills", "target_tier", "exclusive_recovery_trigger"})
 _STAGE_KEYS = frozenset({"classic_arc", "senior_arc", "terminal"})
 _CLASSIC_KEYS = frozenset({
@@ -168,6 +169,9 @@ def normalize_ladder_policy(value=None) -> dict:
         raise ValueError("arc_policy_green_quota_invalid")
     green_skill_quota = {
         "enabled": _require_bool(gq_raw.get("enabled", False), "arc_policy_green_quota_enabled_invalid"),
+        "spillover_enabled": _require_bool(
+            gq_raw.get("spillover_enabled", False), "arc_policy_green_quota_spillover_invalid"
+        ),
         "min_count": _require_int_range(
             gq_raw.get("min_count", 3), 1, 12, "arc_policy_green_quota_min_count_invalid"
         ),
@@ -230,6 +234,34 @@ def normalize_ladder_policy(value=None) -> dict:
             ),
         })
 
+    raw_mutex = value.get("mutex_groups", [])
+    if not isinstance(raw_mutex, list) or len(raw_mutex) > 16:
+        raise ValueError("arc_policy_mutex_groups_invalid")
+    mutex_groups = []
+    mutex_ids = set()
+    for row in raw_mutex:
+        if not isinstance(row, dict) or set(row) - _MUTEX_GROUP_KEYS:
+            raise ValueError("arc_policy_mutex_group_invalid")
+        gid = row.get("group_id")
+        if not isinstance(gid, str) or not gid.strip() or gid.strip() in mutex_ids:
+            raise ValueError("arc_policy_mutex_group_id_invalid")
+        gid = gid.strip()
+        mutex_ids.add(gid)
+        m_skills = _dedupe_str_list(row.get("skills", []), "arc_policy_mutex_group_skills")
+        if not m_skills:
+            raise ValueError("arc_policy_mutex_group_empty_invalid")
+        m_order = row.get("order", "strict_order")
+        if m_order not in _WITHIN_ORDERS:
+            raise ValueError("arc_policy_mutex_group_order_invalid")
+        mutex_groups.append({
+            "group_id": gid,
+            "skills": m_skills,
+            "max_count": _require_int_range(
+                row.get("max_count", 1), 1, 12, "arc_policy_mutex_group_max_count_invalid"
+            ),
+            "order": m_order,
+        })
+
     return {
         "tiers": tiers,
         "avoid": avoid,
@@ -240,6 +272,7 @@ def normalize_ladder_policy(value=None) -> dict:
         "stamina_gap_boost": stamina_gap_boost,
         "green_skill_quota": green_skill_quota,
         "accel_group_caps": caps,
+        "mutex_groups": mutex_groups,
         "combo_promotions": combos,
     }
 
@@ -601,37 +634,72 @@ def compile_tiered_skill_profile(
                     decisions[low_sid]["lower_fallback_of"] = sid
                     decisions[low_sid]["tier_id"] = tier_defs[fb_idx]["id"]
 
-    # Unlisted fallback (safe_cm_fallback)
-    if ladder["unlisted_policy"] == "safe_cm_fallback":
-        for sid in learnable_clickable:
-            if sid in eff_tier:
-                continue
-            rating, exclusion = cand_ratings[sid], cand_exclusions[sid]
-            if not exclusion and rating.tier < 3 and not rating.start_requirement:
-                eff_tier[sid] = fallback_tier_idx
-                eff_rank[sid] = 999
-                decisions[sid]["tier_id"] = "__fallback__"
-
     def _is_recovery_skill(sid: str) -> bool:
         return (
             rows.get(sid, {}).get("type") == "recovery"
             or (masters.get(sid) or {}).get("type") == "recovery"
         )
 
-    def _is_speed_green(sid: str) -> bool:
+    def _is_green_skill(sid: str) -> bool:
+        if (rows.get(sid, {}).get("type") or (masters.get(sid) or {}).get("type")) == "green":
+            return True
+        r = cand_ratings.get(sid)
+        return r is not None and r.reason in {"matched_green", "conditional_green"}
+
+    def _speed_green_value(sid: str) -> float:
         row = rows.get(sid, {})
         master = masters.get(sid) or {}
         kb = row.get("knowledge") if isinstance(row.get("knowledge"), dict) else {}
+        eff_lists = [
+            master.get("effects"),
+            *[br.get("effects") for br in (master.get("activation_branches") or []) if isinstance(br, dict)],
+            kb.get("effects"),
+            *[br.get("effects") for br in (kb.get("activation_branches") or []) if isinstance(br, dict)],
+            row.get("effects"),
+        ]
+        max_val = 0.0
+        for effs in eff_lists:
+            if not isinstance(effs, list):
+                continue
+            for ef in effs:
+                if not isinstance(ef, dict):
+                    continue
+                ef_type_raw = str(ef.get("type_raw") or "")
+                if (
+                    ef.get("kind") in {"passive_speed", "speed", "target_speed"}
+                    or "被动（速度）" in ef_type_raw
+                    or "被动(速度)" in ef_type_raw
+                ):
+                    try:
+                        val = float(ef.get("value") or 0.0)
+                    except (TypeError, ValueError):
+                        val = 0.0
+                    if val > max_val:
+                        max_val = val
+        if max_val > 0.0:
+            return max_val
         type_raw = str(kb.get("type_raw") or row.get("type_raw") or master.get("type_raw") or "")
-        if "被动（速度）" in type_raw:
-            return True
-        effs = master.get("effects") or kb.get("effects") or row.get("effects") or []
-        return any(
-            isinstance(ef, dict)
-            and ef.get("kind") in {"passive_speed", "speed", "target_speed"}
-            and float(ef.get("value") or 0) > 0
-            for ef in effs
-        )
+        if "被动（速度）" in type_raw or "被动(速度)" in type_raw:
+            return 40.0
+        return 0.0
+
+    def _is_speed_green(sid: str) -> bool:
+        return _speed_green_value(sid) > 0.0
+
+    def _is_full_speed_green(sid: str) -> bool:
+        return _speed_green_value(sid) >= 40.0
+
+    HALF_SPEED_GREEN_CHEAP_COST_CAP = 126
+
+    def _green_quota_bucket(sid: str, cost: int, *, in_gq: bool, in_lr: bool) -> int:
+        if in_lr:
+            return 3
+        spd_val = _speed_green_value(sid)
+        if spd_val >= 40.0 or (0.0 < spd_val < 40.0 and cost <= HALF_SPEED_GREEN_CHEAP_COST_CAP):
+            return 0 if in_gq else 2
+        if spd_val <= 0.0:
+            return 1 if in_gq else 2
+        return 2
 
     def _is_inherited_unique(sid: str) -> bool:
         return (
@@ -677,14 +745,20 @@ def compile_tiered_skill_profile(
     exclusive_recovery_active = False
     exclusive_allowed_recovery_ids: set[str] = set()
     exclusive_combo_ids: list[str] = []
+    blocked_unfired_combo_ids: set[str] = set()
 
     if active_gap_stage:
         # 1. Combo conditional promotions (evaluate before stamina_gap_boost so exclusive recovery triggers suppress extra heals)
+        fired_combo_promo_ids: set[str] = set()
+        unfired_combo_promo_ids: set[str] = set()
         for combo in ladder["combo_promotions"]:
             req_ids, _ = _resolve_ordered(combo["require_all"], rows, masters, knowledge, cm)
-            if len(req_ids) != len(combo["require_all"]):
-                continue
             promo_ids, _ = _resolve_ordered(combo["promote_skills"], rows, masters, knowledge, cm)
+            if len(req_ids) != len(combo["require_all"]):
+                for p_sid in promo_ids:
+                    if p_sid not in explicit_assignment:
+                        unfired_combo_promo_ids.add(p_sid)
+                continue
             target_tid = combo["target_tier"]
             target_t_idx = tier_id_to_idx.get(target_tid, 0)
             req_ok = True
@@ -698,6 +772,7 @@ def compile_tiered_skill_profile(
                 req_cost += learnable_clickable[r_sid]["display_cost"]
             combo_fired = req_ok and req_cost <= budget
             if combo_fired:
+                fired_combo_promo_ids.update(promo_ids)
                 for p_rank, p_sid in enumerate(promo_ids):
                     if p_sid in avoid_set or p_sid not in learnable_clickable:
                         continue
@@ -712,6 +787,10 @@ def compile_tiered_skill_profile(
                             "reason": f"combo:{combo['combo_id']}",
                             "target_tier": target_tid,
                         })
+            else:
+                for p_sid in promo_ids:
+                    if p_sid not in explicit_assignment:
+                        unfired_combo_promo_ids.add(p_sid)
             if combo.get("exclusive_recovery_trigger"):
                 anchor_owned = any(
                     _is_owned_sid(r_sid)
@@ -723,6 +802,7 @@ def compile_tiered_skill_profile(
                     exclusive_allowed_recovery_ids.update(req_ids)
                     exclusive_allowed_recovery_ids.update(promo_ids)
                     exclusive_combo_ids.append(combo["combo_id"])
+        blocked_unfired_combo_ids = unfired_combo_promo_ids - fired_combo_promo_ids
 
         # 2. Stamina gap boost (suppressed when an exclusive recovery combo like Xmas Oguri + 777 is active)
         sb = ladder["stamina_gap_boost"]
@@ -802,20 +882,21 @@ def compile_tiered_skill_profile(
                 r, exc = cand_ratings[sid], cand_exclusions[sid]
                 in_gq = sid in gq_set
                 in_lr = sid in lr_set
-                if not in_gq and not in_lr and (exc or r.reason != "matched_green"):
+                if exc or r.reason != "matched_green":
                     continue
                 base_pt = cand_quotes[sid].get("cost_pt")
                 disc = _effective_discount_percent(learnable_clickable[sid], base_pt) or 0.0
                 t_rank = eff_tier.get(sid, fallback_tier_idx + 1)
-                is_spd_green = _is_speed_green(sid)
-                is_gold_spd = is_spd_green and (rows.get(sid, {}).get("rarity") == "gold" or (masters.get(sid) or {}).get("rarity") == "gold")
+                cost = learnable_clickable[sid]["display_cost"]
+                q_bucket = _green_quota_bucket(sid, cost, in_gq=in_gq, in_lr=in_lr)
+                is_gold_spd = _is_full_speed_green(sid) and (
+                    rows.get(sid, {}).get("rarity") == "gold" or (masters.get(sid) or {}).get("rarity") == "gold"
+                )
                 green_cands.append((
-                    1 if in_lr else 0,
-                    0 if t_rank == 0 else 1,
-                    0 if in_gq else 1,
-                    0 if is_spd_green else 1,
+                    0 if (t_rank == 0 and not in_lr) else 1,
+                    q_bucket,
                     0 if is_gold_spd else 1,
-                    learnable_clickable[sid]["display_cost"],
+                    cost,
                     -disc,
                     gq_order.get(sid, 999),
                     sid,
@@ -824,10 +905,19 @@ def compile_tiered_skill_profile(
             need = max(0, gq["min_count"] - len(owned_green_families))
             used_families = set(owned_green_families)
             kept = 0
-            for _lr, _t0, _in_gq, _spd, _gspd, _c, _d, _ord, sid in green_cands:
-                if kept >= need:
-                    break
+            for _t0, _qb, _gspd, _c, _d, _ord, sid in green_cands:
                 fam = _family_id(sid, rows, masters)
+                if sid in gq_set and _gspd == 0 and fam in owned_green_families:
+                    if eff_tier.get(sid, fallback_tier_idx + 1) > 0:
+                        eff_tier[sid] = 0
+                        eff_rank.setdefault(sid, 0)
+                        if tier_defs:
+                            decisions[sid]["tier_id"] = tier_defs[0]["id"]
+                        promoted_reasons[sid] = "green_skill_quota_gold_upgrade"
+                        dynamic_promotions.append({"skill_id": sid, "reason": "green_skill_quota_gold_upgrade"})
+                    continue
+                if kept >= need:
+                    continue
                 if fam in used_families:
                     continue
                 used_families.add(fam)
@@ -840,6 +930,48 @@ def compile_tiered_skill_profile(
                     promoted_reasons[sid] = "green_skill_quota"
                     dynamic_promotions.append({"skill_id": sid, "reason": "green_skill_quota"})
 
+        if gq["spillover_enabled"] and terminal and tier_defs:
+            sp_gq_ids, _ = _resolve_ordered(gq["skills"], rows, masters, knowledge, cm)
+            speed_green_t_idx = tier_id_to_idx.get("T2", min(2, len(tier_defs) - 1))
+            tail_green_t_idx = len(tier_defs) - 1
+            for g_ord, sid in enumerate(sp_gq_ids):
+                if (
+                    sid not in learnable_clickable
+                    or sid in avoid_set
+                    or decisions[sid].get("reason") == "blocked_by_exclusive_recovery_combo"
+                ):
+                    continue
+                if cand_exclusions[sid] is not None or cand_ratings[sid].reason != "matched_green":
+                    continue
+                spd_val = _speed_green_value(sid)
+                if spd_val <= 0.0:
+                    continue
+                cost = learnable_clickable[sid]["display_cost"]
+                target_sp_t_idx = (
+                    speed_green_t_idx
+                    if (spd_val >= 40.0 or cost <= HALF_SPEED_GREEN_CHEAP_COST_CAP)
+                    else tail_green_t_idx
+                )
+                from_lower_fb = (
+                    sid not in explicit_assignment
+                    and sid not in promoted_reasons
+                    and "lower_fallback_of" in decisions[sid]
+                )
+                if sid in eff_tier and not (from_lower_fb and eff_tier[sid] > target_sp_t_idx):
+                    continue
+                if from_lower_fb:
+                    decisions[sid].pop("lower_fallback_of", None)
+                if target_sp_t_idx == speed_green_t_idx:
+                    eff_tier[sid] = speed_green_t_idx
+                    eff_rank[sid] = 30 + g_ord
+                    decisions[sid]["tier_id"] = tier_defs[speed_green_t_idx]["id"]
+                    promoted_reasons[sid] = "green_pool_speed_spillover"
+                else:
+                    eff_tier[sid] = tail_green_t_idx
+                    eff_rank[sid] = 35 + g_ord
+                    decisions[sid]["tier_id"] = tier_defs[tail_green_t_idx]["id"]
+                    promoted_reasons[sid] = "green_pool_tail_spillover"
+
         if exclusive_recovery_active:
             for sid in list(learnable_clickable):
                 if sid not in exclusive_allowed_recovery_ids and _has_positive_recovery(sid):
@@ -848,6 +980,23 @@ def compile_tiered_skill_profile(
                     promoted_reasons.pop(sid, None)
                     decisions[sid]["tier_id"] = None
                     decisions[sid]["reason"] = "blocked_by_exclusive_recovery_combo"
+
+    if ladder["unlisted_policy"] == "safe_cm_fallback":
+        for sid in learnable_clickable:
+            if sid in eff_tier or sid in avoid_set:
+                continue
+            if decisions[sid].get("reason") == "blocked_by_exclusive_recovery_combo":
+                continue
+            if sid in blocked_unfired_combo_ids:
+                decisions[sid]["reason"] = "combo_prerequisite_missing"
+                continue
+            if (ladder["green_skill_quota"]["enabled"] or ladder["green_skill_quota"]["spillover_enabled"]) and _is_green_skill(sid):
+                continue
+            rating, exclusion = cand_ratings[sid], cand_exclusions[sid]
+            if not exclusion and rating.tier < 3 and not rating.start_requirement:
+                eff_tier[sid] = fallback_tier_idx
+                eff_rank[sid] = 999
+                decisions[sid]["tier_id"] = "__fallback__"
 
     eligible = set()
     if stage_skip:
@@ -908,7 +1057,7 @@ def compile_tiered_skill_profile(
                 continue
             if sid in eff_tier:
                 eligible.add(sid)
-            else:
+            elif decisions[sid].get("reason") is None:
                 decisions[sid]["reason"] = "not_in_ladder"
 
     # Groundwork gate & atomic source bundling
@@ -945,6 +1094,7 @@ def compile_tiered_skill_profile(
 
             avail_sources = []
             seen_src_fams = set(owned_source_fams)
+            min_gw_tier = min((eff_tier[g] for g in gw_ids), default=0)
             for sid in learnable_clickable:
                 if sid in avoid_set or decisions[sid].get("reason") == "blocked_by_exclusive_recovery_combo":
                     continue
@@ -955,18 +1105,30 @@ def compile_tiered_skill_profile(
                     continue
                 if sid not in eligible and cand_exclusions[sid]:
                     continue
-                is_green = (rows.get(sid, {}).get("type") or (masters.get(sid) or {}).get("type")) == "green"
-                green_bucket = (0 if sid in gq_order else 2 if sid in lr_set else 1) if is_green else 0
-                green_tier = (0 if _is_speed_green(sid) else 1) if is_green else 0
+                cost = learnable_clickable[sid]["display_cost"]
+                is_green = _is_green_skill(sid)
+                already_at_gw_tier = (
+                    0 if (sid in eligible and eff_tier.get(sid, fallback_tier_idx + 1) <= min_gw_tier) else 1
+                )
+                cur_tier_for_already = eff_tier.get(sid, fallback_tier_idx + 1) if already_at_gw_tier == 0 else 0
+                green_bucket = (
+                    _green_quota_bucket(sid, cost, in_gq=(sid in gq_order), in_lr=(sid in lr_set))
+                    if is_green
+                    else 0
+                )
+                is_gold_spd = (
+                    _is_full_speed_green(sid)
+                    and (rows.get(sid, {}).get("rarity") == "gold" or (masters.get(sid) or {}).get("rarity") == "gold")
+                ) if is_green else False
                 green_rank = gq_order.get(sid, 999) if is_green else 999
                 base_pt = cand_quotes[sid].get("cost_pt")
                 disc = _effective_discount_percent(learnable_clickable[sid], base_pt) or 0.0
                 avail_sources.append((
-                    0 if sid in eligible else 1,
-                    eff_tier.get(sid, fallback_tier_idx + 1),
+                    already_at_gw_tier,
+                    cur_tier_for_already,
                     green_bucket,
-                    green_tier,
-                    learnable_clickable[sid]["display_cost"],
+                    0 if is_gold_spd else 1,
+                    cost,
                     -disc,
                     green_rank,
                     sid,
@@ -975,7 +1137,7 @@ def compile_tiered_skill_profile(
             avail_sources.sort()
             dedup_sources = []
             picked_fams = set(owned_source_fams)
-            for _el, _t, _gb, _gt, _c, _d, _gr, sid, fam in avail_sources:
+            for _agw, _ct, _gb, _gspd, _c, _d, _gr, sid, fam in avail_sources:
                 if fam in picked_fams:
                     continue
                 picked_fams.add(fam)
@@ -1034,7 +1196,7 @@ def compile_tiered_skill_profile(
                         eff_rank.setdefault(src, 0)
                         if gw_tier < len(tier_defs):
                             decisions[src]["tier_id"] = tier_defs[gw_tier]["id"]
-                        if gw_tier == 0 and src not in promoted_reasons:
+                        if src not in promoted_reasons:
                             promoted_reasons[src] = "groundwork_start_source"
                             dynamic_promotions.append({"skill_id": src, "reason": "groundwork_start_source"})
                     link_priorities[src] = cm.CM_START_SOURCE_LINK
@@ -1110,6 +1272,71 @@ def compile_tiered_skill_profile(
         for sid in in_group[keep:]:
             eff_tier[sid] = min(max_explicit_idx, eff_tier[sid] + cap["overflow_tier_shift"])
             decisions[sid]["accel_cap_shifted"] = cap["group_id"]
+
+    # Mutex group caps (strict-order or value-ordered 1..K-of-N mutual exclusion)
+    for mgrp in ladder.get("mutex_groups", []):
+        m_ids, _ = _resolve_ordered(mgrp["skills"], rows, masters, knowledge, cm)
+        m_rank = {sid: idx for idx, sid in enumerate(m_ids)}
+        m_set = set(m_ids)
+        owned_m_fams = set()
+        for mid in owned:
+            if mid in superseded_masters:
+                continue
+            m_supersedes = set((rows.get(mid, {}).get("relations") or {}).get("supersedes", [])) | set(
+                ((owned.get(mid) or {}).get("relations") or {}).get("supersedes", [])
+            )
+            matching = next(
+                (
+                    s
+                    for s in m_ids
+                    if _is_owned_sid(s) and _family_id(s, rows, masters) == _family_id(mid, rows, masters)
+                ),
+                None,
+            )
+            if mid in m_set or matching is not None or (m_supersedes & m_set):
+                owned_m_fams.add(_family_id(matching or mid, rows, masters))
+        keep_m = max(0, mgrp["max_count"] - len(owned_m_fams))
+        in_m = [sid for sid in eligible if sid in m_rank]
+        if mgrp["order"] == "strict_order":
+            in_m.sort(key=lambda sid: (m_rank[sid], learnable_clickable[sid]["display_cost"], sid))
+        else:
+            in_m.sort(
+                key=lambda sid: (
+                    eff_tier[sid],
+                    -_within_bonus(sid),
+                    learnable_clickable[sid]["display_cost"],
+                    m_rank[sid],
+                    sid,
+                )
+            )
+        kept_m: list[str] = []
+        kept_fams = set(owned_m_fams)
+        rem_b = budget
+        for sid in in_m:
+            if len(kept_m) >= keep_m:
+                break
+            fam = _family_id(sid, rows, masters)
+            if fam in kept_fams:
+                continue
+            cost = learnable_clickable[sid]["display_cost"]
+            if cost <= rem_b:
+                kept_m.append(sid)
+                kept_fams.add(fam)
+                rem_b -= cost
+        if len(kept_m) < keep_m:
+            for sid in in_m:
+                if len(kept_m) >= keep_m:
+                    break
+                fam = _family_id(sid, rows, masters)
+                if fam in kept_fams:
+                    continue
+                kept_m.append(sid)
+                kept_fams.add(fam)
+        kept_m_set = set(kept_m)
+        for sid in in_m:
+            if sid not in kept_m_set:
+                eligible.discard(sid)
+                decisions[sid]["reason"] = f"mutex_group_excluded:{mgrp['group_id']}"
 
     # Optional per-tier max_count cap
     for idx, tier in enumerate(tier_defs):

@@ -1,11 +1,14 @@
 """Read-only, run-owned collectors for continuation checkpoints."""
 from copy import deepcopy
 import json
+import logging
 import math
 from pathlib import Path
 import re
 
 from core.auto_trainer.cut_farming import atomic_json
+
+_LOG = logging.getLogger(__name__)
 
 
 def read(path):
@@ -16,6 +19,11 @@ def send_notice(ctx, node, entry):
     facts = entry.get('facts', {})
     text = ('首次远征前已暂停，请号主接管。' if node == 'handoff' else
             f'续养节点 {node} 已暂停，请查看当前条件和现场。')
+    if node == 'classic_arc':
+        res = entry.get('result', {})
+        actual_rank = res.get('actual_rank')
+        rank_label = f'第 {actual_rank} 名' if type(actual_rank) is int else '未识别'
+        text += f"\n首次凯旋门完赛名次：{rank_label}（要求 ≤ 第 {res.get('max_rank', 1)} 名）"
     text += f"\n局号：{ctx.run_id}\n适应性Pt：{facts.get('adaptation_points', '未知')}"
     text += f"\n距离适性：{facts.get('distances', {})}\n大小切事件记录：{len(facts.get('cut_events', []))}"
     hook = getattr(ctx, 'cut_farming_hook', None)
@@ -26,6 +34,21 @@ def send_notice(ctx, node, entry):
             content=text, legacy_token_file=getattr(config, 'pushplus_token_file', None))
     except Exception:
         return {'status': 'failed'}
+
+
+def _is_mid_career_takeover(ctx):
+    root = Path(ctx.root)
+    receipt = read(root / 'ss_sieve_opening_receipt.json')
+    if isinstance(receipt, dict) and receipt.get('new_career_started') is False:
+        return True
+    state = read(root / 'session/larc_continuation_state.json')
+    nodes = state.get('nodes') if isinstance(state, dict) else None
+    if isinstance(nodes, dict):
+        return any(
+            isinstance(entry, dict) and entry.get('flow_status') == 'historical_not_observed'
+            for entry in nodes.values()
+        )
+    return False
 
 
 def base_facts(ctx, provider):
@@ -45,6 +68,8 @@ def base_facts(ctx, provider):
     probe = {}
     if hook is not None and hook.last_probe_turn == ctx.progress['next_turn']:
         probe = hook.session.data['attempts'][-1].get('last_probe', {})
+    from core.auto_trainer.larc_classic_arc_result import load_classic_arc_result
+    classic_arc = load_classic_arc_result(ctx.root, ctx.run_id)
     facts = {'stats': deepcopy(state.get('current_stats', {})),
         'skill_pt': state.get('current_stats', {}).get('skill_pt'),
         'adaptation_points': growth.get('adaptation_points') if growth.get('status') == 'accepted' else None,
@@ -52,8 +77,10 @@ def base_facts(ctx, provider):
         'supporter_points': None, 'supports': cards,
         'support_profile_complete': len(cards) == 6 and all(c['card_id'] and c['role'] != 'unknown' for c in cards),
         'cut_state': probe.get('state') if probe.get('returned') else 'unknown',
+        'classic_arc_result': classic_arc,
         'skills': [], 'skills_complete': False, 'distances': {}, 'chains': [], 'cut_events': [],
-        'event_history_complete': False, 'source_period': provider.get('larc_period', {}).get('value')}
+        'event_history_complete': False, 'source_period': provider.get('larc_period', {}).get('value'),
+        'mid_career_takeover': _is_mid_career_takeover(ctx)}
     add_event_facts(ctx, facts)
     return facts
 
@@ -169,23 +196,60 @@ def _collect_realtime_luck(ctx, facts):
 
         review = read_current_review(ctx.root)
         res = summarize_realtime_luck(review)
-        score = res.get('score')
-        dates = res.get('scored_dates')
-        if (res.get('status') == 'recorded'
-                and not isinstance(score, bool)
-                and type(score) in (int, float)
-                and math.isfinite(score)
+        res_map = res if isinstance(res, dict) else {}
+        live_score = res_map.get('score')
+        cum_score = res_map.get('cumulative_score')
+        gate_score = (
+            cum_score
+            if not isinstance(cum_score, bool) and type(cum_score) in (int, float) and math.isfinite(cum_score)
+            else live_score
+        )
+        dates = res_map.get('scored_dates')
+        if (res_map.get('status') == 'recorded'
+                and not isinstance(gate_score, bool)
+                and type(gate_score) in (int, float)
+                and math.isfinite(gate_score)
                 and type(dates) is int and dates >= 3):
-            facts['realtime_luck'] = float(score)
+            facts['realtime_luck'] = float(gate_score)
+            live_val = (
+                float(live_score)
+                if not isinstance(live_score, bool) and type(live_score) in (int, float) and math.isfinite(live_score)
+                else float(gate_score)
+            )
             facts['realtime_luck_detail'] = {
-                'score': float(score),
+                'score': float(gate_score),
+                'cumulative_score': float(gate_score),
+                'live_score': live_val,
+                'basis': res_map.get('basis'),
                 'scored_dates': dates,
-                'mood': res.get('mood'),
-                'components': deepcopy(res.get('components')),
+                'mood': res_map.get('mood'),
+                'components': deepcopy(res_map.get('components')),
             }
             return
-    except Exception:
-        pass
+        obs_count = len(review.get('observations', [])) if isinstance(review, dict) else 0
+        facts['realtime_luck_detail'] = {
+            'status': res_map.get('status'),
+            'scored_dates': dates,
+            'observations': obs_count,
+        }
+        _LOG.warning(
+            'realtime_luck unavailable for %s: status=%s scored_dates=%s observations=%s',
+            getattr(ctx, 'run_id', None),
+            res_map.get('status'),
+            dates,
+            obs_count,
+        )
+    except Exception as exc:
+        facts['realtime_luck_detail'] = {
+            'status': 'error',
+            'error': f'{type(exc).__name__}:{exc}',
+        }
+        _LOG.warning(
+            'realtime_luck collection failed for %s: %s: %s',
+            getattr(ctx, 'run_id', None),
+            type(exc).__name__,
+            exc,
+        )
     facts['realtime_luck'] = None
 
 
@@ -227,6 +291,8 @@ def inspect_node(ctx, node, source, provider, output, config):
                 result = inspect_inheritance(ctx, source, provider, output, config, facts, section_name='inheritance2')
         else:
             result = inspect_inheritance(ctx, source, provider, output, config, facts, section_name='inheritance2')
+    elif node == 'classic_arc':
+        result = {'ok': True, 'source': source, 'provider': provider, 'visited': False}
     elif custom_entry is not None:
         needs_menu = any(
             row.get('kind') in {'supporter_points_min', 'friend_outing_unlocked', 'bond_ready_min', 'bond_card_min'}

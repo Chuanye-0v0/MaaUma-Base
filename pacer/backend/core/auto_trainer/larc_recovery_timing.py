@@ -108,23 +108,32 @@ def apply_recovery_timing_preference(state, goal, scored):
         return
     # The current route already prices its final overseas training, unless
     # the best current option still fails risk-free readiness before it.
+    from core.auto_trainer.larc_policy import training_balance_v2_enabled
+    reference = horizon.get("future_numeric_training_value", horizon.get("future_training_value", 0.))
+    cost = horizon.get("estimated_training_cost_percent", 0.)
+    if reference <= 0 or cost <= 0:
+        return
     heal = max(0., plan["training_vitality_percent"])
     buffer = plan["scheduled_recovery_percent"] + plan["reserve_discount"] * plan["held_ss_recovery_percent"]
+    overseas_low_hp_wisdom = (
+        training_balance_v2_enabled(goal)
+        and is_wisdom
+        and horizon.get("kind") == "expedition_continuity"
+        and horizon.get("steps", 0) >= 1
+        and 0 < heal < cost
+        and state.vitality + heal + buffer < PLANNING_START_ENERGY[goal.risk_tolerance]
+    )
     risky_pre_final_overseas = (
         horizon.get("kind") == "expedition_continuity"
         and horizon.get("steps") == 1
         and failure > 0.0
         and state.vitality + heal + buffer < PLANNING_START_ENERGY[goal.risk_tolerance]
     )
-    if horizon.get("kind") == "expedition_continuity" and horizon["steps"] <= 1 and not risky_pre_final_overseas:
+    if horizon.get("kind") == "expedition_continuity" and horizon["steps"] <= 1 and not risky_pre_final_overseas and not overseas_low_hp_wisdom:
         return
     # Keep the ordinary timing preference and weak-yield check on their
     # numeric scale. The non-bridging small-heal case below uses a separate
     # opportunity scale without changing any forecast rewards.
-    reference = horizon.get("future_numeric_training_value", horizon.get("future_training_value", 0.))
-    cost = horizon.get("estimated_training_cost_percent", 0.)
-    if reference <= 0 or cost <= 0:
-        return
     # One useful consuming training followed by another choice is the local
     # readiness reference, not a new training failure-rate restriction.
     need = _unit((PLANNING_START_ENERGY[goal.risk_tolerance] + cost - state.vitality - buffer) / cost)
@@ -142,7 +151,6 @@ def apply_recovery_timing_preference(state, goal, scored):
     candidate = next(item for item in state.training_options if item.training_type == best["training_type"])
     friendship = _friendship_evidence(candidate)
     friendship_factor = .5 if friendship in {"observed", "eligible_partner_observed"} else 1.
-    from core.auto_trainer.larc_policy import training_balance_v2_enabled
     from core.auto_trainer.larc_recovery import period_value
     route=horizon.get("future_route_after") or []
     period=period_value(state) if isinstance(getattr(state,'scenario_state',None),dict) else {}
@@ -244,6 +252,7 @@ def apply_recovery_timing_preference(state, goal, scored):
             and not opening_bridge and not still_needs_recovery
             and not risky_small_heal and not risky_consuming_before_recovery
             and not risky_pre_final_overseas
+            and not overseas_low_hp_wisdom
             and _entry_recovery_already_priced(horizon, row['components'], kinds=priced_kinds))
         before_route_dedup = value
         if route_credit_deduplicated:
@@ -258,6 +267,7 @@ def apply_recovery_timing_preference(state, goal, scored):
             "timing_opportunity_reference": round(timing_reference,4),
             "imminent_progress_value": round(imminent_progress,4),
             "recovery_still_needed_after_wisdom": bool(still_needs_recovery),
+            "overseas_low_hp_wisdom": bool(overseas_low_hp_wisdom),
             'opening_small_heal_bridge':bool(opening_bridge),'recovery_delay_factor':round(delay_factor,4),
             "training_progress_value": round(progress, 4), "friendship_evidence": friendship,
             "readiness_need_factor": round(need, 4), "small_heal_factor": round(small_heal, 4),

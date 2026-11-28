@@ -325,6 +325,9 @@ def authorized_entry(policy,session,decision,text, *, image=None):
         and decision.get('tap')=={'coordinate_name':ENTRY_ACTION_ID,'x':entry_point(proof)[0],'y':entry_point(proof)[1],'scaled':False})
 
 
+_FREE_RETRY_TEXT_RE = re.compile(r"(?:每天\d+次免费(?:机会)?|今日(?:免费\d+次|\d+次免费))")
+
+
 def retry_text(text):
     text = _compact(text)
     if not retry_prompt_visible(text):
@@ -336,8 +339,7 @@ def retry_text(text):
     if not remaining or (rank and int(rank[1]) <= 1) or int(remaining[1]) < 1:
         return None
     return {"rank": int(rank[1]) if rank else None, "remaining": int(remaining[1]),
-            "free": any(phrase in text for phrase in (
-                "每天1次免费机会", "每天1次免费", "今日免费1次", "今日1次免费"))}
+            "free": bool(_FREE_RETRY_TEXT_RE.search(text))}
 
 
 def valid_cost(proof):
@@ -345,6 +347,76 @@ def valid_cost(proof):
     return (type(before) is int and type(after) is int and before >= 0 and after >= 0
             and ((proof.get("free") is True and before == after)
                  or (before > 0 and after == before - 1)))
+
+
+def _line_padded_cost(image, roi, reader=None):
+    """Read a numeric clock cost ROI, retrying with white border + 2x upscale when clipped."""
+    value, confidence = _line(image, roi, reader)
+    if re.fullmatch(r"[0-9]{1,5}", value) and confidence >= 0.90:
+        return value, float(confidence)
+    x1, y1, x2, y2 = roi
+    crop = image[y1:y2, x1:x2]
+    if crop.size == 0:
+        return value, float(confidence)
+    padded = cv2.copyMakeBorder(crop, 12, 12, 12, 12, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+    enlarged = cv2.resize(padded, (0, 0), fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+    p_value, p_conf = _line(enlarged, (0, 0, enlarged.shape[1], enlarged.shape[0]), reader)
+    if re.fullmatch(r"[0-9]{1,5}", p_value) and (
+        not re.fullmatch(r"[0-9]{1,5}", value) or float(p_conf) > float(confidence)
+    ):
+        return p_value, float(p_conf)
+    return value, float(confidence)
+
+
+def _detect_daily_free_banner_bottom(normalized, *, layout):
+    """Detect the pink activity banner above clock counts and return its bottom y."""
+    hsv = cv2.cvtColor(normalized, cv2.COLOR_BGR2HSV)
+    y_start, y_end = (805, 875) if layout == "full_page" else (675, 755)
+    band = hsv[y_start:y_end, 280:560]
+    if band.size == 0:
+        return None
+    pink = (band[:, :, 0] >= 150) & (band[:, :, 0] <= 179) & (band[:, :, 1] > 110) & (band[:, :, 2] > 150)
+    row_ratios = pink.mean(axis=1)
+    best_span = None
+    current_start = None
+    for idx, ratio in enumerate(row_ratios):
+        if ratio >= 0.25:
+            if current_start is None:
+                current_start = idx
+        elif current_start is not None:
+            if idx - current_start >= 20:
+                best_span = (current_start, idx)
+            current_start = None
+    if current_start is not None and len(row_ratios) - current_start >= 20:
+        best_span = (current_start, len(row_ratios))
+    if best_span is None:
+        return None
+    return int(y_start + best_span[1])
+
+
+def _evaluate_cost_roi_pair(normalized, roi_pair, *, free, reader):
+    readings = {}
+    for key, roi in zip(("before", "after"), roi_pair):
+        value, confidence = _line_padded_cost(normalized, roi, reader)
+        if not re.fullmatch(r"[0-9]{1,5}", value):
+            return None
+        readings[key] = (int(value), float(confidence))
+    before_val, before_conf = readings["before"]
+    after_val, after_conf = readings["after"]
+    min_conf = min(before_conf, after_conf)
+    max_conf = max(before_conf, after_conf)
+    paid_retry = before_val > 0 and after_val == before_val - 1
+    explicit_free = free is True and before_val == after_val
+    inferred_free = free is False and before_val == after_val
+    if paid_retry or explicit_free:
+        if min_conf < 0.75 or max_conf < 0.9:
+            return None
+    elif inferred_free:
+        if min_conf < 0.9:
+            return None
+    else:
+        return None
+    return before_val, before_conf, after_val, after_conf
 
 
 def read_retry(image, text, *, reader=None):
@@ -356,42 +428,46 @@ def read_retry(image, text, *, reader=None):
     layout = SafeAdvancePlanner._final_loss_recovery_decision(image, {})
     if layout and layout.get("reason") == "cancel_clock_retry":
         proof["layout"] = "modal"
-        rois = ((408, 738, 481, 790), (511, 738, 587, 790))
+        legacy_rois = ((408, 738, 481, 790), (511, 738, 587, 790))
+        shifted_rois = ((408, 750, 484, 788), (511, 750, 587, 788))
     elif _full_page(normalized):
         # L'Arc has a full-page retry with supporter points above the clock.
         proof["layout"] = "full_page"
-        rois = ((408, 863, 481, 918), (511, 863, 587, 918))
+        legacy_rois = ((408, 863, 481, 918), (511, 863, 587, 918))
+        shifted_rois = ((408, 874, 484, 910), (511, 874, 587, 910))
         if proof["rank"] is None:
-            rank, confidence = _line(normalized, (60, 140, 106, 185), reader)
-            if re.fullmatch(r"[1-9][0-9]*", rank) and confidence >= .9:
-                proof["rank"] = int(rank)
+            for roi in ((60, 140, 106, 185), (54, 136, 112, 190)):
+                rank, confidence = _line(normalized, roi, reader)
+                if re.fullmatch(r"[1-9][0-9]*", rank) and confidence >= .9:
+                    proof["rank"] = int(rank)
+                    break
     else:
         return None
     if proof["rank"] is None or proof["rank"] <= 1:
         return None
-    readings = {}
-    for key, roi in zip(("before", "after"), rois):
-        value, confidence = _line(normalized, roi, reader)
-        if not re.fullmatch(r"[0-9]{1,5}", value):
-            return None
-        readings[key] = (int(value), float(confidence))
-    before_val, before_conf = readings["before"]
-    after_val, after_conf = readings["after"]
-    min_conf = min(before_conf, after_conf)
-    max_conf = max(before_conf, after_conf)
-    paid_retry = before_val > 0 and after_val == before_val - 1
-    explicit_free = proof["free"] is True and before_val == after_val
-    inferred_free = proof["free"] is False and before_val == after_val
-    if paid_retry or explicit_free:
-        if min_conf < 0.75 or max_conf < 0.9:
-            return None
-    elif inferred_free:
-        if min_conf < 0.9:
-            return None
-    else:
+    banner_bottom = _detect_daily_free_banner_bottom(normalized, layout=proof["layout"])
+    candidate_rois = []
+    if banner_bottom is not None:
+        anchored_top = max(0, banner_bottom + 4)
+        anchored_bot = min(1280, anchored_top + 38)
+        candidate_rois.append(((408, anchored_top, 484, anchored_bot), (511, anchored_top, 587, anchored_bot)))
+        candidate_rois.append(shifted_rois)
+    elif proof["free"]:
+        candidate_rois.append(shifted_rois)
+    candidate_rois.append(legacy_rois)
+    matched = None
+    for roi_pair in dict.fromkeys(candidate_rois):
+        matched = _evaluate_cost_roi_pair(normalized, roi_pair, free=proof["free"], reader=reader)
+        if matched is not None:
+            break
+    if matched is None:
         return None
+    before_val, before_conf, after_val, after_conf = matched
     proof["before"] = before_val
     proof["after"] = after_val
+    proof["cost_confidences"] = {"before": round(before_conf, 4), "after": round(after_conf, 4)}
+    if banner_bottom is not None:
+        proof["free_banner_bottom"] = banner_bottom
     # These two values are the same ready confirmation's cost preview, not
     # inventory sampled before/after a submitted retry. A verified zero-cost
     # preview can establish no stock consumption without an exact free banner.
@@ -412,7 +488,7 @@ def _full_page(image):
     white = lambda r: (r[:,:,1] < 50) & (r[:,:,2] > 185)
     pink = lambda r: (r[:,:,0] >= 145) & (r[:,:,0] <= 178) & (r[:,:,1] > 35)
     return (ratio((20,35,700,90), green) > .7 and ratio((35,490,690,595), white) > .75
-            and ratio((180,850,267,935), pink) > .15
+            and max(ratio((180,850,267,935), pink), ratio((172,838,274,960), pink)) > .15
             and ratio((65,1150,337,1210), white) > .5
             and ratio((385,1150,650,1210), green) > .7)
 

@@ -116,9 +116,10 @@ class LegendRaceDevice(SupportDevice):
         navigation = action_id in self.navigation_actions or action_id.startswith('horse_')
         before = self.capture(navigation=True)
         returning_daily = action_id == 'return_home' and expected.get('page') == 'daily_legend_complete'
-        if action_id == 'dismiss_rank' and expected.get('page') == 'rank_overlay' or (action_id == 'run_race' and expected.get('page') == 'race_grid') or (action_id == 'open_details' and expected.get('page') == 'legend') or returning_daily or (action_id in ('continue_victory', 'continue_defeat', 'close_trophy', 'continue_rewards') and expected.get('page') == RESULT_ACTION_PAGES[action_id]):
-            for _ in range(6):
-                if before.get('page') not in ('unknown', 'loading') and (not (returning_daily and before.get('page') == 'events')):
+        if action_id == 'dismiss_rank' and expected.get('page') == 'rank_overlay' or (action_id == 'run_race' and expected.get('page') == 'race_grid') or (action_id == 'open_details' and expected.get('page') == 'legend') or (action_id == 'confirm_selected' and expected.get('page') == 'selection') or returning_daily or (action_id in ('continue_victory', 'continue_defeat', 'close_trophy', 'continue_rewards') and expected.get('page') == RESULT_ACTION_PAGES[action_id]):
+            confirm_debounce = action_id == 'confirm_selected'
+            for _ in range(2 if confirm_debounce else 6):
+                if before.get('page') == 'selection' if confirm_debounce else before.get('page') not in ('unknown', 'loading') and (not (returning_daily and before.get('page') == 'events')):
                     break
                 if stop_event.wait(0.3):
                     raise RuntimeError('operator_stop')

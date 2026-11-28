@@ -1,4 +1,5 @@
 """Pure, region-anchored autonomous-training page observation."""
+import copy
 import hashlib
 import re
 import cv2
@@ -134,12 +135,27 @@ def read_start_notice_tokens(image, ocr):
 def read_skill_scroll_tokens(image, ocr):
     """Read only page anchors for read-only skill scrolling, never purchase rows."""
     from core.skill_acquisition_parser import _rapidocr_ocr_data
-    from core.skill_ocr_performance import active_harvest_ocr
-    if active_harvest_ocr() is None or image.shape[:2] != (1280, 720):
+    from core.skill_ocr_performance import active_harvest_ocr, harvest_lock
+    harvest = active_harvest_ocr()
+    if harvest is None or image.shape[:2] != (1280, 720):
         return read_tokens(image, ocr)
     track = cv2.cvtColor(image[480:1026, 697:704], cv2.COLOR_BGR2GRAY)
     if float((track < 180).mean()) > 0.8:
         return read_tokens(image, ocr)
+    title_roi = image[0:60, 0:200]
+    pt_roi = image[390:455, 270:700]
+    with harvest_lock(harvest):
+        anchor_cache = harvest.get('scroll_anchor_cache')
+        if (
+            isinstance(anchor_cache, dict)
+            and anchor_cache.get('title_patch') is not None
+            and anchor_cache.get('pt_patch') is not None
+            and title_roi.shape == anchor_cache['title_patch'].shape
+            and pt_roi.shape == anchor_cache['pt_patch'].shape
+            and int(cv2.absdiff(title_roi, anchor_cache['title_patch']).max()) <= 8
+            and int(cv2.absdiff(pt_roi, anchor_cache['pt_patch']).max()) <= 8
+        ):
+            return copy.deepcopy(anchor_cache['tokens'])
     tokens = []
     for index, (x0, y0, x1, y1) in enumerate(((0, 0, 200, 60), (270, 390, 700, 455))):
         for item in _rapidocr_ocr_data(image[y0:y1, x0:x1], upscale=2):
@@ -154,11 +170,18 @@ def read_skill_scroll_tokens(image, ocr):
             box = item.get('box')
             if box and re.fullmatch('\\d{1,5}', item['text']) and (item['confidence'] >= 0.95):
                 tokens.append(dict(text=item['text'], confidence=item['confidence'], bbox=[int(min((point[0] for point in box)) / 3 + 520), int(min((point[1] for point in box)) / 3 + 390), int(max((point[0] for point in box)) / 3 + 520), int(max((point[1] for point in box)) / 3 + 390)]))
+    has_title = any((t.get('text', '').replace(' ', '') == '技能获取' and t.get('confidence', 0) >= 0.98 and 0 <= t['bbox'][0] and 0 <= t['bbox'][1] and t['bbox'][2] <= 200 and t['bbox'][3] <= 60 for t in tokens))
+    has_pt_label = any((t.get('text', '').replace(' ', '') == '当前技能点数' and t.get('confidence', 0) >= 0.9 and 270 <= t['bbox'][0] and 390 <= t['bbox'][1] and t['bbox'][2] <= 480 and t['bbox'][3] <= 455 for t in tokens))
+    pt_nums = [t for t in tokens if t.get('confidence', 0) >= 0.9 and re.fullmatch('\\d+', t.get('text', '').replace(' ', '')) and 510 <= t['bbox'][0] and 390 <= t['bbox'][1] and t['bbox'][2] <= 690 and t['bbox'][3] <= 455]
+    if has_title and has_pt_label and len(pt_nums) == 1:
+        with harvest_lock(harvest):
+            harvest['scroll_anchor_cache'] = dict(title_patch=title_roi.copy(), pt_patch=pt_roi.copy(), tokens=copy.deepcopy(tokens))
     return tokens
 
-def observe(raw, tokens, required_variant=None):
+def observe(raw, tokens, required_variant=None, *, image=None):
     result = dict(page='unknown', actions={}, frame_sha256=hashlib.sha256(raw).hexdigest(), remaining_seconds=None, course_rows=[], course_name=None, selected_course_status=None, exam_selection_applied=None, inheritance_full=None, support_full=None, borrow_checked=None, autonomous_selected=None, tp_before=None, tp_after=None, tp_cost=None, skill_list_at_bottom=None, skill_list_at_top=None, autonomous_active=None, finish_summary=None, current_skill_points=None, skill_list_navigation_verified=False)
-    image = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        image = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if image is None or image.shape[:2] != (1280, 720):
         return result
     labels = {token.get('text', '').replace(' ', '') for token in tokens if token.get('confidence', 0) >= 0.9}
@@ -405,9 +428,11 @@ def observe(raw, tokens, required_variant=None):
             from core.autonomous_training.trainee import REQUIRED_TRAINEE, bakushin_candidate, scarlet_candidate, initial_candidate
             from core.autonomous_training.plant_catalog import TRAINEES
             names = [name for name in TRAINEES.values() if find(name, (20, 375, 400, 450))]
+            if not names and any(find(alias, (20, 375, 400, 450)) for alias in ('春乌拉拉', '乌拉拉')):
+                names = [TRAINEES['urara']]
             result['selected_trainee_name'] = names[0] if len(names) == 1 else None
             urara = initial_candidate(image, 'urara')
-            if urara and any((t['text'].replace(' ', '') == '春乌拉拉' and t['confidence'] >= 0.75 and within(t, (20, 410, 400, 450)) for t in tokens)):
+            if urara and any((t['text'].replace(' ', '') in {'春乌菈菈', '春乌拉拉', '乌拉拉'} and t['confidence'] >= 0.75 and within(t, (20, 410, 400, 450)) for t in tokens)):
                 x, y = urara['point']
                 hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
                 mask = cv2.inRange(hsv, (35, 100, 140), (85, 255, 255))

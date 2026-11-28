@@ -15,6 +15,7 @@ from core.auto_trainer.run_support_profile import canonical_type
 
 _SEGMENT = re.compile(r'autonomous_[A-Za-z0-9_]{1,64}')
 _TURN = re.compile(r'turn_(\d{1,3})(?:_[A-Za-z0-9_]{1,64})?')
+_COMPACT_GROUP = re.compile(r't(\d{3,})_[0-9a-fA-F]{4,16}')
 _AFTER = re.compile(r'(?:route|event)_\d{2,3}')
 _HASH = re.compile(r'[0-9a-fA-F]{64}')
 _SIZE = 4 * 1024 * 1024
@@ -74,6 +75,18 @@ def _mapping(value):
     return value if isinstance(value, dict) else {}
 
 
+def _valid_group_id(value, segment_name, turn, expected_group=None):
+    """Accept legacy `{segment}_turn{N}` or 0.6.14 compact `t{N:03d}_{hex}` group IDs."""
+    if not isinstance(value, str) or not value:
+        return False
+    if expected_group is not None:
+        return value == expected_group
+    if segment_name is not None and value == f'{segment_name}_turn{turn}':
+        return True
+    match = _COMPACT_GROUP.fullmatch(value)
+    return match is not None and int(match.group(1)) == turn
+
+
 def _ss_preview_summary(preview):
     preview = _mapping(preview)
     if preview.get('status') != 'accepted':
@@ -108,7 +121,7 @@ def _ss_preview_summary(preview):
     }
 
 
-def _preview(state, options, run_id, turn, group):
+def _preview(state, options, run_id, turn, group=None, *, segment_name=None):
     scenario = _mapping(state.get('scenario_state'))
     period = _mapping(scenario.get('larc_period'))
     date = _mapping(period.get('value'))
@@ -122,11 +135,16 @@ def _preview(state, options, run_id, turn, group):
             or any(not isinstance(option, dict) or option.get('training_type') not in TABS for option in options)
             or {option.get('training_type') for option in options} != set(TABS)):
         return None
+    seen_group = group
     for option in options:
         capture = _mapping(_mapping(option.get('raw_data')).get('capture'))
+        actual_group = capture.get('actual_group_id')
         if (capture.get('run_session_id') != run_id or capture.get('turn_index') != turn
-                or capture.get('actual_group_id') != group or not _digest(capture.get('sha256'))):
+                or not _valid_group_id(actual_group, segment_name, turn, seen_group)
+                or not _digest(capture.get('sha256'))):
             return None
+        if seen_group is None:
+            seen_group = actual_group
     try:
         ss_prev = _ss_preview_summary(scenario.get('larc_ss_preview'))
         period_dict = (
@@ -195,24 +213,34 @@ def _outcome(folder, run, turn, target, observation_id, remaining):
 
 def _observation(run, folder, turn, next_turn, remaining):
     observation_id = folder.relative_to(run).as_posix()
-    group = f'{folder.parent.name}_turn{turn}'
+    segment_name = folder.parent.name
     state = _read(folder / 'decision/turns/turn_000/state.json', run, remaining)
-    preview = _preview(state, state.get('training_options'), run.name, turn, group)
+    preview = _preview(state, state.get('training_options'), run.name, turn, segment_name=segment_name)
     basis = 'decision_state'
     ss_snap = None
     if preview is None:
         ss_snap = _ss_snapshot_data(folder, run, turn, remaining)
         if ss_snap:
             ss_state = _mapping(ss_snap.get('state'))
-            preview = _preview(ss_state, ss_state.get('training_options'), run.name, turn, group)
+            preview = _preview(ss_state, ss_state.get('training_options'), run.name, turn, segment_name=segment_name)
             if preview is not None:
                 basis = 'ss_comparison_snapshot'
     if preview is None:
         sidecar = _read(folder / 'capture/training_options.generated.json', run, remaining)
+        sidecar_group = sidecar.get('actual_group_id')
         if (sidecar.get('schema_version') == 'ug_parent_training_options_sidecar.v1'
-                and sidecar.get('is_valid') is True and sidecar.get('actual_group_id') == group):
-            preview = _preview(_mapping(sidecar.get('state_context')), sidecar.get('training_options'), run.name, turn, group)
-        basis = 'capture_sidecar'
+                and sidecar.get('is_valid') is True
+                and _valid_group_id(sidecar_group, segment_name, turn)):
+            preview = _preview(
+                _mapping(sidecar.get('state_context')),
+                sidecar.get('training_options'),
+                run.name,
+                turn,
+                group=sidecar_group,
+                segment_name=segment_name,
+            )
+            if preview is not None:
+                basis = 'capture_sidecar'
     if preview is None:
         return None
     before, trainings, ss_prev = preview

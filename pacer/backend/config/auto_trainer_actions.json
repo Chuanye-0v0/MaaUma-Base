@@ -1,0 +1,171 @@
+{
+  "reference_size": {
+    "width": 720,
+    "height": 1280
+  },
+  "safe_advance": {
+    "finish_training_confirm": {
+      "action": "tap",
+      "reason": "finish_training_confirm",
+      "coordinate_name": "safe_advance.finish_training",
+      "point": {
+        "x": 518,
+        "y": 918
+      }
+    },
+    "honor_title": {
+      "action": "tap",
+      "reason": "close_honor_title",
+      "coordinate_name": "safe_advance.honor_title_confirm",
+      "point": {
+        "x": 360,
+        "y": 1182
+      }
+    },
+    "blurred_loading": {
+      "action": "wait",
+      "reason": "loading",
+      "route_state": "blurred_loading"
+    },
+    "team_formation": {
+      "action": "stop",
+      "reason": "team_formation"
+    },
+    "scenario_select_continue": {
+      "action": "tap",
+      "reason": "scenario_select_continue",
+      "coordinate_name": "safe_advance.scenario_continue",
+      "point": {
+        "x": 360,
+        "y": 1077
+      }
+    },
+    "trainee_select_continue": {
+      "action": "tap",
+      "reason": "trainee_select_continue",
+      "coordinate_name": "safe_advance.trainee_continue",
+      "point": {
+        "x": 360,
+        "y": 1078
+      }
+    },
+    "inheritance_select_continue": {
+      "action": "tap",
+      "reason": "inheritance_select_continue",
+      "coordinate_name": "safe_advance.inheritance_continue",
+      "point": {
+        "x": 360,
+        "y": 1078
+      }
+    },
+    "inheritance_auto_select": {
+      "action": "tap",
+      "reason": "inheritance_auto_select",
+      "coordinate_name": "safe_advance.inheritance_auto_select",
+      "point": {
+        "x": 518,
+        "y": 968
+      }
+    },
+    "support_deck_select_friend": {
+      "action": "tap",
+      "reason": "support_deck_select_friend",
+      "coordinate_name": "safe_advance.support_deck_friend_slot",
+      "point": {
+        "x": 574,
+        "y": 680
+      }
+    },
+    "support_deck_start_training": {
+      "action": "tap",
+      "reason": "support_deck_start_training",
+      "coordinate_name": "safe_advance.support_deck_start",
+      "point": {
+        "x": 360,
+        "y": 1080
+      }
+    },
+    "friend_support_select_first": {
+      "action": "tap",
+      "reason": "friend_support_select_first",
+      "coordinate_name": "safe_advance.friend_support_first_card",
+      "point": {
+        "x": 88,
+        "y": 295
+      }
+    },
+    "return_main_menu_from_training": {
+      "action": "tap",
+      "reason": "return_main_menu_from_training",
+      "route_state": "training_menu",
+      "coordinate_name": "safe_advance.training_menu_back",
+      "point": {
+        "x": 80,
+        "y": 1221
+      }
+    },
+    "story_fast_forward": {
+      "action": "tap",
+      "reason": "story_fast_forward",
+      "coordinate_name": "safe_advance.story_fast_forward",
+      "point": {
+        "x": 655,
+        "y": 1215
+      }
+    }
+  },
+  "career_start_route": {
+    "global_home_enter_career": {
+      "action": "tap",
+      "reason": "enter_new_career_from_global_home",
+      "coordinate_name": "career_start.global_home_enter_career",
+      "expected_source_state": "global_home_ready",
+      "expected_destination_state": "scenario_select_ready"
+    }
+  },
+  "global_hub_route": {
+    "return_home": {
+      "action": "tap",
+      "reason": "return_home_from_global_hub",
+      "coordinate_name": "global_hub.center_home",
+      "point": {
+        "x": 360,
+        "y": 1240
+      },
+      "expected_source_state": "global_hub_subpage",
+      "expected_destination_state": "global_home_ready"
+    }
+  },
+  "race_route": {
+    "race_day_main_menu": {
+      "action": "tap",
+      "reason": "enter_race_from_race_day",
+      "route_state": "race_day_main_menu",
+      "coordinate_name": "race_day.practice",
+      "point": {
+        "x": 360,
+        "y": 1088
+      }
+    },
+    "race_detail_view_result": {
+      "action": "tap",
+      "reason": "view_race_result",
+      "route_state": "race_detail",
+      "coordinate_name": "race_detail.view_result",
+      "point": {
+        "x": 250,
+        "y": 1175
+      }
+    },
+    "race_result_continue": {
+      "action": "tap",
+      "reason": "race_result_continue",
+      "route_state": "race_result",
+      "coordinate_name": "race_result.continue",
+      "point": {
+        "x": 360,
+        "y": 1178
+      }
+    }
+  }
+}

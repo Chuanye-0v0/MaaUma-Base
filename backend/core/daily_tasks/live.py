@@ -251,14 +251,15 @@ class DailyDevice(SupportDevice):
         path.write_text(json.dumps(receipt, ensure_ascii=False), encoding='utf8')
         fast_navigation = action in {'return_home', 'close_details', 'close_gifts', 'close_claim', 'claim_gifts', 'claim_missions', 'next_rewards', 'close_multi_rewards', 'close_shop_success', 'close_race_help', 'close_shop_unavailable'}
         retryable = action in SAFE_DISMISS_ACTIONS and 'point' in candidate and ('swipe' not in candidate)
+        controls_tolerance = 20 if action == 'close_multi_rewards' else 4
         for attempt in range(3 if retryable else 1):
             if attempt:
                 fresh = self.capture()
-                if fresh.get('page') != before.get('page') or not same_controls(before.get('actions'), fresh.get('actions')):
+                if fresh.get('page') != before.get('page') or not same_controls(before.get('actions'), fresh.get('actions'), tolerance=controls_tolerance):
                     receipt['observation'] = fresh
                     break
                 fresh = self._fresh_observation(fresh, action, stop)
-                if fresh.get('page') != before.get('page') or not same_controls(before.get('actions'), fresh.get('actions')):
+                if fresh.get('page') != before.get('page') or not same_controls(before.get('actions'), fresh.get('actions'), tolerance=controls_tolerance):
                     receipt['observation'] = fresh
                     break
                 candidate = authorize(action, fresh, before, self.context)
@@ -278,13 +279,13 @@ class DailyDevice(SupportDevice):
                 receipt['dismiss_attempts'][-1]['acknowledged'] = True
             path.write_text(json.dumps(receipt, ensure_ascii=False), encoding='utf8')
             if fast_navigation:
-                receipt['observation'] = wait_transition(self.capture, stop, before, timeout=3 if retryable else 20)
+                receipt['observation'] = wait_transition(self.capture, stop, before, timeout=3 if retryable else 20, controls_tolerance=controls_tolerance)
             else:
                 if stop.wait(0.15 if action == 'skip_race' else 0.6):
                     raise RuntimeError('operator_stop_after_submit')
                 receipt['observation'] = self.capture()
             after = receipt['observation']
-            if not retryable or after.get('page') != before.get('page') or (not same_controls(before.get('actions'), after.get('actions'))):
+            if not retryable or after.get('page') != before.get('page') or (not same_controls(before.get('actions'), after.get('actions'), tolerance=controls_tolerance)):
                 break
         path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding='utf8')
         return receipt

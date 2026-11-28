@@ -511,6 +511,7 @@ def _completed_live_result_handoff(run_root, saved):
             expected = {
                 'race_result_continue': 'race_result.continue',
                 'larc_explanation_continue': 'safe_advance.larc_explanation_continue',
+                'close_story_record_modal': 'safe_advance.announcement_close',
                 'race_scene_start_or_continue': 'race_scene.start_or_continue',
                 'skip_or_advance_race_scene': 'race_scene.skip_or_advance',
             }.get(decision.get('reason'))
@@ -1793,6 +1794,24 @@ def _run_larc_race_route(*, run_root: Path, output_dir: Path, adb_port: int,
         last = steps[-1]["result"] if steps else {}
         if last.get("reason") == reason and is_route_handoff_result(last):
             report.update(status="handoff", handoff_target=last["decision"]["target"])
+        try:
+            from core.auto_trainer.larc_classic_arc_result import (
+                extract_classic_arc_result,
+                save_classic_arc_result,
+            )
+
+            arc_result = extract_classic_arc_result(report, read_roi=True)
+            if arc_result is not None:
+                report["classic_arc_result"] = arc_result
+                save_classic_arc_result(
+                    run_root,
+                    run_id,
+                    arc_result,
+                    turn_index=turn,
+                    report_path=str(output_dir / "report.json"),
+                )
+        except Exception:
+            pass
         handoff_path = output_dir / "owner_handoff.json"
         report["owner_handoff_path"] = str(handoff_path)
         _atomic_write_json(output_dir / "report.json", report)

@@ -1065,7 +1065,11 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
                 Emit();
             };
             handoffCommits.Add(()=> {
-                options["arc_policy"]=arcPolicy.Read();
+                var nextArc=arcPolicy.Read();
+                if(!JToken.DeepEquals(options["arc_policy"],nextArc)) {
+                    options["arc_policy"]=nextArc;
+                    Emit();
+                }
                 return true;
             });
             body.Children.Add(Section(prefix+"ArcCmSkillPolicy","凯旋门与终盘 · CM 大赛目标自动选技",arcPolicy));
@@ -1205,7 +1209,9 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
     private Control Text(JObject target,string key,string label,string prefix)
     {
         var field=new TextBox{Name=prefix+key,Text=target[key]?.ToString(),Width=120,MinWidth=120,Watermark="沿用保存值"};
-        var numericIntKey=key is "max_attempts" or "max_tp_items" or "max_carrots" or "borrow_card_id";
+        var numericIntKey=key is "max_attempts" or "max_tp_items" or "max_carrots" or "borrow_card_id"
+            or "borrow_min_level" or "max_actions" or "fallback_interval_turns";
+        var numericFloatKey=key is "failure_limit";
         void CommitText()
         {
             var raw=(field.Text??"").Trim();
@@ -1213,6 +1219,12 @@ public sealed class UmaWorkflowRunConfigurationEditor : StackPanel
             {
                 if(target[key]?.Type==JTokenType.Integer && (int)target[key]! == iv)return;
                 target[key]=new JValue(iv);Emit();return;
+            }
+            if(numericFloatKey && double.TryParse(raw,NumberStyles.Float,CultureInfo.InvariantCulture,out var dv) && double.IsFinite(dv))
+            {
+                if(target[key]?.Type is JTokenType.Integer or JTokenType.Float && Math.Abs((double)target[key]! - dv) < 1e-9)return;
+                target[key]=Math.Abs(dv - Math.Truncate(dv)) < 1e-9 ? new JValue((long)Math.Truncate(dv)) : new JValue(dv);
+                Emit();return;
             }
             if(target[key]?.Type==JTokenType.String && (string?)target[key]==raw)return;
             if(target[key]==null && string.IsNullOrEmpty(raw))return;

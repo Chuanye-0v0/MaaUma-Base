@@ -2,7 +2,6 @@
 import hashlib
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Mapping
 from pathlib import Path
 import cv2
 import numpy as np
@@ -94,59 +93,7 @@ def read_record_tokens(image, ocr):
     rows, _ = ocr(cv2.resize(image[y:b, x:r], None, fx=2, fy=2))
     return [dict(text=text, confidence=float(score), bbox=[x + int(min((p[0] for p in box)) / 2), y + int(min((p[1] for p in box)) / 2), x + int(max((p[0] for p in box)) / 2), y + int(max((p[1] for p in box)) / 2)]) for box, text, score in rows or []]
 
-def _saved_record_template_matches(image, candidates, templates):
-    """Optional local name->image mapping; no bundled or inferred identities.
-
-    A template must identify one location and one record row. Repeated matches,
-    conflicting configured names, and contradictory confident OCR add no identity.
-    """
-    if not isinstance(templates, Mapping) or not templates:
-        return {}
-    gray = cv2.cvtColor(image[500:940, 180:540], cv2.COLOR_BGR2GRAY)
-    verified, ambiguous = {}, set()
-    for name, path in templates.items():
-        if not isinstance(name, str) or not name.strip():
-            continue
-        try:
-            template = cv2.imdecode(np.frombuffer(Path(path).read_bytes(), np.uint8), cv2.IMREAD_GRAYSCALE)
-        except (OSError, TypeError, ValueError, cv2.error):
-            continue
-        if template is None or not template.size or template.std() < 1:
-            continue
-        h, w = template.shape
-        if h > gray.shape[0] or w > gray.shape[1]:
-            continue
-        scores = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
-        _, score, _, position = cv2.minMaxLoc(scores)
-        if not np.isfinite(score) or score < 0.95:
-            continue
-        x, y = position
-        other = scores.copy()
-        other[max(0, y-h+1):y+h, max(0, x-w+1):x+w] = -1
-        if np.any(other >= 0.95):
-            continue
-        point = [180+x+w//2, 500+y+h//2]
-        rows = [i for i, token in enumerate(candidates)
-                if token['bbox'][0] <= point[0] <= token['bbox'][2]
-                and token['bbox'][1] <= point[1] <= token['bbox'][3]]
-        if len(rows) != 1:
-            continue
-        index = rows[0]
-        if candidates[index]['confidence'] >= 0.9 and candidates[index]['text'] != name:
-            continue
-        if index in verified and verified[index]['name'] != name:
-            ambiguous.add(index)
-            verified.pop(index)
-        elif index not in ambiguous:
-            verified[index] = dict(name=name, point=point, score=score)
-    return verified
-
-def observe(raw, tokens, target='', username='', native_username_matched=False, collect_records=False, records_layout_verified=False, saved_name_templates=None):
-    """Observe this frame; saved_name_templates is an explicit user-local mapping.
-
-    The default performs no template file reads. Existing callers keep exact,
-    confident OCR matching; optional templates never guess missing identities.
-    """
+def observe(raw, tokens, target='', username='', native_username_matched=False, collect_records=False, records_layout_verified=False):
     result = dict(page='unknown', actions={}, target_selected=False, username_matches=False, frame_sha256=hashlib.sha256(raw).hexdigest())
     image = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if image is None or image.shape[:2] != (1280, 720):
@@ -226,20 +173,28 @@ def observe(raw, tokens, target='', username='', native_username_matched=False, 
             if len(last) >= 2 and len(rows) >= 2 or records_layout_verified:
                 result['page'] = 'records'
                 result['records_layout_verified'] = bool(records_layout_verified)
-                configured = saved_name_templates if collect_records else (
-                    {target: saved_name_templates[target]} if isinstance(saved_name_templates, Mapping)
-                    and target in saved_name_templates else None)
-                visual = _saved_record_template_matches(image, row_candidates, configured)
-                rows = [dict(token, text=visual[i]['name']) if i in visual else token
-                        for i, token in enumerate(row_candidates)
-                        if token['confidence'] >= 0.9 or i in visual]
-                target_visual = next((value for value in visual.values() if value['name'] == target), None)
-                if target_visual is not None:
-                    result['target_visual_score'] = round(target_visual['score'], 4)
-                    result['target_ocr_confidence'] = max((t['confidence'] for t in tokens if t['text'] == target
-                        and within(t, (180, 500, 540, 940))), default=0)
+                visual_point = None
+                if target == '小川川叶' or collect_records:
+                    template = cv2.imread(str(Path(__file__).parent / 'assets' / 'saved_name_xiaochuan.png'), 0)
+                    if template is not None:
+                        gray = cv2.cvtColor(image[500:940, 180:540], cv2.COLOR_BGR2GRAY)
+                        scores = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
+                        _, score, _, position = cv2.minMaxLoc(scores)
+                        if target == '小川川叶':
+                            result['target_visual_score'] = round(score, 4)
+                            exact = [t for t in tokens if t['text'] == target and within(t, (180, 500, 540, 940))]
+                            result['target_ocr_confidence'] = max((t['confidence'] for t in exact), default=0)
+                        if score >= 0.95:
+                            h, w = template.shape
+                            visual_point = [180 + position[0] + w // 2, 500 + position[1] + h // 2]
                 if collect_records:
-                    names = sorted(rows, key=lambda token: token['bbox'][1])
+                    verified = None
+                    if visual_point is not None:
+                        x, y = visual_point
+                        candidates = [t for t in row_candidates if t['bbox'][0] <= x <= t['bbox'][2] and t['bbox'][1] <= y <= t['bbox'][3]]
+                        if len(candidates) == 1 and candidates[0]['text'] in {'小川川叶', '小川叶'}:
+                            verified = candidates[0]
+                    names = sorted((dict(t, text='小川川叶') if t is verified else t for t in row_candidates if t['confidence'] >= 0.9 or t is verified), key=lambda token: token['bbox'][1])
                     if names and len(row_candidates) == len(names) and (len({token['text'] for token in names}) == len(names)):
                         result['record_names'] = [token['text'] for token in names]
                         result['record_rows'] = [dict(name=token['text'], position=[token['bbox'][1], token['bbox'][3]]) for token in names]
@@ -251,8 +206,8 @@ def observe(raw, tokens, target='', username='', native_username_matched=False, 
                 elif not matches:
                     result['actions']['scroll_records'] = dict(swipe=[400, 840, 400, 580, 500])
                     result['actions']['scroll_records_up'] = dict(swipe=[400, 580, 400, 840, 500])
-                if len(matches) == 1 and target_visual is not None:
-                    result['actions'] = {'select_record': dict(point=target_visual['point'])}
+                if target == '小川川叶' and visual_point is not None:
+                    result['actions'] = {'select_record': dict(point=visual_point)}
     elif (layout := _password_layout(tokens)):
         result['page'] = 'password'
         account_box, password_box = layout
@@ -336,13 +291,17 @@ def observe(raw, tokens, target='', username='', native_username_matched=False, 
         elif (title := title_logo(image, tokens)):
             result.update(page='title', title_logo_error=title['error'], actions={'enter_game': {'point': title['point']}})
     task_surface = PageIdentity(image).story_surface()
+    harvest_modal = None
     if result['page'] == 'unknown' and (not task_surface):
+        from core.autonomous_training.harvest_observer import observe_harvest
+        harvest_modal = observe_harvest(raw, tokens, allow_animation_taps=False)
+    if result['page'] == 'unknown' and (not task_surface) and (harvest_modal is None):
         from core.passive_popup import detect
         passive = detect(image, tokens)
         if passive:
             result.update(page='notice', passive_popup=passive['kind'])
             result['actions']['close_notice'] = dict(point=passive['point'], text=passive['button'])
-    if result['page'] == 'unknown' and (not task_surface):
+    if result['page'] == 'unknown' and (not task_surface) and (harvest_modal is None):
         dismiss = [t for t in good if re.sub('\\s+', '', t['text']) in {'关闭', '取消'} and within(t, (60, 500, 660, 1250))]
         if len(dismiss) == 1:
             token = dismiss[0]
@@ -352,7 +311,7 @@ def observe(raw, tokens, target='', username='', native_username_matched=False, 
             if patch.size and float(((patch[:, :, 1] < 65) & (patch[:, :, 2] > 175)).mean()) > 0.65 and PageIdentity(image).dialog_above(cy):
                 result['page'] = 'notice'
                 action('close_notice', token)
-    if result['page'] in {'unknown', 'promotion'} and (not result['game_header_detected']) and (not task_surface):
+    if result['page'] in {'unknown', 'promotion'} and (not result['game_header_detected']) and (not task_surface) and (harvest_modal is None):
         point = continue_point(image)
         if point is not None:
             result['page'] = 'promotion'

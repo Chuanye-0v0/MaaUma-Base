@@ -78,6 +78,10 @@ def observe(raw, tokens, *, navigation=False, event=None, daily=False):
         if home:
             x0, y0, x1, y1 = home['bbox']
             result['actions']['return_home'] = dict(point=[(x0 + x1) // 2, (y0 + y1) // 2])
+        else:
+            neighbors = [('强化编成', (0, 1200, 170, 1280)), ('赛事', (470, 1200, 580, 1280)), ('招募', (590, 1200, 720, 1280))]
+            if sum((1 for label, box in neighbors if find(label, box) is not None)) >= 2:
+                result['actions']['return_home'] = dict(point=[360, 1236])
         return result
     trophy_close = find('关闭', (270, 870, 450, 970))
     rewards_continue = find('继续', (270, 1130, 450, 1230))

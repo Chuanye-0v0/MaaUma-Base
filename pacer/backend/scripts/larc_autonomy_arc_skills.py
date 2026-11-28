@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import sys
 from time import monotonic
+import traceback
 
 import cv2
 
@@ -89,6 +90,9 @@ def launch_arc_worker(ctx, output, request):
     runtime = resolve_tesseract_runtime()
     env = skill_ocr_environment(os.environ, executable=runtime.executable)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    if request.get("capture_backend_override"):
+        env["UMA_CUT_CAPTURE_BACKEND"] = str(request["capture_backend_override"])
+    out_path = Path(output)
     argv = [sys.executable, "-B", str(Path(__file__).with_name("larc_d1_prerace_skill_worker.py")),
         "--purpose", "prerace", "--year", str(request["year"]), "--d1-root", str(ctx.d1_skill_root),
         "--run-root", str(ctx.root), "--output-dir", str(output),
@@ -101,12 +105,42 @@ def launch_arc_worker(ctx, output, request):
         argv += ["--max-purchase-count", str(request["max_purchase_count"])]
     if request.get("resume_confirmed_from"):
         argv += ["--resume-confirmed-from", request["resume_confirmed_from"]]
-    child = run_controlled_process(argv, cwd=str(ctx.root), capture_output=True, text=True,
-                                   encoding="utf-8", errors="replace", env=env)
-    _atomic_write_json(Path(output).parent/(Path(output).name+"_process.json"),
-        {"returncode": child.returncode, "stdout": child.stdout, "stderr": child.stderr})
-    path = Path(output)/"worker_report.json"
-    return read(path) if path.is_file() else {"ok": False, "reason": "arc_worker_report_missing"}
+    probe = lambda: (out_path / "worker_report.json").is_file() or (out_path.is_dir() and any(out_path.iterdir()))
+    child = run_controlled_process(
+        argv,
+        cwd=str(ctx.root),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        startup_timeout=35.0,
+        startup_probe=probe,
+        total_timeout=300.0,
+        diagnostics_dir=out_path.parent,
+    )
+    stalled = bool(getattr(child, "startup_stalled", False))
+    diag_path = getattr(child, "diagnostics_path", None)
+    _atomic_write_json(out_path.parent / (out_path.name + "_process.json"), {
+        "returncode": child.returncode,
+        "stdout": child.stdout,
+        "stderr": child.stderr,
+        "startup_stalled": stalled,
+        "timed_out": bool(getattr(child, "timed_out", False)),
+        "diagnostics_path": diag_path,
+    })
+    path = out_path / "worker_report.json"
+    if path.is_file():
+        return read(path)
+    zero_output = (not out_path.exists()) or (not any(out_path.iterdir()))
+    return {
+        "ok": False,
+        "reason": "arc_worker_startup_stalled" if stalled else "arc_worker_report_missing",
+        "zero_output_startup_failure": zero_output,
+        "returncode": child.returncode,
+        "startup_stalled": stalled,
+        "diagnostics_path": diag_path,
+    }
 
 
 def _worker_bound(ctx, result, year):
@@ -144,6 +178,46 @@ def _zero_purchase_preparation(ctx, pending, result, year):
             "expected_skill_points": result["before"]["current_skill_points"]}
 
 
+def _zero_purchase_loading(ctx, pending, result, year):
+    """Identify a worker failure during loading before any selection or purchase could occur."""
+    if (not _worker_bound(ctx, result, year) or result.get("ok") is not False
+            or result.get("stage") != "loading" or result.get("returned") is not False
+            or result.get("purchase_may_have_occurred") is True
+            or any(key in result for key in ("selected_action_ids", "selection", "learning_result"))
+            or any((pending / name).exists() for name in
+                   ("selection", "confirmation", "success_close", "return_after_learning"))):
+        return None
+    for path in pending.rglob("*receipt*.json"):
+        receipt = read(path)
+        if receipt.get("action_id") not in SCROLL_ACTIONS or receipt.get("input_may_have_occurred") or receipt.get("purchase_may_have_occurred"):
+            return None
+    return {"previous_worker": str(pending), "reason": result.get("reason"), "stage": "loading"}
+
+
+def _degrade_zero_purchase_stage(ctx, stage, ledger, ledger_path, navigation, output, year, skip_reason):
+    return_dir = output / f"return_degraded_{len(stage['batches']) + 1:02d}"
+    return_dir.mkdir(parents=True, exist_ok=True)
+    returned_source = navigation.return_race_day(return_dir, worker_returned=False)
+    stage.pop("pending_worker", None)
+    stage.update(
+        status="complete",
+        degraded_skipped=True,
+        skip_reason=skip_reason,
+        source_after=returned_source,
+    )
+    _atomic_write_json(ledger_path, ledger)
+    return {
+        "ok": True,
+        "status": "degraded_skipped_after_zero_purchase_failure",
+        "year": year,
+        "batches": stage["batches"],
+        "degraded_skipped": True,
+        "skip_reason": skip_reason,
+        "turn_consumed": False,
+        "source_after": returned_source,
+    }
+
+
 def _observe_preparation_retry(ctx, pending, result, year, output, navigation):
     proof = _zero_purchase_preparation(ctx, pending, result, year)
     if proof is None:
@@ -171,7 +245,7 @@ def _observe_preparation_retry(ctx, pending, result, year, output, navigation):
     return proof
 
 
-def _record_arc_call_timing(ctx, output_dir, started, report, *, entrypoint, raised):
+def _record_arc_call_timing(ctx, output_dir, started, report, *, entrypoint, raised, error=None):
     """Pacer-call duration only; missing worker-stage clocks stay unknown."""
     if report is None and not raised:
         return  # Not an applicable skill call; do not manufacture an episode.
@@ -184,11 +258,19 @@ def _record_arc_call_timing(ctx, output_dir, started, report, *, entrypoint, rai
         output = Path(output_dir).resolve()
         if (ctx.run_id != root.name or output == root or not output.is_relative_to(root)):
             return
-        _atomic_write_json(output / (entrypoint + "_timing.json"), {
+        payload = {
             "schema_version": "uma.pacer_skill_call_timing.v1",
             "run_session_id": ctx.run_id, "device": ctx.progress.get("device"),
             "entrypoint": entrypoint, "outcome": "raised" if raised else "returned",
-            **timing})
+            **timing}
+        if raised and error is not None:
+            payload.update({
+                "error_type": type(error).__name__,
+                "error_message": str(error)[:1000],
+                "traceback": "".join(traceback.format_exception(type(error), error, error.__traceback__))[-4000:],
+            })
+            _atomic_write_json(output / f"{entrypoint}_error.json", payload)
+        _atomic_write_json(output / (entrypoint + "_timing.json"), payload)
     except Exception:
         # Telemetry cannot change a return, mask an original exception, or
         # create a new execution/recovery gate when an output cannot be saved.
@@ -200,16 +282,18 @@ def prepare_arc_skills(ctx, race_context, source, output_dir, *, navigation_fact
     started = monotonic()
     report = None
     raised = False
+    caught_error = None
     try:
         report = _prepare_arc_skills(ctx, race_context, source, output_dir,
             navigation_factory=navigation_factory, worker=worker)
         return report
-    except BaseException:
+    except BaseException as exc:
         raised = True
+        caught_error = exc
         raise
     finally:
         _record_arc_call_timing(ctx, output_dir, started, report,
-            entrypoint="prepare_arc_skills", raised=raised)
+            entrypoint="prepare_arc_skills", raised=raised, error=caught_error)
 
 
 def _prepare_arc_skills(ctx, race_context, source, output_dir, *, navigation_factory,
@@ -313,9 +397,21 @@ def _prepare_arc_skills(ctx, race_context, source, output_dir, *, navigation_fac
             result = read(path/"worker_report.json") if (path/"worker_report.json").is_file() else {}
             if not _worker_bound(ctx, result, year):
                 raise ValueError("arc_skill_worker_context_mismatch")
+            loading_zero = _zero_purchase_loading(ctx, path, result, year)
+            if loading_zero is not None:
+                stage.pop("pending_worker", None)
+                discarded = stage.setdefault("discarded_batches", [])
+                discarded.append({**loading_zero, "stage": "loading"})
+                _atomic_write_json(ledger_path, ledger)
+                if len(discarded) >= 2:
+                    return _degrade_zero_purchase_stage(ctx, stage, ledger, ledger_path, navigation, output, year, result.get("reason"))
+                fresh = batch.with_name(batch.name + "_adb_retry")
+                stage["pending_worker"] = str(fresh)
+                _atomic_write_json(ledger_path, ledger)
+                result = worker(ctx, fresh, {**stage["request"], "capture_backend_override": "adb"})
+                path = fresh
             if stage.get("preparation_restarts") and _zero_purchase_preparation(ctx, path, result, year) is not None:
-                return {"ok": False, "status": "arc_skill_preparation_failed", "reason": result.get("reason"),
-                        "year": year, "purchase_may_have_occurred": False}
+                return _degrade_zero_purchase_stage(ctx, stage, ledger, ledger_path, navigation, output, year, result.get("reason"))
             retry = _observe_preparation_retry(ctx, path, result, year,
                 batch.with_name(batch.name+"_prepare_observe"), navigation)
             if retry is not None:
@@ -328,11 +424,29 @@ def _prepare_arc_skills(ctx, race_context, source, output_dir, *, navigation_fac
                     **({"style": stage["request"]["style"]} if stage["request"].get("style") else {})})
                 path = fresh
             elif result.get("ok") is not True or result.get("stage") != "complete":
-                # The worker verifies the existing final-confirmation receipt;
-                # recovery only closes/returns and never selects a new cart.
-                recovered = batch.with_name(batch.name+"_return")
-                result = {**result, **worker(ctx, recovered,
-                    {**stage["request"], "resume_confirmed_from": str(path)})}
+                final_receipt = path / "confirmation" / "final_confirmation_report.json"
+                if result.get("stage") == "confirmation_pending" and final_receipt.is_file():
+                    # The worker verifies the existing final-confirmation receipt;
+                    # recovery only closes/returns and never selects a new cart.
+                    recovered = batch.with_name(batch.name+"_return")
+                    result = {**result, **worker(ctx, recovered,
+                        {**stage["request"], "resume_confirmed_from": str(path)})}
+                elif (result.get("purchase_may_have_occurred") is False
+                        and not any((path / name).exists() for name in
+                                    ("selection", "confirmation", "success_close", "return_after_learning"))):
+                    stage.pop("pending_worker", None)
+                    discarded = stage.setdefault("discarded_batches", [])
+                    discarded.append({"previous_worker": str(path), "reason": result.get("reason"), "stage": result.get("stage")})
+                    _atomic_write_json(ledger_path, ledger)
+                    if len(discarded) >= 2:
+                        return _degrade_zero_purchase_stage(ctx, stage, ledger, ledger_path, navigation, output, year, result.get("reason"))
+                    fresh = batch.with_name(batch.name + "_adb_retry")
+                    stage["pending_worker"] = str(fresh)
+                    _atomic_write_json(ledger_path, ledger)
+                    result = worker(ctx, fresh, {**stage["request"], "capture_backend_override": "adb"})
+                    path = fresh
+                else:
+                    return {"ok": False, "status": "arc_skill_confirmation_missing", "reason": "prerace_confirmation_missing", "year": year}
             batch = path
         else:
             nav_output = output/f"navigation_{len(stage['batches'])+1:02d}"
@@ -341,6 +455,49 @@ def _prepare_arc_skills(ctx, race_context, source, output_dir, *, navigation_fac
             stage.update(status="pending", pending_worker=str(batch))
             _atomic_write_json(ledger_path, ledger)
             result = worker(ctx, batch, stage["request"])
+            if result.get("zero_output_startup_failure") is True and (not batch.exists() or not any(batch.iterdir())):
+                retry_batch = batch.with_name(batch.name + "_retry1")
+                stage.setdefault("startup_failure_retries", []).append({
+                    "previous_worker": str(batch),
+                    "retry_worker": str(retry_batch),
+                    "reason": result.get("reason"),
+                    "returncode": result.get("returncode"),
+                    "startup_stalled": bool(result.get("startup_stalled")),
+                })
+                stage["pending_worker"] = str(retry_batch)
+                _atomic_write_json(ledger_path, ledger)
+                result = worker(ctx, retry_batch, dict(stage["request"]))
+                batch = retry_batch
+                if result.get("zero_output_startup_failure") is True and (not batch.exists() or not any(batch.iterdir())):
+                    return_dir = output / f"return_degraded_{len(stage['batches'])+1:02d}"
+                    return_dir.mkdir(parents=True, exist_ok=True)
+                    source = navigation.return_race_day(return_dir, worker_returned=False)
+                    stage.pop("pending_worker", None)
+                    stage.update(
+                        status="complete",
+                        degraded_skipped=True,
+                        skip_reason=result.get("reason"),
+                        source_after=source,
+                    )
+                    _atomic_write_json(ledger_path, ledger)
+                    return {
+                        "ok": True,
+                        "status": "degraded_skipped_worker_startup_failure",
+                        "year": year,
+                        "batches": stage["batches"],
+                        "degraded_skipped": True,
+                        "skip_reason": result.get("reason"),
+                        "turn_consumed": False,
+                        "source_after": source,
+                    }
+            loading_zero = _zero_purchase_loading(ctx, batch, result, year)
+            if loading_zero is not None:
+                stage.setdefault("discarded_batches", []).append({**loading_zero, "stage": "loading"})
+                retry_batch = batch.with_name(batch.name + "_adb_retry")
+                stage["pending_worker"] = str(retry_batch)
+                _atomic_write_json(ledger_path, ledger)
+                result = worker(ctx, retry_batch, {**stage["request"], "capture_backend_override": "adb"})
+                batch = retry_batch
             retry = _observe_preparation_retry(ctx, batch, result, year,
                 batch.with_name(batch.name+"_prepare_observe"), navigation)
             if retry is not None:
@@ -352,9 +509,8 @@ def _prepare_arc_skills(ctx, race_context, source, output_dir, *, navigation_fac
                 result = worker(ctx, fresh, dict(stage["request"]))
                 batch = fresh
         if not _worker_bound(ctx, result, year) or result.get("ok") is not True or result.get("stage") != "complete":
-            if _zero_purchase_preparation(ctx, batch, result, year) is not None:
-                return {"ok": False, "status": "arc_skill_preparation_failed", "reason": result.get("reason"),
-                        "year": year, "purchase_may_have_occurred": False}
+            if _zero_purchase_loading(ctx, batch, result, year) is not None or _zero_purchase_preparation(ctx, batch, result, year) is not None:
+                return _degrade_zero_purchase_stage(ctx, stage, ledger, ledger_path, navigation, output, year, result.get("reason"))
             return {"ok": False, "status": "arc_skill_worker_pending", "reason": result.get("reason"), "year": year}
         return_dir = output/f"return_{len(stage['batches'])+1:02d}"
         return_dir.mkdir(parents=True, exist_ok=True)
@@ -382,6 +538,7 @@ def resume_arc_skill_learning(ctx, output_dir):
     started = monotonic()
     report = None
     raised = False
+    caught_error = None
     try:
         path = ctx.root/"session/larc_arc_skills.json"
         if not path.is_file():
@@ -392,9 +549,10 @@ def resume_arc_skill_learning(ctx, output_dir):
                 report = prepare_arc_skills(ctx, stage["race_context"], None, output_dir)
                 return report
         return None
-    except BaseException:
+    except BaseException as exc:
         raised = True
+        caught_error = exc
         raise
     finally:
         _record_arc_call_timing(ctx, output_dir, started, report,
-            entrypoint="resume_arc_skill_learning", raised=raised)
+            entrypoint="resume_arc_skill_learning", raised=raised, error=caught_error)

@@ -2716,11 +2716,7 @@ def _is_larc_overseas_expedition_period(args) -> bool:
     val = lp.get("value") if isinstance(lp.get("value"), dict) else lp
     year_index = val.get("year_index")
     month = val.get("month")
-    half = val.get("half")
-    return (
-        (year_index == 2 and ((month == 7 and half == "second") or month in (8, 9)))
-        or (year_index == 3 and month in (7, 8, 9))
-    )
+    return year_index in (2, 3) and month in (7, 8, 9)
 
 
 def _collect_larc_ss_information(args, training_parser, capture_report):
@@ -2755,8 +2751,13 @@ def _collect_larc_ss_information(args, training_parser, capture_report):
     safely_returned = (result.get("returned_to_training") is True
                        and result.get("turn_consumed") is False
                        and result.get("turn_consuming_action_executed") is False)
-    if (initialize_only and result.get("reason") != "ss_not_unlocked"
-            and result.get("reason") != "information_open_deferred" and safely_returned):
+    if (initialize_only
+            and result.get("reason") not in {
+                "ss_not_unlocked",
+                "information_open_deferred",
+                "overseas_expedition_no_ss_information",
+            }
+            and safely_returned):
         roster.mark_cycle_initialization_attempted()
         roster.save(training_parser.larc_roster_path)
     if safely_returned and result["status"] != "completed":

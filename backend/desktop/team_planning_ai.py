@@ -11,7 +11,7 @@ from core import team_inventory as inventories
 from core.parent_ai_planner import AIPlanningError, build_context, validate_suggestions, safe_text
 from core.parent_aptitude import AptitudeCatalog
 from core.parent_compatibility import CompatibilityCatalog, characters_from_roster
-from core.parent_local_route import evaluate_local_route, normalize_local_route
+from core.parent_local_route import evaluate_local_route, normalize_avoid_a_factors, normalize_local_route
 from core.parent_planner_catalog import ParentPlannerCatalog
 from core.parent_race_records import RaceCatalog
 from core.parent_skill_reference import SkillReference
@@ -123,17 +123,19 @@ def member_route_review(member, route, local_review, library, catalog, *, races,
     """Every aptitude/factor claim is computed locally, never read from the reply."""
     reviews = []
     characters = list(catalog.characters.values())
+    baselines = {goal['factor_key']: goal['baseline_rank'] for goal in route['aptitude_goals']}
+    by_id = {row['entry_id']: row for row in library['entries']}
+    available = {row['entry_id'] for row in local_review['route_nodes'] if row.get('usable') and row.get('kind') == 'entry'}
+    projection = [{**row, 'available': row['entry_id'] in available, 'availability': 'owned' if row['entry_id'] in available else 'reference'} for row in by_id.values()]
     for target in member['target_aptitudes']:
         trial = deepcopy(route)
-        primary = route['aptitude_goal']
-        baseline = primary['baseline_rank'] if primary['factor_key'] == target['factor_key'] else None
-        trial['aptitude_goal'] = {'factor_key': target['factor_key'], 'target_rank': target['target_rank'], 'baseline_rank': baseline, 'target_variant_id': member['variant_id']}
-        by_id = {row['entry_id']: row for row in library['entries']}
-        available = {row['entry_id'] for row in local_review['route_nodes'] if row.get('usable') and row.get('kind') == 'entry'}
-        projection = [{**row, 'available': row['entry_id'] in available, 'availability': 'owned' if row['entry_id'] in available else 'reference'} for row in by_id.values()]
+        goal = {**target, 'baseline_rank': baselines.get(target['factor_key'])}
+        trial['target_variant_id'] = member['variant_id']
+        trial['aptitude_goals'] = [goal]
+        trial['aptitude_goal'] = {**goal, 'target_variant_id': member['variant_id']}
+        trial['avoid_a_factors'] = [item for item in trial.get('avoid_a_factors', []) if item['factor_key'] != target['factor_key']]
         value = evaluate_local_route(library, projection, member['character_id'], trial, race_catalog=races, aptitude_catalog=aptitudes, characters=characters)
         reviews.append({'factor_key': target['factor_key'], 'target_rank': target['target_rank'], 'baseline': value['aptitude']['baseline'], 'plan': value['aptitude']['plan']})
-    by_id = {row['entry_id']: row for row in library['entries']}
     nodes = []
     for row in local_review['route_nodes']:
         binding = row.get('record_binding') or {}
@@ -222,9 +224,22 @@ def dispatch_team(request, *, root=None, account_book_path=None, relations_path=
         member = next((row for row in checked['members'] if row['member_id'] == request.get('member_id')), None)
         if member is None or member['character_id'] is None or (not member['target_aptitudes']):
             raise ValueError('请先选择已对应本地角色和适性目标的团队成员。')
-        primary = member['target_aptitudes'][0]
-        route = normalize_local_route(request.get('local_route')) or normalize_local_route({'aptitude_goal': {**primary, 'baseline_rank': None, 'target_variant_id': member['variant_id']}})
-        if route['aptitude_goal']['factor_key'] != primary['factor_key'] or route['aptitude_goal']['target_rank'] != primary['target_rank'] or route['aptitude_goal']['target_variant_id'] not in (None, member['variant_id']):
+        targets = member['target_aptitudes']
+        full_targets = {target['factor_key']: target['target_rank'] for target in targets}
+        draft = request.get('local_route')
+        if isinstance(draft, dict) and 'avoid_a_factors' in draft:
+            avoid_a = normalize_avoid_a_factors(draft['avoid_a_factors'])
+            if any(item['factor_key'] in full_targets for item in avoid_a):
+                raise ValueError('防升 A 保护项不能与该团队成员的改适性目标重叠。')
+        route = normalize_local_route(draft) or normalize_local_route({
+            'target_variant_id': member['variant_id'],
+            'aptitude_goals': [{**target, 'baseline_rank': None} for target in targets],
+            'avoid_a_factors': [],
+        })
+        actual_targets = {goal['factor_key']: goal['target_rank'] for goal in route['aptitude_goals']}
+        primary = targets[0]
+        primary_target = {primary['factor_key']: primary['target_rank']}
+        if actual_targets not in (primary_target, full_targets) or route['target_variant_id'] not in (None, member['variant_id']):
             raise ValueError('当前种马草稿与该团队成员目标不同，请先确认对应成员。')
         projected = planning.project_entries(state, library['library_id'], library['entries'], account_id=account)
         races, aptitudes = (RaceCatalog.load(race_catalog_path), catalog.aptitudes)

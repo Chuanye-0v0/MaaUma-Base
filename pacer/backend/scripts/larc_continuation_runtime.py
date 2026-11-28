@@ -6,8 +6,13 @@ from pathlib import Path
 import time
 
 from core.auto_trainer.cut_farming import atomic_json
+from core.auto_trainer.larc_classic_arc_result import (
+    extract_classic_arc_result,
+    load_classic_arc_result,
+)
 from core.auto_trainer.larc_continuation import (
     custom_date_entry,
+    evaluate_classic_arc,
     evaluate_custom_date,
     evaluate_inheritance,
     evaluate_inheritance2,
@@ -80,6 +85,7 @@ class ContinuationRuntime:
         self.inspect, self.notify = inspect, notify
         self.state.setdefault('inheritance_seen', False)
         self.state.setdefault('inheritance2_seen', False)
+        self.state.setdefault('classic_arc_result', None)
         self.state.setdefault('last_seen_year', 0)
         self.sync_career_flow()
 
@@ -107,6 +113,16 @@ class ContinuationRuntime:
                 changed = True
             if changed:
                 self.save()
+        if isinstance(report, dict) and self.state.get('last_seen_year', 0) < 3:
+            arc_result = report.get('classic_arc_result')
+            if not (isinstance(arc_result, dict) and arc_result.get('race_id') == 'classic_arc'):
+                seen_year = self.state.get('last_seen_year', 0)
+                ctx_period = {'year_index': seen_year} if seen_year else None
+                arc_result = extract_classic_arc_result(report, read_roi=False, context_period=ctx_period)
+            if isinstance(arc_result, dict) and arc_result.get('race_id') == 'classic_arc':
+                if self.state.get('classic_arc_result') != arc_result:
+                    self.state['classic_arc_result'] = deepcopy(arc_result)
+                    self.save()
 
     def _cut_handoff_required(self):
         # Only CutFarmingController injects this owner. Ordinary PacerHost
@@ -168,6 +184,8 @@ class ContinuationRuntime:
         section = self.config[name]
         if name == 'pre_expedition':
             return section['mode'] == 'filter' or bool(section['conditions'])
+        if name == 'classic_arc':
+            return section['mode'] == 'filter'
         if name == 'inheritance2':
             return section['mode'] == 'filter' or bool(
                 section['conditions'] or section['distances'] or section['skills']
@@ -188,13 +206,16 @@ class ContinuationRuntime:
                 nodes['junior'] = {'flow_status': 'historical_not_observed',
                     'reason': 'attached_after_year1; earlier_snapshot_not_invented'}
                 self.save()
+        inh_observe_only = (
+            self.config['inheritance']['mode'] == 'observe'
+            and not self.config['inheritance']['distances']
+            and not self.config['inheritance']['skills']
+        )
         if 'inheritance' not in nodes and year >= 2 and (
                 self.state['inheritance_seen'] or year > 2 or month >= 5):
-            if ((year >= 3 and self._section_active('inheritance2'))
-                    or (year == 2 and month >= 6 and self._section_active('pre_expedition')
-                        and self.config['inheritance']['mode'] == 'observe'
-                        and not self.config['inheritance']['distances']
-                        and not self.config['inheritance']['skills'])):
+            if ((year >= 3 and (self._section_active('inheritance2') or inh_observe_only))
+                    or (year == 2 and month >= 6 and self._section_active('pre_expedition') and inh_observe_only)
+                    or (year == 2 and month >= 10 and self._section_active('classic_arc') and inh_observe_only)):
                 nodes['inheritance'] = {'flow_status': 'historical_not_observed',
                     'reason': 'attached_after_inheritance; earlier_snapshot_not_invented'}
                 self.save()
@@ -207,6 +228,20 @@ class ContinuationRuntime:
             if year > 2 or (year == 2 and month >= 7):
                 nodes['pre_expedition'] = {'flow_status': 'historical_not_observed',
                     'reason': 'attached_after_pre_expedition; earlier_snapshot_not_invented'}
+                self.save()
+        if (not self._cut_handoff_required() and self._section_active('classic_arc')
+                and 'classic_arc' not in nodes):
+            has_arc_result = (
+                isinstance(self.state.get('classic_arc_result'), dict)
+                or load_classic_arc_result(self.ctx.root, self.ctx.run_id) is not None
+            )
+            if (year, month, half) == (2, 10, 'second'):
+                return 'classic_arc'
+            if year == 2 and month >= 11 and has_arc_result:
+                return 'classic_arc'
+            if year > 2 or (year == 2 and month >= 11):
+                nodes['classic_arc'] = {'flow_status': 'historical_not_observed',
+                    'reason': 'attached_after_classic_arc; earlier_snapshot_not_invented'}
                 self.save()
         if (not self._cut_handoff_required() and self._section_active('inheritance2')
                 and 'inheritance2' not in nodes and (year > 3 or (year == 3 and month >= 4))):
@@ -301,10 +336,19 @@ class ContinuationRuntime:
             return {'status': 'collection_failed', 'stop_reason': 'continuation_collection_failed',
                     'detail': collected.get('reason')}
         facts = collected['facts']
+        if any(
+            isinstance(entry, dict) and entry.get('flow_status') == 'historical_not_observed'
+            for entry in self.state.get('nodes', {}).values()
+        ):
+            facts['mid_career_takeover'] = True
+        if (node == 'classic_arc' and facts.get('classic_arc_result') is None
+                and isinstance(self.state.get('classic_arc_result'), dict)):
+            facts['classic_arc_result'] = deepcopy(self.state['classic_arc_result'])
         custom_entry = custom_date_entry(self.config, node)
         result = (evaluate_junior(self.config, facts) if node == 'junior' else
                   evaluate_pre_expedition(self.config, facts) if node == 'pre_expedition' else
                   evaluate_inheritance(self.config, facts) if node == 'inheritance' else
+                  evaluate_classic_arc(self.config, facts) if node == 'classic_arc' else
                   evaluate_inheritance2(self.config, facts) if node == 'inheritance2' else
                   evaluate_custom_date(custom_entry, facts) if custom_entry is not None else
                   {'node': 'handoff', 'status': 'handoff', 'on_fail': 'pause'})

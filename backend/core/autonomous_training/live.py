@@ -10,7 +10,7 @@ import numpy as np
 from core.image_io import read_image
 from core.skill_scroll import SKILL_OVERLAP_SWIPE, skill_overlap_shell, skill_rewind_shell, skill_list_frames_match
 from core.support_library.live import SupportDevice
-from core.observation_timing import observation_is_stale
+from core.observation_timing import observation_age, observation_is_stale
 from core.action_recovery import ReobserveRequired, action_boundary, await_candidate
 from core.autonomous_training.runner import EVENT_BOOST_FINAL_PAGES, event_boost_change_required
 from core.autonomous_training.finish import finish_control_visible
@@ -33,6 +33,17 @@ ACTION_PAGES.update({'inspect_trainee_' + str(i): 'trainee' for i in range(15)})
 HARVEST_ACTIONS.update(HARVEST_ACTION_PAGES)
 START_ACTIONS = set(ACTION_PAGES) - (HARVEST_ACTIONS - {'open_training', 'close_notice'})
 FAST_NAVIGATION = {'return_home', 'cancel_training_status', 'close_exam_detail', 'close_exams', 'close_trained_detail', 'formation_home'}
+SETTLEMENT_FAST_WAIT = frozenset({
+    'select_skill_evolution', 'scroll_skill_evolution',
+    'confirm_skill_evolution_selection', 'confirm_skill_evolution',
+    'confirm_training_rating', 'confirm_factor_choice',
+    'close_trained_detail', 'continue_score_record', 'continue_scenario_record',
+    'confirm_title_notice', 'next_training_summary', 'next_affinity_result',
+    'next_training_rewards', 'next_activity_points', 'close_activity_points_claim',
+    'advance_activity_reward', 'advance_settlement',
+    'close_activity_story_unlock', 'close_character_story_unlock',
+    'close_completed_training', 'cancel_follow_trainer',
+})
 SKILL_SCROLL_BOUNDARIES = {'scroll_skill_up': 'skill_list_at_top', 'scroll_skill_list': 'skill_list_at_bottom', 'scroll_skill_reveal_bottom': 'skill_list_at_bottom', 'scroll_skill_overlap': 'skill_list_at_bottom'}
 MAX_UNKNOWN_SKILL_SCROLLS = 2
 
@@ -94,7 +105,7 @@ def transition_pending(action, before, after):
         return True
     if action in ('open_skills', 'return_harvest_skills', 'formation_home', 'close_completed_training') and after['page'] == before['page']:
         return True
-    if after['page'] in NEXT_PAGES.get(action, ()) and (after['page'] in RESULT_ACTIONS or after['page'] == 'team_rank_reward') and (not after['actions']):
+    if after['page'] in NEXT_PAGES.get(action, ()) and (after['page'] in RESULT_ACTIONS or after['page'] in {'team_rank_reward', 'factor_confirm'}) and (not after['actions']):
         return True
     if action == 'complete_training' and after['page'] in ('finish_ready', 'finish_confirm'):
         return True
@@ -113,7 +124,13 @@ def transition_pending(action, before, after):
         return True
     if action == 'confirm_autonomous_start' and after['page'] in ('support_deck', 'final_confirm', 'final_autonomous'):
         return True
-    return after['page'] in ('unknown', 'loading') or (after['page'] == before['page'] and action in after['actions'] and (action not in REPEATABLE_RESULT_ACTIONS) and (action not in ('scroll_skill_list', 'scroll_skill_reveal_bottom', 'scroll_skill_up', 'scroll_skill_overlap', 'scroll_exams', 'scroll_trainees', 'scroll_trainees_up', 'scenario_next', 'toggle_borrow', 'close_notice', 'reset_skill_selection', 'history_scroll', 'continue_skill_tutorial', 'continue_autonomous_tutorial')))
+    if action == 'select_skill_evolution' and after['page'] == 'skill_evolution_select':
+        if 'select_skill_evolution' not in after['actions']:
+            return False
+        before_pt = before.get('actions', {}).get('select_skill_evolution', {}).get('point')
+        after_pt = after.get('actions', {}).get('select_skill_evolution', {}).get('point')
+        return before_pt is not None and after_pt == before_pt
+    return after['page'] in ('unknown', 'loading') or (after['page'] == before['page'] and action in after['actions'] and (action not in REPEATABLE_RESULT_ACTIONS) and (action not in ('scroll_skill_list', 'scroll_skill_reveal_bottom', 'scroll_skill_up', 'scroll_skill_overlap', 'scroll_skill_evolution', 'advance_skill_evolution', 'scroll_exams', 'scroll_trainees', 'scroll_trainees_up', 'scenario_next', 'toggle_borrow', 'close_notice', 'reset_skill_selection', 'history_scroll', 'continue_skill_tutorial', 'continue_autonomous_tutorial')))
 
 def authorize_action(action, observed, context):
     from core.autonomous_training.harvest_direct_settlement import ensure_settlement_scope
@@ -267,6 +284,7 @@ class AutonomousDevice(SupportDevice):
         if endpoint != _public_endpoint():
             raise ValueError('endpoint_not_authorized_for_single_account_test')
         self.context = {}
+        self._last_scroll_observation = None
         super().__init__(endpoint, adb_path, output_dir)
 
     def capture(self, *, skill_scroll_only=False, start_notice_only=False):
@@ -283,19 +301,20 @@ class AutonomousDevice(SupportDevice):
         reader = read_start_notice_tokens if start_notice_only else read_skill_scroll_tokens if skill_scroll_only else read_tokens
         tokens = reader(image, self.ocr)
         required_variant = getattr(self, 'context', {}).get('required_variant')
-        observed = observe(raw, tokens, required_variant) if required_variant else observe(raw, tokens)
+        observed = observe(raw, tokens, required_variant, image=image) if required_variant else observe(raw, tokens, image=image)
         if start_notice_only and (observed['page'] != 'autonomous_start_notice' or not {'confirm_autonomous_start', 'cancel_autonomous_start'}.intersection(observed['actions'])):
             tokens = read_tokens(image, self.ocr)
-            observed = observe(raw, tokens, required_variant) if required_variant else observe(raw, tokens)
-        from core.autonomous_training.plant_plan import enrich
-        enrich(observed, image, tokens, getattr(self, 'context', {}))
-        plant_support.enrich(observed, image, tokens, getattr(self, 'context', {}), self.ocr)
-        if (self.context.get('harvest_preset') or {}).get('factor_profile'):
-            from core.harvest_presets import catalog
-            from core.harvest_factors import observe_factor_controls
-            if not hasattr(self, '_harvest_factor_catalog'):
-                self._harvest_factor_catalog = catalog()
-            observe_factor_controls(image, tokens, observed, self.context, self._harvest_factor_catalog)
+            observed = observe(raw, tokens, required_variant, image=image) if required_variant else observe(raw, tokens, image=image)
+        if not (skill_scroll_only and observed.get('page') == 'skills'):
+            from core.autonomous_training.plant_plan import enrich
+            enrich(observed, image, tokens, getattr(self, 'context', {}))
+            plant_support.enrich(observed, image, tokens, getattr(self, 'context', {}), self.ocr)
+            if (self.context.get('harvest_preset') or {}).get('factor_profile'):
+                from core.harvest_presets import catalog
+                from core.harvest_factors import observe_factor_controls
+                if not hasattr(self, '_harvest_factor_catalog'):
+                    self._harvest_factor_catalog = catalog()
+                observe_factor_controls(image, tokens, observed, self.context, self._harvest_factor_catalog)
         from core.autonomous_training.harvest_direct_settlement import completion_is_bound
         completed = completion_is_bound(self.context, self.endpoint)
         if observed['page'] == 'score_record' and completed and (self.context.get('factor_choice_submitted') is True) and (not self.context.get('formation_requested')) and (set(observed['actions']) == {'continue_score_record'}):
@@ -312,6 +331,7 @@ class AutonomousDevice(SupportDevice):
         path.write_bytes(raw)
         observed.update(screenshot_path=str(path), captured_monotonic=captured, endpoint=self.endpoint, captured_at_unix_ms=captured_at, expires_at_unix_ms=captured_at + 30 * 60 * 1000)
         (self.output_dir / (stem + '.json')).write_text(json.dumps(observed, ensure_ascii=False, indent=2), encoding='utf-8')
+        self._last_scroll_observation = observed if skill_scroll_only and observed.get('page') == 'skills' else None
         return observed
 
     def capture_skill_scroll(self):
@@ -334,7 +354,18 @@ class AutonomousDevice(SupportDevice):
         from core.skill_ocr_performance import active_harvest_ocr
         scroll_only = active_harvest_ocr() is not None and action_id in ('scroll_skill_list', 'scroll_skill_reveal_bottom', 'scroll_skill_up', 'scroll_skill_overlap')
         capture = self.capture_start_notice if action_id in ('confirm_autonomous_start', 'cancel_autonomous_start') else self.capture_skill_scroll if scroll_only else self.capture
-        before = capture()
+        cached_before = getattr(self, '_last_scroll_observation', None) if scroll_only else None
+        if (
+            isinstance(cached_before, dict)
+            and cached_before.get('endpoint') == self.endpoint
+            and cached_before.get('page') == 'skills'
+            and action_id in cached_before.get('actions', {})
+            and (observation_age(cached_before) is not None and observation_age(cached_before) <= 2.0)
+            and (not observation_is_stale(cached_before, action_id))
+        ):
+            before = cached_before
+        else:
+            before = capture()
         for _ in range(6):
             waiting_for_reward = action_id == 'continue_team_rank_reward' and before['page'] == 'team_rank_reward' and (not before['actions'])
             waiting_for_skill_entry = action_id == 'open_skills' and self.context.get('harvest_active') is True and (self.context.get('harvest_summary') is not None) and (before['page'] in ('unknown', 'loading'))
@@ -451,6 +482,7 @@ class AutonomousDevice(SupportDevice):
             attempts = self.context.setdefault('skill_scroll_unknown_attempts', {})
             attempts[boundary] = attempts.get(boundary, 0) + 1 if before.get(boundary) is None else 0
         x, y = candidate['point']
+        self._last_scroll_observation = None
         if action_id == 'scroll_skill_overlap':
             self.command('-s', self.endpoint, 'shell', skill_overlap_shell())
         elif action_id == 'scroll_skill_up':
@@ -467,7 +499,15 @@ class AutonomousDevice(SupportDevice):
             self.command('-s', self.endpoint, 'shell', 'input', 'tap', str(x), str(y))
         if action_id in ('confirm_autonomous_start', 'cancel_autonomous_start'):
             capture = self.capture
-        if stop.wait(0.15 if action_id == 'scroll_skill_overlap' else 0.2 if action_id in FAST_NAVIGATION else 1):
+        initial_wait = (
+            0.08 if action_id == 'scroll_skill_overlap'
+            else 0.2 if action_id in FAST_NAVIGATION
+            else 0.85 if action_id == 'confirm_factors'
+            else 0.35 if action_id in SETTLEMENT_FAST_WAIT
+            else 0.7 if action_id == 'advance_skill_evolution'
+            else 1
+        )
+        if stop.wait(initial_wait):
             raise RuntimeError('operator_stop')
         after = capture()
         if action_id.startswith('inspect_trainee_'):
@@ -480,13 +520,16 @@ class AutonomousDevice(SupportDevice):
                 if stable or after.get('page') not in ('trainee', 'unknown', 'loading'):
                     break
         if action_id == 'scroll_skill_overlap' and after.get('skill_list_at_bottom') is True:
-            for _ in range(3):
+            for _ in range(8):
                 if stop.wait(0.25):
                     raise RuntimeError('operator_stop')
                 settled = capture()
-                if settled.get('page') != 'skills' or settled.get('skill_list_at_bottom') is not True or (type(before.get('current_skill_points')) is int and type(settled.get('current_skill_points')) is int and (settled['current_skill_points'] != before['current_skill_points'])):
+                if settled.get('page') != 'skills' or (type(before.get('current_skill_points')) is int and type(settled.get('current_skill_points')) is int and (settled['current_skill_points'] != before['current_skill_points'])):
                     raise RuntimeError('skill_bottom_settlement_unverified')
-                stable = skill_list_frames_match(read_image(str(after.get('screenshot_path', ''))), read_image(str(settled.get('screenshot_path', ''))))
+                if settled.get('skill_list_at_bottom') is not True:
+                    after = settled
+                    continue
+                stable = after.get('skill_list_at_bottom') is True and skill_list_frames_match(read_image(str(after.get('screenshot_path', ''))), read_image(str(settled.get('screenshot_path', ''))))
                 after = settled
                 if stable:
                     break
@@ -499,7 +542,7 @@ class AutonomousDevice(SupportDevice):
                 break
             if action_id == 'return_home' and after['page'] == before['page'] and (action_id in after['actions']) and (time.monotonic() >= navigation_retry_at):
                 break
-            if stop.wait(0.3 if action_id in FAST_NAVIGATION else 0.5):
+            if stop.wait(0.3 if action_id in FAST_NAVIGATION or action_id in SETTLEMENT_FAST_WAIT else 0.5):
                 raise RuntimeError('operator_stop')
             after = capture()
         if action_id == 'forward_harvest' and transition_pending(action_id, before, after):

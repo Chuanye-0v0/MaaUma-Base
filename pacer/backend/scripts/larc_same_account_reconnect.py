@@ -15,7 +15,8 @@ from scripts.ug_parent_one_turn_pipeline import _atomic_write_json
 
 NAVIGATION = frozenset({"return_title_from_connection_conflict", "tap_title_start",
     "enter_training_from_home", "continue_training_modal", "skip_received_login_reward",
-    "close_announcement", "close_exchange_points_expiry", "dismiss_global_home_greeting"})
+    "close_announcement", "close_exchange_points_expiry", "dismiss_global_home_greeting",
+    "close_training_pass_reset", "close_pass_renewal_popup"})
 NAVIGATION = NAVIGATION | {"accept_authorized_bilibili_sdk_terms"}
 CAREER_READY = frozenset({"ready_main_menu", "ready_training_menu", "ready_larc_ss_preview",
     "race_day_main_menu",
@@ -52,6 +53,8 @@ class ReconnectPlanner(SafeAdvancePlanner):
     def plan(self, image_path, **kwargs):
         decision = super().plan(image_path, **kwargs)
         text = str(decision.get("evidence", {}).get("screen_text", {}).get("normalized_text", ""))
+        if self._is_account_login_conflict_text(text) or decision.get("reason") == "account_login_conflict":
+            return self._stop("account_login_conflict", evidence=decision.get("evidence", {}))
         if any(term in text for term in ("选择账号", "更换账号", "输入密码", "手机号登录")):
             return self._stop("reconnect_manual_account_login_required", evidence=decision.get("evidence", {}))
         if decision.get("reason") == "resource_prompt":
@@ -82,6 +85,8 @@ class ReconnectPlanner(SafeAdvancePlanner):
                     'safe_advance.bilibili_sdk_terms_accept',terms,decision.get('evidence',{}))
         point = self._connection_conflict_return_title_button(image) if image is not None else None
         if point is not None:
+            if self._is_account_login_conflict_text(text):
+                return self._stop("account_login_conflict", evidence=decision.get("evidence", {}))
             if self.title_start_submitted:
                 return self._stop("reconnect_repeated_account_conflict", evidence=decision.get("evidence", {}))
             if self.return_submitted:
@@ -170,6 +175,25 @@ def reconnect_existing_career(ctx, output, *, executor_factory=SafeAdvanceExecut
             allow_enter_training_from_global_home=True)
         if preview.get("reason") in {"global_home", "resource_prompt"}:
             preview = planner.plan(path, scenario="larc", allow_enter_training_from_global_home=True)
+        if preview.get("reason") == "account_login_conflict":
+            report["reason"] = "account_login_conflict"
+            report["records"].append({"performed": False, "reason": "account_login_conflict",
+                "decision": preview, "source": str(path)})
+            _atomic_write_json(output / "report.json", report)
+            break
+        from core.auto_trainer.transition_wait import connecting_overlay_visible
+        packet_lines = {line.strip() for line in str(packet.visible_text or "").splitlines() if line.strip()}
+        if (preview.get("reason") == "reconnect_existing_career_not_visible"
+                and (connecting_overlay_visible(image) or "连接中" in packet_lines)
+                and not planner._is_account_login_conflict_text(packet.visible_text)):
+            report["records"].append({"performed": False, "reason": "reconnect_connecting_wait",
+                "decision": {"action": "wait"}, "source": str(path)})
+            _atomic_write_json(output / "report.json", report)
+            if clock() >= deadline:
+                report["reason"] = "reconnect_timeout"
+                break
+            sleep(.3)
+            continue
         if _app_startup_wait_allowed(preview,packet,planner,
                 require_existing_career=require_existing_career,
                 wait_seconds=app_startup_wait_seconds,elapsed=clock()-started):

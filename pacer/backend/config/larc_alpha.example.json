@@ -1,0 +1,40 @@
+{
+  "schema_version": "ug_parent_goal.v1",
+  "scenario": "larc",
+  "goal": "ug_parent",
+  "target_rank": "UG",
+  "target_stats": {
+    "speed": 1550,
+    "stamina": 1200,
+    "power": 1200,
+    "guts": 1200,
+    "wisdom": 1200
+  },
+  "total_turns": 72,
+  "factor_priority": [],
+  "skill_priority": [],
+  "risk_tolerance": "low",
+  "execution": {
+    "allow_training_confirm": true,
+    "allow_clinic": false,
+    "allow_race": true,
+    "allow_event_choice": false,
+    "stop_on_paid_resource_prompt": true,
+    "stop_on_unknown_screen": true
+  },
+  "skill_timing": {
+    "mode": "terminal",
+    "early_required": {},
+    "interval_turns": 6,
+    "min_pt": 60,
+    "final_lead_turns": 2,
+    "early_skill_allowlist": []
+  },
+  "training_failure_rate_limit": null,
+  "event_preferences": {"conserve_energy": true},
+  "larc_policy": {
+    "variant": "alpha",
+    "strategy_refinement": true,
+    "training_balance_v2": true
+  }
+}

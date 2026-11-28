@@ -1020,6 +1020,8 @@ class SettlementHandlerMixin:
     def _finish_training_cancel_for_unused_points(
         screen_text: dict[str, Any] | None,
         img: np.ndarray,
+        *,
+        unused_points: int | None = None,
     ) -> tuple[int, int] | None:
         if not isinstance(screen_text, dict):
             return None
@@ -1029,11 +1031,12 @@ class SettlementHandlerMixin:
             int(value)
             for value in re.findall(r"(?<!\d)(\d{1,5})(?!\d)", normalized)
         ]
-        unused_points = (
-            int(match.group(1))
-            if match is not None
-            else max(fallback_values, default=0)
-        )
+        if unused_points is None:
+            unused_points = (
+                int(match.group(1))
+                if match is not None
+                else max(fallback_values, default=0)
+            )
         if (
             "养成结束确认" not in normalized
             or unused_points <= 0
@@ -1044,6 +1047,58 @@ class SettlementHandlerMixin:
         if width > height:
             return None
         return round(width * 0.279), round(height * 0.718)
+
+    def _plan_finish_training_confirmation(
+        self,
+        finish_button: tuple[int, int],
+        screen_text: dict[str, Any] | None,
+        img: np.ndarray,
+        evidence: dict[str, Any],
+        *,
+        allow_finish_training_with_unused_skill_points: bool,
+        visual_fallback: bool = False,
+    ) -> dict[str, Any]:
+        text = str((screen_text or {}).get("normalized_text", ""))
+        unused_points = _unused_skill_points_from_visible_text(text)
+        compact = "".join(text.split())
+        unused_warning = "剩余技能点数" in compact or "未使用的技能点数将作废" in compact
+        if (
+            unused_points is None
+            and not allow_finish_training_with_unused_skill_points
+            and "养成结束确认" in compact
+            and "剩余技能点数" in compact
+            and "未使用的技能点数将作废" in compact
+        ):
+            height, width = img.shape[:2]
+            roi = img[round(height * 0.574):round(height * 0.617),
+                      round(width * 0.55):round(width * 0.95)]
+            if roi.size:
+                hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+                mask = cv2.inRange(hsv, (8, 100, 120), (40, 255, 255))
+                x, y, w, h = cv2.boundingRect(mask)
+                if w and h and x > 2 and y > 2 and x + w + 2 < roi.shape[1] and y + h + 2 < roi.shape[0]:
+                    from core.numeric_ocr_crosscheck import read_number
+
+                    digit_crop = roi[y - 3:y + h + 3, x - 3:x + w + 3]
+                    digit_crop = cv2.resize(digit_crop, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+                    result = read_number(digit_crop, maximum=9999, prefixes=("",))
+                    evidence["finish_training_remaining_points_ocr"] = result
+                    if result["status"] == "accepted":
+                        unused_points = result["value"]
+        if allow_finish_training_with_unused_skill_points or unused_points == 0:
+            return self._tap_decision(
+                "finish_training_confirm", "safe_advance.finish_training", finish_button, evidence,
+            )
+        if visual_fallback and not unused_warning:
+            return self._configured_decision("finish_training_confirm", img, evidence) or self._tap_decision(
+                "finish_training_confirm", "safe_advance.finish_training", finish_button, evidence,
+            )
+        cancel = self._finish_training_cancel_for_unused_points(screen_text, img, unused_points=unused_points)
+        if cancel is not None:
+            return self._tap_decision(
+                "cancel_career_end_finish", "safe_advance.career_end_finish_cancel", cancel, evidence,
+            )
+        return self._stop("finish_training_unused_points_unverified", evidence=evidence)
 
     @staticmethod
     def _finish_training_confirm_button(

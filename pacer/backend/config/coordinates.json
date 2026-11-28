@@ -1,0 +1,272 @@
+{
+  "screen": {
+    "width": 1440,
+    "height": 2560,
+    "source": "offline screenshot recognition",
+    "confidence": "manual_review_required"
+  },
+  "clinic_confirm": {
+    "confirm": {
+      "x": 1036,
+      "y": 1668,
+      "note": "clinic confirmation: confirm",
+      "verification": {
+        "status": "verified",
+        "basis": "real_live_frame_visual_review",
+        "source_path": "runs/gm_third_acceptance_20260916/supervisor_clinic_recovery/gm_third_acceptance_20260916_turn_025/decision/turns/turn_000/screenshots/ug_parent_1789534036375_clinic_confirm_modal.png",
+        "fixture_path": "assets/coord/c0.png",
+        "source_sha256": "e3b2850450ebeb78c0c9f0721df8b7437ed22831da2b740e7c0c44403e0cc554",
+        "coordinate_binding_sha256": "d96bdb924abdf2907dc20df4553e6c49d0de06130d1017565aa79319b801ce35",
+        "source_size": {
+          "width": 720,
+          "height": 1280
+        },
+        "observed_point": {
+          "x": 518,
+          "y": 834
+        }
+      }
+    },
+    "cancel": {
+      "x": 404,
+      "y": 1668,
+      "note": "clinic confirmation: cancel",
+      "verification": {
+        "status": "verified",
+        "basis": "real_live_frame_visual_review",
+        "source_path": "runs/gm_third_acceptance_20260916/supervisor_clinic_recovery/gm_third_acceptance_20260916_turn_025/decision/turns/turn_000/screenshots/ug_parent_1789534036375_clinic_confirm_modal.png",
+        "fixture_path": "assets/coord/c1.png",
+        "source_sha256": "e3b2850450ebeb78c0c9f0721df8b7437ed22831da2b740e7c0c44403e0cc554",
+        "coordinate_binding_sha256": "c3ea5fcc1d33d1bc999a7c95ae57377fd01a8fcfc9a389273513d1a98e13f1e9",
+        "source_size": {
+          "width": 720,
+          "height": 1280
+        },
+        "observed_point": {
+          "x": 202,
+          "y": 834
+        }
+      }
+    }
+  },
+  "main_menu": {
+    "clinic": {
+      "x": 240,
+      "y": 2230,
+      "note": "main menu: clinic",
+      "verification": {
+        "status": "verified",
+        "basis": "real_live_frame_visual_review",
+        "source_path": "runs/ug_parent_live/u1_condition_probe_turn016_20260711/before_main_menu.png",
+        "fixture_path": "assets/coord/c2.png",
+        "source_sha256": "d0e200500420183f25b4a0654340a2ade01228d1f52acf629e25a37d0e652ac3",
+        "coordinate_binding_sha256": "2a45b744658e689c6c646ddc64d932b5f912894a2d9a802dcd194cf34d8f3d58",
+        "source_size": {
+          "width": 720,
+          "height": 1280
+        },
+        "observed_point": {
+          "x": 120,
+          "y": 1115
+        }
+      }
+    },
+    "rest": {
+      "x": 200,
+      "y": 2000,
+      "note": "主养成菜单：休息"
+    },
+    "training": {
+      "x": 720,
+      "y": 2000,
+      "note": "主养成菜单：进入训练二级菜单"
+    },
+    "race": {
+      "x": 1208,
+      "y": 2220,
+      "note": "主养成菜单：右下比赛按钮"
+    },
+    "skill": {
+      "x": 1200,
+      "y": 2000,
+      "note": "主养成菜单：技能"
+    },
+    "ability_details": {
+      "x": 1290,
+      "y": 1540,
+      "note": "主养成菜单：能力详情",
+      "verification": {
+        "status": "verified",
+        "basis": "real_live_frame_visual_review",
+        "source_path": "runs/ug_parent_live/u1_condition_probe_turn016_20260711/before_main_menu.png",
+        "fixture_path": "assets/coord/c3.png",
+        "source_sha256": "d0e200500420183f25b4a0654340a2ade01228d1f52acf629e25a37d0e652ac3",
+        "coordinate_binding_sha256": "69112f43ac7ddb067e8be259badb7ea38dc1ecd4d3afd436df82b3dc8c3fd7df",
+        "source_size": {
+          "width": 720,
+          "height": 1280
+        },
+        "observed_point": {
+          "x": 645,
+          "y": 770
+        }
+      }
+    }
+  },
+  "race_day_main_menu": {
+    "ability_details": {
+      "x": 1290,
+      "y": 1670,
+      "note": "mandatory race-day main menu: ability details",
+      "verification": {
+        "status": "verified",
+        "basis": "real_live_frame_visual_review",
+        "source_path": "runs/u1_turn045_critical_race_condition_probe_20260723/before_details.png",
+        "fixture_path": "assets/coord/c4.png",
+        "source_sha256": "fbeba980318844a936cce58ad5d553d5e7a5c63ef66ce068089ec7d80217c15d",
+        "coordinate_binding_sha256": "91452653d7caedb622b3424f89f0d77dd06d5817d4d1d745a8a9a8d006ddb3cc",
+        "source_size": {
+          "width": 720,
+          "height": 1280
+        },
+        "observed_point": {
+          "x": 645,
+          "y": 835
+        }
+      }
+    }
+  },
+  "ability_details": {
+    "close": {
+      "x": 720,
+      "y": 2360,
+      "note": "优俊少女详情：关闭",
+      "verification": {
+        "status": "verified",
+        "basis": "real_live_frame_visual_review",
+        "source_path": "runs/ug_parent_live/u1_condition_probe_turn016_20260711/ability_details.png",
+        "fixture_path": "assets/coord/c5.png",
+        "source_sha256": "e63f222a025c24e8e92b670dbdfe81311b92a8692d9037fed9326401e72b5bb8",
+        "coordinate_binding_sha256": "8e768420634743e35438e42a7efd986d082eda6d2f90adb5afd365b7ec2f377d",
+        "source_size": {
+          "width": 720,
+          "height": 1280
+        },
+        "observed_point": {
+          "x": 360,
+          "y": 1180
+        }
+      }
+    }
+  },
+  "larc_training_menu": {
+    "source": "own fixture tests/fixtures/larc/training_speed_20260922.png; six-slot layout, first five slots only",
+    "speed": {
+      "x": 134,
+      "y": 2160
+    },
+    "stamina": {
+      "x": 368,
+      "y": 2160
+    },
+    "power": {
+      "x": 604,
+      "y": 2160
+    },
+    "guts": {
+      "x": 840,
+      "y": 2160
+    },
+    "wisdom": {
+      "x": 1076,
+      "y": 2160
+    },
+    "speed_decide": {
+      "x": 134,
+      "y": 2250
+    },
+    "stamina_decide": {
+      "x": 368,
+      "y": 2250
+    },
+    "power_decide": {
+      "x": 604,
+      "y": 2250
+    },
+    "guts_decide": {
+      "x": 840,
+      "y": 2250
+    },
+    "wisdom_decide": {
+      "x": 1076,
+      "y": 2250
+    }
+  },
+  "training_menu": {
+    "speed": {
+      "x": 205,
+      "y": 2138,
+      "note": "训练二级菜单：速度训练圆形按钮中心"
+    },
+    "stamina": {
+      "x": 432,
+      "y": 2178,
+      "note": "训练二级菜单：耐力训练圆形按钮中心"
+    },
+    "power": {
+      "x": 668,
+      "y": 2178,
+      "note": "训练二级菜单：力量训练圆形按钮中心"
+    },
+    "guts": {
+      "x": 912,
+      "y": 2178,
+      "note": "训练二级菜单：毅力训练圆形按钮中心"
+    },
+    "wisdom": {
+      "x": 1192,
+      "y": 2178,
+      "note": "训练二级菜单：智力训练圆形按钮中心"
+    },
+    "speed_decide": {
+      "x": 205,
+      "y": 2306,
+      "note": "速度训练下方决定按钮"
+    },
+    "stamina_decide": {
+      "x": 432,
+      "y": 2306,
+      "note": "耐力训练下方决定按钮"
+    },
+    "power_decide": {
+      "x": 668,
+      "y": 2306,
+      "note": "力量训练下方决定按钮"
+    },
+    "guts_decide": {
+      "x": 912,
+      "y": 2306,
+      "note": "毅力训练下方决定按钮"
+    },
+    "wisdom_decide": {
+      "x": 1192,
+      "y": 2306,
+      "note": "智力训练下方决定按钮"
+    },
+    "back": {
+      "x": 160,
+      "y": 2442,
+      "note": "返回主养成菜单"
+    },
+    "record": {
+      "x": 1102,
+      "y": 2426,
+      "note": "记录按钮"
+    },
+    "menu": {
+      "x": 1292,
+      "y": 2426,
+      "note": "右下菜单按钮"
+    }
+  }
+}

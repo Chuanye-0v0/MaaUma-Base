@@ -352,11 +352,13 @@ def _choose_larc_ss_scored(state, goal, preview, *, ss_executions, preflight_onl
     known_points = type(points) is int and points > 0
     goal_preference = (max(0, 7 - turns) * 8 * min(points / gap, 1.0)
                        if valid_goal and known_points else 0.0)
+    from core.auto_trainer.larc_strategy_extension import active_provider
     params = params_for_goal(goal)
     preference = ((params.full_sss_base_preference if preview["kind"] == "SSS" else params.full_ss_base_preference)
                   * min(1., value["weights"].get('unscaled_net_charge',value["weights"]["net_charge"]) / 6)
                   * value['weights'].get('charge_preference',1.)) if count == params.full_group_min_count else 0
-    if post_full:preference=0. # Do not restore a junior bonus by skipping old returned-phase code.
+    if post_full:
+        preference = float(active_provider().post_full_ss_preference(params, preview, count, value))
     # Prior SS executions may have contained no charming reward. A currently
     # offered, unearned charming reward still deserves the startup preference.
     charming_plan = charming_value(state, ss_executions)
@@ -442,7 +444,6 @@ def _choose_larc_ss_scored(state, goal, preview, *, ss_executions, preflight_onl
         result["planning"]["phase_comparison"] = phase_preference
         result["planning"]["support_bond"]["basis"] = "visible_support_bars_with_partial_group_policy_discount_not_bond_points"
         result["planning"]["support_bond"]["partial_group_policy_factor"] = count / 5. if count < 5 else 1.
-    from core.auto_trainer.larc_strategy_extension import active_provider
     urgent_supporter_progress = valid_goal and turns <= 2 and count >= 4 and known_points
     early_4p_exception = bool(
         active_provider().early_4p_ss_allowed(params)

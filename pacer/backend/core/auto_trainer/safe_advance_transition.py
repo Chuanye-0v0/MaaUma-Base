@@ -334,6 +334,11 @@ _ALLOWED_V1_DECISIONS: dict[str, frozenset[tuple[str, str, str]]] = {
             ),
             (
                 "tap",
+                "close_pass_renewal_popup",
+                "safe_advance.pass_renewal_cancel",
+            ),
+            (
+                "tap",
                 "close_exchange_points_expiry",
                 "safe_advance.exchange_points_expiry_close",
             ),
@@ -485,6 +490,7 @@ def is_global_route_interrupt(decision: dict[str, Any]) -> bool:
         ("stop", "resource_prompt", ""),
         ("stop", "resource_prompt_unreadable", ""),
         ("stop", "connection_conflict", ""),
+        ("stop", "account_login_conflict", ""),
         (
             "tap",
             "return_title_from_connection_conflict",

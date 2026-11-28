@@ -18,16 +18,23 @@ public static class UmaPublicRuntime
     {
         if(applicationLock!=null)return;
         var folder=Path.Combine(AppContext.BaseDirectory,"updates");Directory.CreateDirectory(folder);
-        FileStream? stream=null;
-        try {
-            stream=new FileStream(Path.Combine(folder,"application.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.Read);
-            if(stream.Length==0){stream.WriteByte(0);stream.Flush();}
-            stream.Lock(0,1);
-            applicationLock=stream;
-            AppDomain.CurrentDomain.ProcessExit+=(_,_)=>{applicationLock?.Dispose();applicationLock=null;};
-        } catch(IOException error) {
-            stream?.Dispose();
-            throw new IOException("另一窗口或更新正在使用此安装目录，请稍后再打开。",error);
+        var lockPath=Path.Combine(folder,"application.lock");
+        for(int attempt=0;;attempt++)
+        {
+            FileStream? stream=null;
+            try {
+                stream=new FileStream(lockPath,FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.Read);
+                if(stream.Length==0){stream.WriteByte(0);stream.Flush();}
+                stream.Lock(0,1);
+                applicationLock=stream;
+                AppDomain.CurrentDomain.ProcessExit+=(_,_)=>{applicationLock?.Dispose();applicationLock=null;};
+                return;
+            } catch(IOException error) {
+                stream?.Dispose();
+                if(attempt>=7)
+                    throw new IOException("另一窗口或更新正在使用此安装目录，请稍后再打开。",error);
+                System.Threading.Thread.Sleep(250);
+            }
         }
     }
     public static string BackendRoot => Path.Combine(AppContext.BaseDirectory, "backend");

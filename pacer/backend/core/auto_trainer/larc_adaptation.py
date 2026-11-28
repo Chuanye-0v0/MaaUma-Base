@@ -823,9 +823,10 @@ def plan_larc_adaptation(image, evidence, *, session=None, reader=None):
         return {"action": "wait", "reason": "larc_adaptation_grid_loading",
                 "route_state": "loading", "evidence": evidence}
     if (session.inspect_only and session.inspect_grid_only and not session.stay_on_grid
-            and state.get('pending_cost') == 0 and state.get('errors') == ['points_unreadable']):
+            and state.get('pending_cost') == 0):
         detail['inspection_exit_only'] = True
         detail['balance_not_required_for_return'] = True
+        detail['inspection_exit_ignored_errors'] = list(state.get('errors') or ())
         return decision('inspection_complete')
     actionable_errors = list(state["errors"])
     if plan is not None and not session.inspect_only:
@@ -849,7 +850,17 @@ def plan_larc_adaptation(image, evidence, *, session=None, reader=None):
             # Wait without clicking or changing the purchase plan; the route's
             # existing step budget also bounds a genuinely unreadable level.
             return decision("selected_level_loading", wait=True)
+        if session.stage in {"selecting", "inspect_only"} or session.inspect_only:
+            count = min(4, session.control_waits.get("grid_unreadable", 0) + 1)
+            session.control_waits["grid_unreadable"] = count
+            detail["grid_unreadable_wait"] = {
+                "errors": list(actionable_errors),
+                "read_only_observations": count,
+            }
+            if count <= 3:
+                return decision("grid_loading", wait=True)
         return decision("unreadable")
+    session.control_waits.pop("grid_unreadable", None)
     if session.inspect_only:
         if state["pending_cost"] != 0:
             return decision("inspection_pending_selection")

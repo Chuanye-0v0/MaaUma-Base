@@ -25,18 +25,26 @@ def terminal_energy_weight(state, goal, window):
     only when a further free training can still use the stored energy. This
     lives inside route valuation; no second immediate recovery score is added.
     """
-    if window["kind"] != "rolling_recovery":
-        return 0.
     from core.auto_trainer.larc_policy import training_balance_v2_enabled
-    if not training_balance_v2_enabled(goal):
-        return .5
     period = period_value(state)
     year, month = period.get("year_index"), period.get("month")
+    calendar = window.get("action_calendar", [])
+    ending = period_ordinal(calendar[-1]["period"]) if calendar else None
+    if window["kind"] == "expedition_continuity":
+        # Year 2 continues after Classic Arc (day 42), so leftover energy still carries into domestic turns.
+        # Year 3 overseas ends at Final Arc (day 66) and carries zero terminal energy.
+        if year != 2 or ending is None or not free_action_days(ending + 1):
+            return 0.
+        if training_balance_v2_enabled(goal) and calendar[-1]["kind"] == "domestic":
+            return .7
+        return .5
+    if window["kind"] != "rolling_recovery":
+        return 0.
+    if not training_balance_v2_enabled(goal):
+        return .5
     domestic = year == 1 or year in {2, 3} and type(month) is int and not 7 <= month <= 9
     if not domestic:
         return .5
-    calendar = window.get("action_calendar", [])
-    ending = period_ordinal(calendar[-1]["period"]) if calendar else None
     if ending is not None:
         horizon = state.scenario_state.get("larc_ss_planning_horizon",
             getattr(goal, 'larc_policy', {}).get('ss_planning_horizon', 'full_career'))
@@ -62,6 +70,10 @@ def recovery_window(state):
         if critical:
             end = (period["year_index"] - 1) * 24 + 18
             days = free_action_days(now + 1, end)
+            # In Year 2 overseas, roll at least 4 steps past Classic Arc into domestic turns
+            # instead of collapsing to a 1-step cliff at Y2M8b before snapping back on Y2M9b.
+            if critical["kind"] == "expedition_continuity" and period.get("year_index") == 2 and len(days) < 4:
+                days = free_action_days(now + 1)[:4]
         else:
             days = free_action_days(now + 1)[:4]
         if not days:

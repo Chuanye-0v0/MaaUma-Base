@@ -1,6 +1,7 @@
 """Late first-expedition spending preference with a separate friendship forecast."""
 
 from core.auto_trainer.larc_adaptation_schedule import income_at, obligations
+from core.auto_trainer.larc_calendar import is_overseas
 from .engine import number
 
 
@@ -35,6 +36,10 @@ def _budget(row, now, cash, share, defer_language, current_income, *, rest_next=
             race_income += amount
         elif day == FIRST_ARC_LAST_TRAINING_DAY and rest_next:
             amount = REST_REFERENCE_AP
+        elif is_overseas(day):
+            # Overseas rest yields a fixed 100 AP; conservative overseas training floor is 80 AP.
+            clamped_share = min(1.0, max(0.0, float(share)))
+            amount = 80.0 * clamped_share + REST_REFERENCE_AP * (1.0 - clamped_share)
         else:
             amount = income_at(day, 'conservative', share)
         projected += amount

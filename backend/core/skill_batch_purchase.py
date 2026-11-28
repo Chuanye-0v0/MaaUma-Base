@@ -14,6 +14,7 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import PurePath
 from typing import Any
+from core.skill_scroll import MAX_SKILL_OVERLAP_SHIFT
 _SHA256 = re.compile('[0-9a-f]{64}')
 _DECISION_SOURCES = {'local_auto', 'ai_advisor', 'review_only'}
 _AI_RESPONSE_FIELDS = {'inventory_packet_sha256', 'action_ids'}
@@ -497,7 +498,7 @@ def validate_skill_batch_plan(plan: Mapping[str, Any], inventory: Mapping[str, A
     if 'reverse_scroll_shifts' in plan:
         shifts = plan['reverse_scroll_shifts']
         page_count = len(inventory['capture_binding']['page_hashes'])
-        if not isinstance(shifts, list) or len(shifts) != page_count - 1 or any((type(shift) not in (int, float) or not 1 <= shift <= 386 for shift in shifts)):
+        if not isinstance(shifts, list) or len(shifts) != page_count - 1 or any((type(shift) not in (int, float) or not 1 <= shift <= MAX_SKILL_OVERLAP_SHIFT for shift in shifts)):
             return (False, 'reverse_scroll_shifts_invalid')
         prior_page = -1
         item_by_id = {item['action_id']: item for item in items}

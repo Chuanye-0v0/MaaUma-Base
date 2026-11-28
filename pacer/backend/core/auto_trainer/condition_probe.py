@@ -15,6 +15,7 @@ from typing import Any, Callable, Sequence
 import cv2
 import numpy as np
 
+from core.adb import resolve_screen_size
 from core.coordinates import CoordinateConfig, CoordinateScaler
 from core.main_menu_state import HIGH_CONFIDENCE, analyze_main_menu_state
 
@@ -971,7 +972,7 @@ class ConditionProbeExecutor:
         adb = self.adb_factory()
         if not adb.connect():
             return self._stop("adb_connect_failed")
-        screen_size = tuple(adb.get_screen_size())
+        screen_size = resolve_screen_size(adb, supported=SUPPORTED_SIZES)
         if screen_size not in SUPPORTED_SIZES:
             return self._stop("unsupported_screen_size", screen_size=list(screen_size))
 

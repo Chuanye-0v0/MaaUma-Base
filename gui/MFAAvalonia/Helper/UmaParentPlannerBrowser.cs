@@ -42,6 +42,16 @@ public sealed class UmaParentPlannerBrowser : NativeControlHost, IDisposable
     private bool IsToolbox => !maliMode && allowedOrigin.Scheme == Uri.UriSchemeHttp;
     private bool IsMali => maliMode;
 
+    internal static string? BuildBrowserArguments(bool isToolbox, string? baseArgs)
+    {
+        const string loopbackNoProxyArgs = "--no-proxy-server --proxy-bypass-list=<-loopback>";
+        if (!isToolbox)
+            return string.IsNullOrWhiteSpace(baseArgs) ? null : baseArgs;
+        return string.IsNullOrWhiteSpace(baseArgs)
+            ? loopbackNoProxyArgs
+            : loopbackNoProxyArgs + " " + baseArgs;
+    }
+
     private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct WNDCLASS
@@ -455,9 +465,9 @@ public sealed class UmaParentPlannerBrowser : NativeControlHost, IDisposable
             var swFlags = "--disable-gpu --disable-gpu-compositing --disable-direct-composition --disable-features=RendererCodeIntegrity --enable-logging --v=1";
             var attempts = new (string Label, string ProfileDir, string? ExtraArgs, bool UseParking)[]
             {
-                ("standard", profile, null, false),
-                ("software-clean", profile + "-sw", swFlags, false),
-                ("parking-reparent", profile + "-sw2", swFlags, true),
+                ("standard", profile, BuildBrowserArguments(IsToolbox, null), false),
+                ("software-clean", profile + "-sw", BuildBrowserArguments(IsToolbox, swFlags), false),
+                ("parking-reparent", profile + "-sw2", BuildBrowserArguments(IsToolbox, swFlags), true),
             };
 
             var attemptLogs = new List<string>(attempts.Length);

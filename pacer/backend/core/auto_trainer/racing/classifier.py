@@ -125,13 +125,18 @@ class RaceClassifierMixin:
                 continue
             cx, cy = button.get("center", [0, 0])
             _x, _y, w, h = button.get("bbox", [0, 0, 0, 0])
-            if cy / max(height, 1) < min_y_ratio or cy / max(height, 1) > 0.94:
+            cy_ratio = cy / max(height, 1)
+            if cy_ratio < min_y_ratio or cy_ratio > 0.965:
                 continue
             if not (width * 0.22 <= cx <= width * 0.88):
                 continue
             width_ratio = w / max(width, 1)
             height_ratio = h / max(height, 1)
             if not (0.18 <= width_ratio <= 0.65):
+                continue
+            if cy_ratio > 0.94 and not (
+                0.24 <= width_ratio <= 0.65 and width * 0.28 <= cx <= width * 0.72
+            ):
                 continue
             if not (0.02 <= height_ratio <= 0.09):
                 continue
@@ -1745,9 +1750,17 @@ class RaceClassifierMixin:
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         badge = hsv[int(height*.52):int(height*.72), int(width*.28):int(width*.72)]
         gold = (badge[:,:,0] <= 40) & (badge[:,:,1] > 80) & (badge[:,:,2] > 120)
-        if float(gold.mean()) < .28:
-            return None
-        return int(width*.5), int(height*.83)
+        if float(gold.mean()) >= .28:
+            return int(width*.5), int(height*.83)
+        # 2nd/3rd place badges are silver (low-sat bright / cool grey-blue) or bronze over a dark overlay.
+        bg_top = hsv[:int(height*.25), :]
+        dark_backdrop = float((bg_top[:,:,2] < 130).mean())
+        silver = (badge[:,:,1] <= 75) & (badge[:,:,2] > 160)
+        bronze = (badge[:,:,0] <= 35) & (badge[:,:,1] >= 45) & (badge[:,:,2] >= 95)
+        has_rank_cue = ("点击" in text) or any(anchor in caption for anchor in ("第", "名"))
+        if has_rank_cue and dark_backdrop >= .25 and (float(silver.mean()) >= .30 or float(bronze.mean()) >= .28):
+            return int(width*.5), int(height*.83)
+        return None
 
     @staticmethod
     def _compact_gold_result_layout(perception: dict[str, Any], img: np.ndarray) -> bool:

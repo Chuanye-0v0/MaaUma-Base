@@ -850,12 +850,12 @@ class HarvestRunner:
                     report['carrot_reward'] = observed.get('carrot_reward') or report['carrot_reward']
                 if formation_is_verified(observed, context):
                     context.update(formation_verified=True, formation_saved_score=observed.get('team_score_after'))
-                if (observed['page'] in {'team_rank_update', 'team_rank_reward', 'history_summary', 'training_rating'} or (observed['page'] in {'unknown', 'loading'} and context.get('formation_save_confirmed') is True)) and (not observed['actions']):
+                if (observed['page'] in {'team_rank_update', 'team_rank_reward', 'history_summary', 'training_rating', 'factor_confirm'} or (observed['page'] in {'unknown', 'loading'} and context.get('formation_save_confirmed') is True)) and (not observed['actions']):
                     for _ in range(12):
                         if self.stop.wait(0.5):
                             raise RuntimeError('operator_stop')
                         observed = self.device.capture()
-                        if observed['actions'] or (observed['page'] not in {'team_rank_update', 'team_rank_reward', 'history_summary', 'training_rating'} and (not (observed['page'] in {'unknown', 'loading'} and context.get('formation_save_confirmed') is True))):
+                        if observed['actions'] or (observed['page'] not in {'team_rank_update', 'team_rank_reward', 'history_summary', 'training_rating', 'factor_confirm'} and (not (observed['page'] in {'unknown', 'loading'} and context.get('formation_save_confirmed') is True))):
                             break
                 action = choose_harvest_action(observed, context)
                 if context.get('factor_selection'):
@@ -895,7 +895,14 @@ class HarvestRunner:
                     observed = self._learn_and_finish(observed, report)
                     continue
                 counts[action] = counts.get(action, 0) + 1
-                limit = 80 if action in REPEATABLE_RESULT_ACTIONS else 12 if action == 'history_scroll' else 6 if action == 'continue_skill_tutorial' else 3
+                limit = (
+                    80 if action in REPEATABLE_RESULT_ACTIONS
+                    else 20 if action == 'advance_skill_evolution'
+                    else 12 if action == 'history_scroll'
+                    else 8 if action in ('select_skill_evolution', 'scroll_skill_evolution')
+                    else 6 if action == 'continue_skill_tutorial'
+                    else 3
+                )
                 if counts[action] > limit:
                     raise RuntimeError('action_repeat_limit:' + action)
                 if action in HARVEST_ACTION_PAGES or (action == 'confirm_history' and observed['page'] == 'history_races'):

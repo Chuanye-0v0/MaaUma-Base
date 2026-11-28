@@ -1139,6 +1139,60 @@ def _ensure_adaptation(ctx, phase, output, summary, save_summary):
     return True, not reused, reason
 
 
+def _safe_recover_optional_growth(ctx, result, output, turn, key, phase, race_day, from_training, summary, save_summary):
+    """For non-mandatory training-turn growth checks, safely exit an unsubmitted grid instead of killing the run."""
+    if race_day or result.get("ok"):
+        return result
+    if result.get("reason") == "larc_adaptation_submission_outcome_unknown":
+        return _record_growth_failure(summary, {**result, "recovery_blocked": "submission_outcome_unknown"}, turn, output, save_summary)
+    for session_file in (ctx.root / "session").glob("larc_adaptation_*.json"):
+        try:
+            saved = _read(session_file)
+        except Exception:
+            continue
+        if saved.get("run_session_id") == ctx.run_id and saved.get("stage") in {"submission_pending", "awaiting_result"}:
+            return _record_growth_failure(
+                summary,
+                {**result, "recovery_blocked": "submission_in_flight", "blocking_session": str(session_file)},
+                turn,
+                output,
+                save_summary,
+            )
+    recovered = timed_call("growth_safe_recovery_return", _return_unowned_adaptation_grid, ctx, output / "safe_recovery_return")
+    if recovered.get("ok") is True:
+        original_reason = result.get("reason")
+        if key is not None:
+            ctx.growth_checks.add(key)
+        diagnostic = {
+            **result,
+            "turn_index": turn,
+            "path": str(output),
+            "recommended_phase": phase,
+            "original_reason": original_reason,
+            "degraded_growth_skipped": True,
+            "recovery_result": recovered,
+        }
+        summary.setdefault("growth_adaptations", []).append(diagnostic)
+        save_summary()
+        return {
+            **result,
+            "ok": True,
+            "upgraded": False,
+            "degraded_growth_skipped": True,
+            "degraded_reason": original_reason,
+            "reason": "growth_degraded_returned_home",
+            "recovery_result": recovered,
+            "requires_recollection": bool(from_training),
+        }
+    return _record_growth_failure(
+        summary,
+        {**result, "recommended_phase": phase, "recovery_attempt": recovered},
+        turn,
+        output,
+        save_summary,
+    )
+
+
 def _prepare_growth(ctx, period, text, output, summary, save_summary,
                     *, preferred_training=None, race_day=False, from_training=False, state=None, goal=None):
     turn = ctx.progress["next_turn"]
@@ -1209,7 +1263,10 @@ def _prepare_growth(ctx, period, text, output, summary, save_summary,
         result = timed_call("growth_grid_inspect_and_quote", inspect_growth_adaptation,
                             ctx, output / "grid", period, stay_on_grid=True, **kwargs)
     if not result.get("ok"):
-        return _record_growth_failure(summary, result, turn, output, save_summary)
+        return _safe_recover_optional_growth(
+            ctx, result, output, turn, key, (result.get("recommendation") or {}).get("phase"),
+            race_day, from_training, summary, save_summary,
+        )
     from core.auto_trainer.larc_ai_nodes import growth_choice
     result=growth_choice(ctx,period,result,state=state,goal=goal,race_day=race_day)
     from core.auto_trainer.larc_language_deferral import record_purchase_plan
@@ -1262,6 +1319,10 @@ def _prepare_growth(ctx, period, text, output, summary, save_summary,
         restored = timed_call("growth_restore_training", restore_training_menu,
                               ctx, source, output / "restore_training")
         result.update(ok=restored["ok"], reason=restored["reason"])
+    if not result.get("ok") and not race_day:
+        return _safe_recover_optional_growth(
+            ctx, result, output, turn, key, phase, race_day, from_training, summary, save_summary,
+        )
     if result.get("ok"):
         ctx.growth_checks.add(key)
     summary.setdefault("growth_adaptations", []).append({"turn_index": turn,
@@ -1417,6 +1478,9 @@ def _run_fixed_race(ctx, race_root, summary, save_summary, *, resume=False,
                 ctx.route, expected_run_session_id=ctx.run_id).to_dict()):
         return False, "race_owner_handoff_unverified"
     ctx.incomplete_first_arc_accepted = False
+    continuation = getattr(ctx, 'continuation_runtime', None)
+    if continuation is not None:
+        continuation.observe_report(report)
     return True, reason
 
 
@@ -1630,6 +1694,75 @@ def _career_transition_budget():
                             unknown_total_seconds=UNKNOWN_TRANSITION_TOTAL_SECONDS)
 
 
+def _try_return_cold_start_skill_page(ctx, report, output_dir, *, navigation_factory=None):
+    import cv2
+    from core.auto_trainer import larc_manual_handoff
+    from core.auto_trainer.safe_advance import SafeAdvancePlanner
+    from core.skill_acquisition_parser import inspect_skill_acquisition_page
+    from scripts.larc_autonomy_arc_skills import ArcSkillNavigation
+    from scripts.larc_skill_completion_frames import success_close_box
+
+    handoff = larc_manual_handoff.snapshot(ctx.root)
+    if handoff.get("status") == "waiting" or handoff.get("terminal") is True:
+        return {"ok": False, "reason": "manual_handoff_active"}
+
+    rows = report.get("step_reports", []) if isinstance(report, dict) else []
+    last_row = rows[-1] if rows else {}
+    last_result = last_row.get("result", {}) if isinstance(last_row, dict) else {}
+    decision = last_result.get("decision", {}) if isinstance(last_result, dict) else {}
+    source_candidate = (
+        last_row.get("screenshot_path")
+        or decision.get("evidence", {}).get("image")
+        or (report.get("source_screenshot_path") if isinstance(report, dict) else None)
+        or ""
+    )
+    source_path = Path(str(source_candidate)) if source_candidate else None
+    if source_path is None or not source_path.is_file():
+        return {"ok": False, "reason": "skill_source_missing"}
+    frame = cv2.imread(str(source_path))
+    if frame is None or getattr(frame, "ndim", None) != 3:
+        return {"ok": False, "reason": "skill_source_unreadable"}
+    page = inspect_skill_acquisition_page(frame)
+    if page.get("accepted") is not True:
+        return {"ok": False, "reason": "skill_page_not_accepted"}
+    if SafeAdvancePlanner._looks_like_confirm_modal_panel(frame) or success_close_box(frame) is not None:
+        return {"ok": False, "reason": "skill_page_modal_visible"}
+
+    small = cv2.resize(frame, (720, 1280))
+    hsv = cv2.cvtColor(small[1050:1115, 230:490], cv2.COLOR_BGR2HSV)
+    cart_empty = float(
+        ((hsv[:, :, 0] >= 35) & (hsv[:, :, 0] <= 85)
+         & (hsv[:, :, 1] >= 130) & (hsv[:, :, 2] >= 90) & (hsv[:, :, 2] < 165)).mean()
+    ) > 0.7
+    if not cart_empty:
+        return {"ok": False, "reason": "skill_cart_not_empty"}
+
+    point = SafeAdvancePlanner._skill_acquisition_back_button(frame) or SafeAdvancePlanner._skill_acquisition_back_control(frame)
+    if point is None:
+        return {"ok": False, "reason": "skill_back_control_missing"}
+
+    try:
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        nav = (navigation_factory or ArcSkillNavigation)(ctx)
+        nav.observe(source_path, "skill_acquisition", resync=True)
+        nav.tap(source_path, point, "skill_acquisition", "arc.skills.back", ("main_menu", "modal", "loading"))
+        for _ in range(10):
+            next_path, next_frame = nav.capture(out)
+            if next_frame is not None and not inspect_skill_acquisition_page(next_frame).get("accepted"):
+                return {
+                    "ok": True,
+                    "source": str(source_path),
+                    "after_frame": str(next_path),
+                    "back_point": list(point),
+                    "current_skill_points": page.get("current_skill_points"),
+                }
+            sleep(0.25)
+        return {"ok": False, "reason": "skill_page_still_open"}
+    except Exception as exc:
+        return {"ok": False, "reason": f"skill_back_error:{exc}"}
+
+
 def _route_to_menu(ctx, output, summary, save_summary, *, observe_only=False, post_action=False):
     from core.auto_trainer.frame_safety import FrameSafetyAnalyzer
     if not observe_only and _terminal_finish_verified(ctx):
@@ -1647,6 +1780,7 @@ def _route_to_menu(ctx, output, summary, save_summary, *, observe_only=False, po
     skip_stall_nudges = 0
     last_skip_nudge_at = None
     race_list_return_attempts = 0
+    skill_back_attempts = 0
     for index in range(240 if probe is not None else 60):
         root = output / f"route_{index:02d}"
         entry_route = RouteTransitionSession.load(ctx.route, expected_run_session_id=ctx.run_id)
@@ -1806,6 +1940,11 @@ def _route_to_menu(ctx, output, summary, save_summary, *, observe_only=False, po
             wait_budget.reset()
             continue
         if reason == "connection_conflict" and getattr(ctx,"same_account_reconnect",False):
+            from core.auto_trainer.advance.handlers.setup_and_home import is_account_login_conflict_text
+            conflict_text = str(last_result.get("decision", {}).get("evidence", {}).get(
+                "screen_text", {}).get("normalized_text", ""))
+            if is_account_login_conflict_text(conflict_text):
+                return None, "account_login_conflict"
             if ctx.reconnect_attempted:
                 return None, "reconnect_repeated_account_conflict"
             ctx.reconnect_attempted = True
@@ -2304,6 +2443,23 @@ def _route_to_menu(ctx, output, summary, save_summary, *, observe_only=False, po
             if submitted:
                 return _settle_finished_career(ctx, output / "terminal", summary, save_summary)
             return None, reason
+        if (
+            reason == "skill_acquisition_handoff"
+            and not terminal_skill_state.is_file()
+            and not observe_only
+            and getattr(ctx, "execute", False)
+            and skill_back_attempts < 2
+            and getattr(ctx, "cut_farming_hook", None) is None
+        ):
+            back_result = _try_return_cold_start_skill_page(ctx, report, output / f"skill_return_{index:02d}")
+            summary.setdefault("cold_start_skill_returns", []).append(back_result)
+            save_summary()
+            if back_result.get("ok") is True:
+                skill_back_attempts += 1
+                wait_budget.reset()
+                post_action = True
+                resync_main_menu = True
+                continue
         if reason != "event_choice":
             return None, reason
         rows = report.get("step_reports", [])
@@ -3016,6 +3172,10 @@ def _run(args):
                 ctx.continuation_return_menu = lambda folder: _route_to_menu(ctx, folder, summary, save_summary)
                 for navigation in summary['route_reports']:
                     path = navigation.get('path')
+                    if path and Path(path).is_file():
+                        continuation.observe_report(_read(path))
+                for race_rec in summary.get('race_reports') or []:
+                    path = race_rec.get('path')
                     if path and Path(path).is_file():
                         continuation.observe_report(_read(path))
                 continuation_result = continuation.before_home(source, provider,

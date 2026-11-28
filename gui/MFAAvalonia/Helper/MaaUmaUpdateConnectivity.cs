@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 
 namespace MFAAvalonia.Helper;
@@ -19,6 +21,22 @@ public static class MaaUmaUpdateConnectivity
         "timeout"=>"连接超时","dns"=>"域名解析失败","tls_certificate"=>"安全证书验证失败",
         "tls_connection"=>"安全连接中断","connection"=>"连接未建立","invalid_response"=>"服务返回了异常内容",
         "authorization_rejected"=>"服务拒绝了当前授权","http_error"=>"服务返回错误",_=>"网络连接未完成"};
+    private static string IdentityDiagnosticText(JObject? result)
+    {
+        if(result?["identity_diagnostic"] is not JObject diag)return "";
+        var parts=new List<string>();
+        var stage=Text(diag,"stage");
+        if(stage is not null && Regex.IsMatch(stage,@"\A[a-z][a-z0-9_]{0,47}\z"))parts.Add("阶段 "+stage);
+        var errorType=Text(diag,"error_type");
+        if(errorType is not null && Regex.IsMatch(errorType,@"\A[A-Za-z][A-Za-z0-9_]{0,63}\z"))parts.Add("类型 "+errorType);
+        if(diag["win32_error"] is JValue wTok && wTok.Type==JTokenType.Integer
+            && long.TryParse(wTok.ToString(Newtonsoft.Json.Formatting.None),NumberStyles.AllowLeadingSign,CultureInfo.InvariantCulture,out var win32))
+            parts.Add("错误码 "+win32);
+        else if(diag["returncode"] is JValue rcTok && rcTok.Type==JTokenType.Integer
+            && long.TryParse(rcTok.ToString(Newtonsoft.Json.Formatting.None),NumberStyles.AllowLeadingSign,CultureInfo.InvariantCulture,out var rc))
+            parts.Add("退出码 "+rc);
+        return parts.Count>0 ? "（诊断："+string.Join("，",parts)+"）" : "";
+    }
     public static void CopyProgress(JObject value,JObject safe)
     {
         if(Text(value,"network_phase") is {} phase&&Phases.Contains(phase))safe["network_phase"]=phase;
@@ -43,7 +61,10 @@ public static class MaaUmaUpdateConnectivity
             "invite_revoked"=>"该激活码已停用；当前安装未修改。",
             "invite_expired"=>"该激活码已过期；当前安装未修改。",
             "device_clock_skew"=>"本机系统时间与服务端偏差过大，请先开启 Windows 自动校准时间后再激活。",
-            "device_identity_unavailable"=>"未能读取本机设备硬件指纹，请确认系统 WMI / 加密服务正常后重试。",
+            "device_identity_unavailable"=>"未能读取本机设备标识，请确认 Windows 加密服务（DPAPI）、本机注册表标识及 %LOCALAPPDATA%\\MaaUma\\PrivateService 目录权限正常后重试。"+IdentityDiagnosticText(result),
+            "device_key_unreadable"=>"本机设备密钥文件不可读或已损坏，请检查 %LOCALAPPDATA%\\MaaUma\\PrivateService 目录权限，必要时备份并移走异常的 device-key-v1.bin 后重试。"+IdentityDiagnosticText(result),
+            "device_credentials_unreadable"=>"已保存的本机授权凭据无法解密（可能更换了 Windows 用户或文件损坏），请重新输入激活码激活。"+IdentityDiagnosticText(result),
+            "device_changed"=>"检测到当前设备标识与原激活记录不一致；如重装系统或更换了设备，请联系维护者解绑后重新激活。"+IdentityDiagnosticText(result),
             "device_key_mismatch"=>"本机设备密钥与此前激活记录不一致；如重装或更换过环境，请联系维护者重新签发。",
             "service_redirect_rejected" or "service_mismatch"=>"服务地址响应与当前维护入口不一致，请确认使用预设 HTTPS 服务地址并保存设置。",
             _=>""};

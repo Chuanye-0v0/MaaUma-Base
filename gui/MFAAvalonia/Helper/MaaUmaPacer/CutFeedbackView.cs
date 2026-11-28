@@ -110,24 +110,29 @@ internal sealed class CutFeedbackView:UserControl
         try {
             var result=await client.Request(new JObject {["action"]="prepare_feedback",["run_id"]=id,["description"]=text,["include_screenshot"]=includeImage.IsChecked==true});
             if(runId!=id || description.Text!=text){message.Text="选中局或说明已改变，请重新生成预览。";return;}
-            if((bool?)result["ok"]!=true){message.Text=(string?)result["message"] ?? "预览未生成。";return;}
+            if((bool?)result["ok"]!=true){message.Text=FormatErrorMessage(result,"预览未生成。");return;}
             var draft=(string?)result["draft_id"];
             if(string.IsNullOrWhiteSpace(draft))throw new IOException();
             draftId=draft;draftRun=id;draftDescription=text;
             summary.Text=((string?)result["summary"] ?? "文字复盘预览")+$"\n压缩后约 {Math.Ceiling(((double?)result["size_bytes"] ?? 0)/1024):0} KB；此处尚未上传。";
             detail.Text=(string?)result["preview_text"] ?? "完整内容请打开脱敏预览文件查看。";
             var path=(string?)result["preview_path"];
-            var allowed=Path.GetFullPath(Path.Combine(root,"exports","feedback","drafts"))+Path.DirectorySeparatorChar;
-            if(!string.IsNullOrWhiteSpace(path) && Path.GetFullPath(path).StartsWith(allowed,StringComparison.OrdinalIgnoreCase) && File.Exists(path))previewPath=Path.GetFullPath(path);
+            var allowed=CanonicalizePath(Path.Combine(root,"exports","feedback","drafts"))+Path.DirectorySeparatorChar;
+            if(!string.IsNullOrWhiteSpace(path)) {
+                var canonicalPreview=CanonicalizePath(path);
+                if(canonicalPreview.StartsWith(allowed,StringComparison.OrdinalIgnoreCase) && File.Exists(canonicalPreview))previewPath=canonicalPreview;
+            }
             var imagePath=(string?)result["image_preview_path"];
             if((int?)result["screenshot_count"]==1) {
-                if(string.IsNullOrWhiteSpace(imagePath) || !Path.GetFullPath(imagePath).StartsWith(allowed,StringComparison.OrdinalIgnoreCase) || !File.Exists(imagePath))throw new IOException();
-                stopImage.Source=new Bitmap(imagePath);imagePanel.IsVisible=true;
+                if(string.IsNullOrWhiteSpace(imagePath))throw new IOException();
+                var canonicalImage=CanonicalizePath(imagePath);
+                if(!canonicalImage.StartsWith(allowed,StringComparison.OrdinalIgnoreCase) || !File.Exists(canonicalImage))throw new IOException();
+                stopImage.Source=new Bitmap(canonicalImage);imagePanel.IsVisible=true;
             }
             var info=await client.Request(new JObject {["action"]="service_info"});
             activated=(bool?)info["ok"]==true && (bool?)info["activated"]==true;
             message.Text=activated ? "请查看预览，再勾选确认并提交。内容仅维护者可见。" : "预览已保存在本机，尚未上传。请在“更新与服务”配置地址并激活；也可继续使用本地导出。";
-        } catch(Exception){Invalidate();message.Text="预览未完成，没有上传。可稍后重试或本地导出。";}
+        } catch(Exception ex){Invalidate();message.Text=$"预览未完成（{ex.GetType().Name}），没有上传。可稍后重试或本地导出。";}
         finally {Busy(false);}
     }
     private async Task Submit()
@@ -138,13 +143,13 @@ internal sealed class CutFeedbackView:UserControl
             var result=await client.Feedback(new JObject {["action"]="submit_feedback",["draft_id"]=draft},entry=>Dispatcher.UIThread.Post(()=>{
                 if(busy&&uploadCancellation?.IsCancellationRequested==false)message.Text=$"正在上传 {entry["completed_parts"]} / {entry["total_parts"]} 段……";
             }),uploadCancellation.Token);
-            if((bool?)result["ok"]!=true){message.Text=(string?)result["message"] ?? "提交未确认，请重试同一份预览。";return;}
+            if((bool?)result["ok"]!=true){message.Text=FormatErrorMessage(result,"提交未确认，请重试同一份预览。");return;}
             var id=(string?)result["feedback_id"];
             if(string.IsNullOrWhiteSpace(id))throw new IOException();
             feedbackId=id;receipt.Text="反馈编号："+id+" · 局："+(currentTitle??draftRun)+" · "+StatusLabel((string?)result["feedback_status"]);
             draftId=null;confirmed.IsChecked=false;message.Text="已提交，仅维护者可以读取。原记录和本地导出仍保留。";
         } catch(OperationCanceledException){message.Text="上传已取消，原预览与分段进度保留，可重试同一份。";}
-        catch(Exception){message.Text="没有取得提交确认；可重试同一份预览，服务会避免重复提交。";}
+        catch(Exception ex){message.Text=$"没有取得提交确认（{ex.GetType().Name}）；可重试同一份预览，服务会避免重复提交。";}
         finally {uploadCancellation?.Dispose();uploadCancellation=null;Busy(false);}
     }
     private async Task Status()
@@ -152,12 +157,54 @@ internal sealed class CutFeedbackView:UserControl
         if(busy || feedbackId==null)return;Busy(true);
         try {
             var result=await client.Request(new JObject {["action"]="feedback_status",["feedback_id"]=feedbackId});
-            if((bool?)result["ok"]!=true){message.Text=(string?)result["message"] ?? "暂时无法查询。";return;}
+            if((bool?)result["ok"]!=true){message.Text=FormatErrorMessage(result,"暂时无法查询。");return;}
             receipt.Text="反馈编号："+feedbackId+" · "+StatusLabel((string?)result["feedback_status"]);
             if((string?)result["fixed_version"] is string version && version.Length>0)receipt.Text+=" · 修复版本："+version;
             message.Text=(string?)result["note"] ?? "处理状态已刷新。";
         } catch(Exception){message.Text="暂时无法查询处理状态；反馈编号保留。";}
         finally {Busy(false);}
+    }
+    private static string CanonicalizePath(string path)
+    {
+        var current=Path.GetFullPath(path);
+        try {
+            if(File.Exists(current)) {
+                var fileTarget=File.ResolveLinkTarget(current,returnFinalTarget:true);
+                if(fileTarget!=null)current=Path.GetFullPath(fileTarget.FullName);
+            }
+            for(var pass=0;pass<4;pass++) {
+                var probe=current;
+                var tail=new Stack<string>();
+                var replaced=false;
+                while(!string.IsNullOrEmpty(probe)) {
+                    if(Directory.Exists(probe)) {
+                        var dirTarget=Directory.ResolveLinkTarget(probe,returnFinalTarget:true);
+                        if(dirTarget!=null) {
+                            var baseDir=Path.GetFullPath(dirTarget.FullName);
+                            current=tail.Count==0 ? baseDir : Path.GetFullPath(Path.Combine(new[] {baseDir}.Concat(tail).ToArray()));
+                            replaced=true;
+                            break;
+                        }
+                    }
+                    var parent=Path.GetDirectoryName(probe);
+                    if(string.IsNullOrEmpty(parent) || parent==probe)break;
+                    var name=Path.GetFileName(probe);
+                    if(!string.IsNullOrEmpty(name))tail.Push(name);
+                    probe=parent;
+                }
+                if(!replaced)break;
+            }
+        } catch(Exception) {}
+        return current;
+    }
+    private static string FormatErrorMessage(JObject result,string fallback)
+    {
+        var msg=(string?)result["message"];
+        var text=string.IsNullOrWhiteSpace(msg) ? fallback : msg;
+        var code=(string?)result["code"];
+        if(!string.IsNullOrWhiteSpace(code) && System.Text.RegularExpressions.Regex.IsMatch(code,@"^[A-Za-z0-9_.:-]{1,64}$") && !text.Contains(code,StringComparison.Ordinal))
+            text+=$"（错误码：{code}）";
+        return text;
     }
     private static string StatusLabel(string? status)=>status switch {"open"=>"待查看","triaged"=>"已确认问题","fixed"=>"已修复","closed"=>"已关闭",_=>"状态待确认"};
 }

@@ -1649,7 +1649,8 @@ class SafeAdvanceClassifierMixin:
                          and cls._looks_like_training_animation_controls(img)))
                 and (text.startswith(("群星赛\n", "超星赛\n")) if ss_animation_source else "训练" in text)
                 and ("距离代表交流赛还剩" in text
-                     or all(label in text for label in ("回合结束后", "代表交流赛开始")))
+                     or all(label in text for label in ("回合结束后", "代表交流赛开始"))
+                     or (not ss_animation_source and "初级出道前" in text and "还剩" in text))
                 and img.shape[:2] in {(1280, 720), (2560, 1440)}):
             scene = cv2.cvtColor(cv2.resize(img, (720, 1280)), cv2.COLOR_BGR2HSV)[200:1180]
             pink = ((scene[:, :, 0] >= 145) & (scene[:, :, 0] <= 170)
@@ -1665,6 +1666,16 @@ class SafeAdvanceClassifierMixin:
                     and np.mean(accent | cream) > 0.98
                     and np.mean(accent[:-120, :-120] == accent[120:, 120:]) > 0.97
                     and np.mean(accent[:, :-120] != accent[:, 120:]) > 0.20):
+                return True
+            rose_field = (((scene[:, :, 0] >= 165) | (scene[:, :, 0] <= 12)) & (scene[:, :, 2] >= 240))
+            rose_dark = rose_field & (scene[:, :, 1] >= 32) & (scene[:, :, 1] <= 90)
+            rose_light = rose_field & (scene[:, :, 1] <= 26)
+            if (np.mean(rose_field) > 0.98
+                    and np.mean(rose_dark) > 0.20 and np.mean(rose_light) > 0.20
+                    and np.mean(np.abs(scene[:-120, :-120, 1].astype(np.int16)
+                                       - scene[120:, 120:, 1].astype(np.int16)) <= 8) > 0.94
+                    and np.mean(np.abs(scene[:, :-120, 1].astype(np.int16)
+                                       - scene[:, 120:, 1].astype(np.int16)) >= 12) > 0.25):
                 return True
         return bool(
             (not ss_animation_source or text.startswith(("群星赛\n", "超星赛\n")))

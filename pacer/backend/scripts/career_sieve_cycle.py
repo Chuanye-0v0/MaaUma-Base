@@ -26,6 +26,8 @@ _ACTIVE_CAREER_TAKEOVER_STATES = frozenset({
 def _is_active_career_scene(scene) -> bool:
     if not isinstance(scene, dict):
         return False
+    if scene.get('safe_reason') == 'career_end_confirmation' or scene.get('reason') == 'career_end_confirmation':
+        return True
     return scene.get('owner') == 'race' or scene.get('state') in _ACTIVE_CAREER_TAKEOVER_STATES
 
 
@@ -321,10 +323,18 @@ class SieveCycle:
     def _maintain(self, root):
         try:
             from core.auto_trainer.pacer_storage import maintain
-            maintain(Path(__file__).resolve().parents[1], exclude_run=root, exclude_batch=self.session.root,
+            maintain(Path(__file__).resolve().parents[1], min_interval=0, exclude_run=root, exclude_batch=self.session.root,
                      runtime_owner={'run_root': root, 'batch_root': self.session.root, 'endpoint': self.endpoint})
         except Exception as error:
             logging.getLogger(__name__).warning('截图维护未完成：%s', type(error).__name__)
+
+    @staticmethod
+    def _prune_attempt(root, outcome):
+        try:
+            from core.auto_trainer.pacer_storage import prune_completed_attempt
+            prune_completed_attempt(root, outcome=outcome)
+        except Exception as error:
+            logging.getLogger(__name__).warning('单局精简未完成：%s', type(error).__name__)
 
     def run(self, *, resume=False):
         from scripts import larc_autonomous_run as career
@@ -373,6 +383,8 @@ class SieveCycle:
                             attempt.update(status='completed', ss_sieve_outcome='completed')
                             self.cycle['phase'] = 'completed'
                             store.choose('completed', evidence={'same_attempt': root.name, 'career_complete': True})
+                            self._prune_attempt(root, 'completed')
+                            self._maintain(root)
                             return self._stop('completed', reason)
                         facts = (self.graduation_inspector or inspect_completed_career)(root)
                         grad = evaluate_graduation(ace_cfg, facts)
@@ -391,11 +403,15 @@ class SieveCycle:
                                 self.cycle['phase'] = 'completed'
                                 store.choose('completed', evidence={
                                     'same_attempt': root.name, 'career_complete': True, 'graduated': graduated_total})
+                                self._prune_attempt(root, 'graduated')
+                                self._maintain(root)
                                 return self._stop('completed', 'ace_target_graduates_reached')
                             self.session.finish_attempt('ace_graduated_continue_batch')
                         else:
                             attempt.update(status='completed_unqualified', ss_sieve_outcome='unqualified')
                             self.session.finish_attempt('ace_graduation_unqualified')
+                        self._prune_attempt(root, attempt['ss_sieve_outcome'])
+                        self._maintain(root)
                         self.cycle['phase'] = 'between_attempts'
                         self.session.save()
                         self._publish_state()
@@ -427,9 +443,15 @@ class SieveCycle:
                         if mei_restart:
                             attempt['status'] = 'mei_unlock_failed'
                             self.session.save()
+                            prune_outcome = 'mei_unlock_failed'
                         elif tf_restart:
                             attempt['status'] = 'training_failed'
                             self.session.save()
+                            prune_outcome = 'training_failed'
+                        else:
+                            prune_outcome = 'screened_out'
+                        self._prune_attempt(root, prune_outcome)
+                        self._maintain(root)
                         root = None
                         continue
                     attempt['ss_sieve_outcome'] = 'failed'

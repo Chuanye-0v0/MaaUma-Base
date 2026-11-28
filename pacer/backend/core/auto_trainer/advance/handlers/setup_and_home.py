@@ -148,8 +148,27 @@ from ..constants import (
 )
 
 
+_ACCOUNT_LOGIN_CONFLICT_TERMS = (
+    "连接冲突",
+    "已在其他设备登录",
+    "其他设备登录",
+    "其他终端登录",
+    "别的设备登录",
+    "别处登录",
+    "账号在其他",
+    "账户在其他",
+)
+
+
+def is_account_login_conflict_text(text: str | None) -> bool:
+    """Return True when OCR text indicates multi-device/account login conflict."""
+    compact = "".join(str(text or "").split())
+    return any(term in compact for term in _ACCOUNT_LOGIN_CONFLICT_TERMS)
+
+
 class SetupAndHomeHandlerMixin:
     """Global home, title start, announcements, and trainee/deck setup handlers."""
+    _is_account_login_conflict_text = staticmethod(is_account_login_conflict_text)
 
     @staticmethod
     def is_post_career_global_home(img: np.ndarray | None) -> bool:
@@ -1061,7 +1080,21 @@ class SetupAndHomeHandlerMixin:
             and header_washed_out > 0.75
             and header_saturated < 0.12
         )
-        if (header_gold < 0.12 or header_blue < 0.35) and not anniversary_reward_animation:
+        banner = hsv[
+            int(height * 0.50) : int(height * 0.60),
+            int(width * 0.08) : int(width * 0.92),
+        ]
+        banner_white = (
+            float(np.mean((banner[:, :, 1] < 40) & (banner[:, :, 2] > 200)))
+            if banner.size
+            else 0.0
+        )
+        centered_reward_banner = bool(
+            received_text_present
+            and skip is not None
+            and banner_white > 0.55
+        )
+        if (header_gold < 0.12 or header_blue < 0.35) and not anniversary_reward_animation and not centered_reward_banner:
             return None
         if skip is None and received_text_present:
             region = hsv[
@@ -1171,6 +1204,78 @@ class SetupAndHomeHandlerMixin:
         ):
             return None
         return int(width * 0.27), int(height * 0.655)
+
+    @staticmethod
+    def _pass_renewal_cancel_button(
+        screen_text: dict[str, Any] | None,
+        img: np.ndarray,
+    ) -> tuple[int, int] | None:
+        """Locate only the safe white Cancel/Close button on factor/training pass renewal popups."""
+        if not isinstance(screen_text, dict) or img is None:
+            return None
+        raw = str(screen_text.get("normalized_text", ""))
+        compact = "".join(raw.split())
+        lines = {line.strip() for line in raw.splitlines() if line.strip()}
+        is_pass = (
+            "因子通行证" in compact
+            or "训练通行证" in compact
+            or ("通行证" in compact and any(k in compact for k in ("续费", "到期", "过期", "购买", "高级通行证", "特权")))
+        )
+        if not is_pass or not ("取消" in lines or "关闭" in lines):
+            return None
+        height, width = img.shape[:2]
+        if width > height:
+            return None
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        header_found = False
+        for hy in (0.18, 0.22, 0.26, 0.30, 0.34):
+            header = hsv[
+                int(height * hy) : int(height * (hy + 0.05)),
+                int(width * 0.04) : int(width * 0.96),
+            ]
+            if header.size == 0:
+                continue
+            header_green = float(np.mean(
+                (header[:, :, 0] >= 38)
+                & (header[:, :, 0] <= 92)
+                & (header[:, :, 1] > 70)
+                & (header[:, :, 2] > 80)
+            ))
+            if header_green > 0.55:
+                header_found = True
+                break
+        if not header_found:
+            return None
+        panel = hsv[int(height * 0.32) : int(height * 0.72), int(width * 0.04) : int(width * 0.96)]
+        if panel.size == 0 or float(np.mean((panel[:, :, 1] < 70) & (panel[:, :, 2] > 170))) < 0.60:
+            return None
+        for yc in (0.655, 0.720, 0.785, 0.875):
+            y1, y2 = int(height * (yc - 0.035)), int(height * (yc + 0.035))
+            left = hsv[y1:y2, int(width * 0.08) : int(width * 0.48)]
+            right = hsv[y1:y2, int(width * 0.52) : int(width * 0.92)]
+            if left.size == 0 or right.size == 0:
+                continue
+            left_white = float(np.mean((left[:, :, 1] < 70) & (left[:, :, 2] > 170)))
+            left_brown = float(np.mean(
+                (left[:, :, 0] >= 5) & (left[:, :, 0] <= 30) & (left[:, :, 1] > 50) & (left[:, :, 2] > 70)
+            ))
+            right_green = float(np.mean(
+                (right[:, :, 0] >= 38) & (right[:, :, 0] <= 92) & (right[:, :, 1] > 70) & (right[:, :, 2] > 80)
+            ))
+            if left_white > 0.70 and left_brown > 0.01 and right_green > 0.45:
+                return int(width * 0.27), int(height * yc)
+            if "关闭" in lines and not any(k in compact for k in ("购买", "续费")):
+                mid = hsv[y1:y2, int(width * 0.25) : int(width * 0.75)]
+                mid_white = float(np.mean((mid[:, :, 1] < 70) & (mid[:, :, 2] > 170)))
+                mid_brown = float(np.mean(
+                    (mid[:, :, 0] >= 5) & (mid[:, :, 0] <= 30) & (mid[:, :, 1] > 50) & (mid[:, :, 2] > 70)
+                ))
+                mid_green = float(np.mean(
+                    (mid[:, :, 0] >= 38) & (mid[:, :, 0] <= 92) & (mid[:, :, 1] > 70) & (mid[:, :, 2] > 80)
+                ))
+                if mid_white > 0.70 and mid_brown > 0.01 and mid_green < 0.05:
+                    return int(width * 0.50), int(height * yc)
+        return None
 
     @staticmethod
     def _login_walk_reward_continue_point(

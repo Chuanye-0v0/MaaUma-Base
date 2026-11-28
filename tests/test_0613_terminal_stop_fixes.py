@@ -141,6 +141,81 @@ class Test0613TerminalStopFixes(unittest.TestCase):
     def setUp(self) -> None:
         _ensure_pacer_backend_path()
 
+    def test_terminal_finish_zero_points_does_not_try_missing_cancel(self) -> None:
+        from core.auto_trainer.safe_advance import SafeAdvancePlanner
+
+        planner = SafeAdvancePlanner()
+        img = np.zeros((1280, 720, 3), dtype=np.uint8)
+        perception = {
+            "screen": "modal_confirm",
+            "buttons": [{"kind": "primary_green", "center": [518, 918],
+                         "bbox": [377, 880, 282, 76]}],
+        }
+        for points, allowed, expected in (
+            ("0", False, "safe_advance.finish_training"),
+            ("17", False, "safe_advance.career_end_finish_cancel"),
+            ("", False, None),
+            ("17", True, "safe_advance.finish_training"),
+            ("", True, "safe_advance.finish_training"),
+        ):
+            with self.subTest(points=points, allowed=allowed):
+                text = ("养成结束确认\n即将完成养成\n是否确认执行?\n"
+                        f"剩余技能点数 {points}\n未使用的技能点数将作废\n取消 完成")
+                evidence = {"perception": perception, "screen_text": {"normalized_text": text}}
+                decision = planner._plan_common_priority_modals(
+                    img, evidence, scenario="larc",
+                    allow_career_end_finish_after_skill_handoff=False,
+                    allow_finish_training_with_unused_skill_points=allowed,
+                )
+                if expected is None:
+                    self.assertEqual(decision["action"], "stop")
+                    self.assertNotIn("tap", decision)
+                else:
+                    self.assertEqual(decision["action"], "tap")
+                    self.assertEqual(decision["tap"]["coordinate_name"], expected)
+
+    def test_terminal_finish_crop_recovers_missing_amount_but_never_licenses_unknown_points(self) -> None:
+        from core.auto_trainer.safe_advance import SafeAdvancePlanner
+
+        planner = SafeAdvancePlanner()
+        img = np.zeros((1280, 720, 3), dtype=np.uint8)
+        img[752:772, 419:434] = (0, 155, 255)
+        text = ("养成结束确认\n即将完成养成\n是否确认执行?\n剩余技能点数\n"
+                "未使用的技能点数将作废\n取消 完成")
+        perception = {
+            "screen": "modal_confirm",
+            "buttons": [{"kind": "primary_green", "center": [518, 918],
+                         "bbox": [377, 880, 282, 76]}],
+        }
+        for status, points, expected in (
+            ("accepted", 0, "safe_advance.finish_training"),
+            ("accepted", 17, "safe_advance.career_end_finish_cancel"),
+            ("abstained", None, None),
+        ):
+            with self.subTest(status=status, points=points):
+                with patch("core.numeric_ocr_crosscheck.read_number", return_value={
+                    "status": status, "value": points,
+                }) as reader:
+                    decision = planner._plan_common_priority_modals(
+                        img, {"perception": perception, "screen_text": {"normalized_text": text}},
+                        scenario="larc", allow_career_end_finish_after_skill_handoff=False,
+                        allow_finish_training_with_unused_skill_points=False,
+                    )
+                reader.assert_called_once()
+                self.assertEqual(reader.call_args.args[0].shape, (52, 42, 3))
+                if expected is None:
+                    self.assertEqual(decision["action"], "stop")
+                    self.assertNotIn("tap", decision)
+                else:
+                    self.assertEqual(decision["tap"]["coordinate_name"], expected)
+
+        with patch.object(planner, "_configured_decision", return_value=None):
+            legacy = planner._plan_finish_training_confirmation(
+                (518, 918), {"normalized_text": "养成结束确认\n完成"}, img, {},
+                allow_finish_training_with_unused_skill_points=False, visual_fallback=True,
+            )
+        self.assertEqual(legacy["tap"]["coordinate_name"], "safe_advance.finish_training")
+
     def test_fix1_skill_evolution_selects_unselected_second_card_and_scroll(self) -> None:
         ho = _load_harvest_observer()
         sw = _load_module_by_path(

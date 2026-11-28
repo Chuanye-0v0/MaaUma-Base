@@ -18,6 +18,7 @@ from typing import Any, Callable, Mapping
 import cv2
 import numpy as np
 
+from core.adb import resolve_screen_size
 from core.frame_io import io_path, read_image_compat, read_image_with_retry
 from core.auto_trainer.action_table import ActionTable
 from core.auto_trainer.career_start_perception import CareerStartPerceptor
@@ -593,7 +594,7 @@ class SafeAdvanceExecutor:
         if mode == "live":
             if not adb.connect():
                 return {"performed": False, "reason": "adb_connect_failed", "decision": {}}
-            size = tuple(adb.get_screen_size())
+            size = resolve_screen_size(adb, supported=SUPPORTED_ADVANCE_SCREEN_SIZES)
             if size not in SUPPORTED_ADVANCE_SCREEN_SIZES:
                 return {"performed": False, "reason": f"unsupported_screen_size:{size}", "decision": {}}
             reader_timings['connection_size_seconds']=round(time.monotonic()-reader_started,4)
@@ -2227,8 +2228,12 @@ class SafeAdvanceExecutor:
             from core.auto_trainer.larc_control_wait import adaptation_controls, controls_changed
             before_adaptation = read_image_compat(screenshot_path)
             is_return_tap = tap["coordinate_name"] == "safe_advance.larc_adaptation_return"
+            require_leave_grid = tap["coordinate_name"] in {
+                "safe_advance.larc_adaptation_return",
+                "safe_advance.larc_adaptation_review",
+            }
             adaptation_ready = lambda image: controls_changed(before_adaptation, image) and adaptation_controls(
-                image, allow_home=is_return_tap, require_leave_grid=is_return_tap)
+                image, allow_home=is_return_tap, require_leave_grid=require_leave_grid)
             sleep_seconds = 0
         elif (scenario == "larc" and decision.get("reason") == "larc_ss_open"
                 and getattr(adb, "supports_in_memory_capture", False) is True):

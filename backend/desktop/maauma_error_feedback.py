@@ -7,20 +7,22 @@ from pathlib import Path
 import re
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler,Request,build_opener
+from urllib.request import HTTPRedirectHandler,ProxyHandler,Request,build_opener
 import uuid
 
 from desktop.product_updates import contained,read_json,write_json
 
 SCHEMA='maauma.error_feedback.v1'
-DEFAULT_ENDPOINT='https://maauma-private.2234198378.workers.dev/v1/bug-feedback'
+DEFAULT_ENDPOINT='https://api.maauma.top/v1/bug-feedback'
+LEGACY_ENDPOINT='https://maauma-private.2234198378.workers.dev/v1/bug-feedback'
 REPORT_FOLDER='logs/error-feedback'
 TASK_FAILURE_POINTER='logs/task-failures/latest.json'
 TASK_FAILURE_SCHEMA='maauma.task_failure_pointer.v1'
 TASK_NAMES={'plant':'开种','harvest':'收菜','jjc':'JJC','activities':'日常赛事',
     'daily_legend':'日常传奇赛事','limited_legend':'限时传奇赛','story_event':'活动领奖／转盘',
     'daily_rewards':'每日任务领奖／礼物箱','champions_registration':'大赛报名',
-    'champions_race':'大赛','cleanup':'收尾','seed_cycle':'连续育成'}
+    'champions_race':'大赛','cleanup':'收尾','seed_cycle':'连续育成',
+    'racing_carnival':'竞速嘉年华','strongest_team':'最强队伍','loh':'英雄谭','guild_daily':'社团日常'}
 JOB_ID=re.compile(r'job-[A-Za-z0-9_-]{1,128}')
 DIAGNOSTIC_ID=re.compile(r'[A-Za-z][A-Za-z0-9_.:-]{0,119}')
 MAX_REQUEST=256*1024
@@ -306,22 +308,35 @@ def submit(root,report_id,*,endpoint=DEFAULT_ENDPOINT,timeout=20):
             and previous.get('status') in {'open','triaged','fixed','closed'}):
         return {'ok':True,'feedback_id':previous['feedback_id'],'status':previous.get('status','open'),'idempotent':True}
     data=json.dumps(report['payload'],ensure_ascii=False,separators=(',',':')).encode('utf8')
-    request=Request(endpoint,data=data,headers={'Content-Type':'application/json','Accept':'application/json',
-                    'User-Agent':'MaaUma-ErrorFeedback/1'},method='POST')
-    try:
-        with build_opener(NoRedirect()).open(request,timeout=timeout) as response:
-            raw=response.read(16*1024+1)
-            if len(raw)>16*1024:raise FeedbackError('error_feedback_unavailable')
-            answer=json.loads(raw.decode('utf-8-sig'))
-    except HTTPError as error:
-        if error.code==429:raise FeedbackError('error_feedback_rate_limited') from None
-        if 400<=error.code<500:raise FeedbackError('error_feedback_rejected') from None
-        raise FeedbackError('error_feedback_unavailable') from None
-    except (OSError,ValueError):raise FeedbackError('error_feedback_unavailable') from None
-    if (not isinstance(answer,dict) or answer.get('ok') is not True
-            or not FEEDBACK_ID.fullmatch(str(answer.get('feedback_id','')))
-            or answer.get('status') not in {'open','triaged','fixed','closed'}):
-        raise FeedbackError('error_feedback_unavailable')
+    targets=((DEFAULT_ENDPOINT,True),(LEGACY_ENDPOINT,False)) if endpoint==DEFAULT_ENDPOINT else ((endpoint,False),)
+    answer=None
+    for index,(target,direct) in enumerate(targets):
+        last=index+1==len(targets)
+        request=Request(target,data=data,headers={'Content-Type':'application/json','Accept':'application/json',
+                        'User-Agent':'MaaUma-ErrorFeedback/1'},method='POST')
+        handlers=(NoRedirect(),ProxyHandler({})) if direct else (NoRedirect(),)
+        try:
+            with build_opener(*handlers).open(request,timeout=timeout) as response:
+                raw=response.read(16*1024+1)
+                if len(raw)>16*1024:raise FeedbackError('error_feedback_unavailable')
+                answer=json.loads(raw.decode('utf-8-sig'))
+        except HTTPError as error:
+            if error.code==429:raise FeedbackError('error_feedback_rate_limited') from None
+            if error.code==408 or 500<=error.code<=599:
+                if not last:continue
+                raise FeedbackError('error_feedback_unavailable') from None
+            if 400<=error.code<500:raise FeedbackError('error_feedback_rejected') from None
+            if not last:continue
+            raise FeedbackError('error_feedback_unavailable') from None
+        except (OSError,ValueError,FeedbackError):
+            if not last:continue
+            raise FeedbackError('error_feedback_unavailable') from None
+        if (isinstance(answer,dict) and answer.get('ok') is True
+                and FEEDBACK_ID.fullmatch(str(answer.get('feedback_id','')))
+                and answer.get('status') in {'open','triaged','fixed','closed'}):
+            break
+        if last:
+            raise FeedbackError('error_feedback_unavailable')
     ack={key:answer[key] for key in ('feedback_id','status')}
     report['acknowledgement']=ack;write_json(_path(root,report_id),report)
     return {'ok':True,**ack,'idempotent':answer.get('idempotent') is True}

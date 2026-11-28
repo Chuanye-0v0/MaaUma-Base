@@ -64,8 +64,6 @@ def start_preselected_ordinary_career(ctx, output_dir, *, trainee_name, trainee_
                 return {'state':'unknown','reason':'ordinary_entry_frame_unreadable'}
             scale=image.shape[1]/720
             canonical=cv2.resize(image,(720,1280))
-            if SafeAdvancePlanner._continue_training_modal_button(Perception().analyze_image(canonical),canonical):
-                return {'state':'existing_career_handoff','reason':'existing_career_visible'}
             base_reader=kwargs.pop('reader',None)
             if base_reader is None:
                 default_reader=_default_ocr_reader().read_regions
@@ -77,6 +75,21 @@ def start_preselected_ordinary_career(ctx, output_dir, *, trainee_name, trainee_
                 tokens=ocr_tokens(canonical,base_reader)
                 base=analyze_restart_frame(source,reader=base_reader,**kwargs)
             text=''.join(token['text'] for token in tokens)
+            tp_terms=('回复训练值','恢复训练值','训练值不足','TP不足','恢复TP','回复TP','能量饮料')
+            lines_text='\n'.join(token.get('text','') for token in tokens)
+            continue_modal_verified=(
+                SafeAdvancePlanner._continue_training_modal_text_verified({'normalized_text':lines_text})
+                or ('继续养成' in text and '继续' in text and ('取消' in text or '删除数据' in text))
+            )
+            if (kwargs.get('phase') not in {'refill','refill_return'}
+                    and not kwargs.get('ordinary_start_verified')
+                    and not kwargs.get('support_start_verified')
+                    and base.get('state')=='unknown'
+                    and not any(term in text for term in tp_terms)
+                    and continue_modal_verified
+                    and SafeAdvancePlanner._continue_training_modal_button(
+                        Perception().analyze_image(canonical),canonical)):
+                return {'state':'existing_career_handoff','reason':'existing_career_visible'}
             # The shared owner identifies foreground inheritance/support/paid
             # modals before any trainee header left behind by a transition.
             if selection and (base.get('state')=='continue_trainee' or base.get('reason') in {

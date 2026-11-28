@@ -1,6 +1,7 @@
 """Authorized Pacer overlays and coordinated base/module transactions."""
 from __future__ import annotations
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import errno
 import hashlib
 from http.client import IncompleteRead
@@ -11,6 +12,7 @@ import re
 import shutil
 import stat
 import time
+import traceback
 import subprocess
 import sys
 from urllib.parse import urlsplit
@@ -26,6 +28,7 @@ from desktop.update_connectivity import observed_phase, transport_failure
 MANIFEST='maauma-component-manifest.json'
 STATE='config/maauma-modules.json'
 TRANSACTION='updates/maauma-suite-state.json'
+LAST_RESULT='updates/last-result.json'
 MAX_ARCHIVE=updates.MAX_ARCHIVE
 MUTABLE={'local_backend.json','pacer/portable_config.json'}
 PUBLIC_DOWNLOAD_HOST='maauma-downloads-1508966578.cos.ap-guangzhou.myqcloud.com'
@@ -42,6 +45,172 @@ _STAGED_ARCHIVE_MANIFESTS={
 
 
 def _error(code):raise updates.UpdateError(code)
+
+
+def _utc_now():return datetime.now(timezone.utc).isoformat()
+
+
+def _stage_logger(stage):
+    log_path=Path(stage)/'update.log'
+    def log(message):
+        try:
+            log_path.parent.mkdir(parents=True,exist_ok=True)
+            with log_path.open('a',encoding='utf-8') as stream:
+                stream.write(f'[{_utc_now()}] {message}\n')
+        except OSError:
+            pass
+    return log
+
+
+def _write_last_result(root,payload):
+    try:updates.write_json(updates.contained(root,LAST_RESULT),payload)
+    except (OSError,updates.UpdateError,ValueError):pass
+
+
+def _is_transient_lock_error(exc):
+    return isinstance(exc,PermissionError) or getattr(exc,'winerror',None) in {5,32}
+
+
+def _clear_readonly(path):
+    try:
+        p=Path(path)
+        if p.exists():
+            os.chmod(p,stat.S_IWRITE|stat.S_IREAD)
+    except OSError:
+        pass
+
+
+def _try_in_place_verified_overwrite(src,dst_path,*,log=None):
+    if not (dst_path.is_file() and not dst_path.is_symlink()):
+        return False
+    try:
+        payload=Path(src).read_bytes()
+        src_sha=hashlib.sha256(payload).hexdigest()
+        _clear_readonly(dst_path)
+        with dst_path.open('r+b') as stream:
+            stream.write(payload)
+            stream.truncate()
+            stream.flush()
+            os.fsync(stream.fileno())
+        if _digest(dst_path)==src_sha:
+            try:Path(src).unlink(missing_ok=True)
+            except OSError:pass
+            if log:log(f'replace in-place verified overwrite succeeded for {dst_path}')
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def _replace_with_retry(src,dst,*,attempts=8,log=None):
+    delays=(0.1,0.25,0.5,1.0,1.5,2.0,2.0)
+    dst_path=Path(dst)
+    for index in range(max(1,attempts)):
+        _clear_readonly(src)
+        _clear_readonly(dst_path)
+        try:
+            os.replace(src,dst)
+            return
+        except OSError as exc:
+            if not _is_transient_lock_error(exc):raise
+            if getattr(exc,'winerror',None)==5 and index>=1 and _try_in_place_verified_overwrite(src,dst_path,log=log):
+                return
+            if index<attempts-1:
+                delay=delays[min(index,len(delays)-1)]
+                if log:log(f'retryable replace error on {dst} (attempt {index+1}/{attempts}): {exc}; sleeping {delay}s')
+                time.sleep(delay)
+                continue
+            if dst_path.exists():
+                aside=dst_path.with_name(f'.{dst_path.name}.{uuid.uuid4().hex[:8]}.old')
+                moved_aside=False
+                try:
+                    os.replace(dst,aside)
+                    moved_aside=True
+                    os.replace(src,dst)
+                    try:aside.unlink(missing_ok=True)
+                    except OSError:pass
+                    if log:log(f'replace rename-aside succeeded for {dst}')
+                    return
+                except OSError:
+                    if moved_aside and aside.exists() and not dst_path.exists():
+                        try:os.replace(aside,dst)
+                        except OSError:pass
+                if _try_in_place_verified_overwrite(src,dst_path,log=log):
+                    return
+            raise
+
+
+def _terminate_installation_pacer_processes(root,log=None):
+    """Best-effort termination of lingering pacer/runtime processes inside *root*."""
+    if os.name!='nt':return []
+    try:
+        import ctypes
+        from ctypes import wintypes as w
+        class Entry(ctypes.Structure):
+            _fields_=[('size',w.DWORD),('usage',w.DWORD),('pid',w.DWORD),('heap',ctypes.c_size_t),
+                      ('module',w.DWORD),('threads',w.DWORD),('parent',w.DWORD),('priority',w.LONG),
+                      ('flags',w.DWORD),('name',w.WCHAR*260)]
+        k=ctypes.WinDLL('kernel32',use_last_error=True)
+        k.CreateToolhelp32Snapshot.argtypes=[w.DWORD,w.DWORD];k.CreateToolhelp32Snapshot.restype=w.HANDLE
+        k.Process32FirstW.argtypes=[w.HANDLE,ctypes.POINTER(Entry)]
+        k.Process32NextW.argtypes=[w.HANDLE,ctypes.POINTER(Entry)]
+        k.OpenProcess.argtypes=[w.DWORD,w.BOOL,w.DWORD];k.OpenProcess.restype=w.HANDLE
+        k.CloseHandle.argtypes=[w.HANDLE]
+        k.QueryFullProcessImageNameW.argtypes=[w.HANDLE,w.DWORD,w.LPWSTR,ctypes.POINTER(w.DWORD)]
+        k.TerminateProcess.argtypes=[w.HANDLE,w.UINT];k.TerminateProcess.restype=w.BOOL
+        k.WaitForSingleObject.argtypes=[w.HANDLE,w.DWORD];k.WaitForSingleObject.restype=w.DWORD
+        resolved_root=Path(root).resolve()
+        pacer_dir=resolved_root/'pacer'
+        runtime_dir=resolved_root/'runtime'
+        self_pids={os.getpid(),os.getppid()}
+        snapshot=k.CreateToolhelp32Snapshot(2,0)
+        if snapshot==ctypes.c_void_p(-1).value:return []
+        targets=[];entry=Entry();entry.size=ctypes.sizeof(entry)
+        try:
+            ok=k.Process32FirstW(snapshot,ctypes.byref(entry))
+            while ok:
+                pid=int(entry.pid)
+                if pid>0 and pid not in self_pids:
+                    proc=k.OpenProcess(0x1000,False,pid)
+                    if proc:
+                        try:
+                            buf=ctypes.create_unicode_buffer(32768);size=w.DWORD(len(buf))
+                            if k.QueryFullProcessImageNameW(proc,0,buf,ctypes.byref(size)):
+                                try:
+                                    exe=Path(buf.value).resolve()
+                                    if (exe.is_relative_to(pacer_dir) or exe.is_relative_to(runtime_dir)
+                                            or (exe.parent==resolved_root and (exe.name.lower()=='mfaavalonia.exe' or exe.name.lower().startswith('maauma')))):
+                                        targets.append((pid,exe))
+                                except (OSError,RuntimeError):
+                                    pass
+                        finally:
+                            k.CloseHandle(proc)
+                ok=k.Process32NextW(snapshot,ctypes.byref(entry))
+        finally:
+            k.CloseHandle(snapshot)
+        terminated=[];handles=[]
+        deadline=time.monotonic()+5.0
+        for pid,exe in targets:
+            proc=k.OpenProcess(0x0001|0x00100000|0x1000,False,pid)
+            if not proc:
+                if log:log(f'failed opening stale installation process pid={pid} exe={exe} err={ctypes.get_last_error()}')
+                continue
+            if log:log(f'terminating lingering installation process pid={pid} exe={exe}')
+            k.TerminateProcess(proc,1)
+            handles.append((pid,proc))
+        try:
+            for pid,proc in handles:
+                rem_ms=max(0,int((deadline-time.monotonic())*1000))
+                wait_rc=k.WaitForSingleObject(proc,rem_ms)
+                terminated.append(pid)
+                if log:log(f'terminated pid={pid} wait_rc={wait_rc}')
+        finally:
+            for _,proc in handles:
+                k.CloseHandle(proc)
+        return terminated
+    except Exception as exc:
+        if log:log(f'process cleanup warning: {type(exc).__name__}: {exc}')
+        return []
 
 
 def _digest(path,*,progress=None,verification_step='archive_integrity'):
@@ -410,25 +579,38 @@ def _cache_maintenance_lock(root):
     """Serialize housekeeping without taking the GUI's lifetime application lock."""
     path=updates.contained(root,'updates/cache-maintenance.lock')
     path.parent.mkdir(parents=True,exist_ok=True)
-    try:
-        descriptor=os.open(path,os.O_RDWR|os.O_CREAT|os.O_EXCL,0o600)
-    except FileExistsError:stream=path.open('r+b')
-    else:stream=os.fdopen(descriptor,'r+b')
-    with stream:
-        stream.seek(0)
+    _clear_readonly(path)
+    deadline=time.monotonic()+0.6
+    stream=None
+    while True:
         try:
+            try:
+                descriptor=os.open(path,os.O_RDWR|os.O_CREAT|os.O_EXCL,0o600)
+            except FileExistsError:stream=path.open('r+b')
+            else:stream=os.fdopen(descriptor,'r+b')
+            stream.seek(0)
             if os.name=='nt':
                 import msvcrt
                 msvcrt.locking(stream.fileno(),msvcrt.LK_NBLCK,1)
             else:
                 import fcntl
                 fcntl.flock(stream.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+            break
         except OSError as error:
-            if error.errno in {errno.EACCES,errno.EAGAIN,errno.EDEADLK}or getattr(error,'winerror',None)in {32,33}:
+            if stream is not None:
+                try:stream.close()
+                except OSError:pass
+                stream=None
+            if error.errno in {errno.EACCES,errno.EAGAIN,errno.EDEADLK}or getattr(error,'winerror',None)in {5,32,33}:
+                if time.monotonic()<deadline:
+                    _clear_readonly(path)
+                    time.sleep(0.05)
+                    continue
                 busy=_CacheMaintenanceBusy('cache_maintenance_busy')
                 busy.errno=error.errno;busy.winerror=getattr(error,'winerror',None)
                 raise busy from None
             raise
+    with stream:
         try:
             stream.seek(0,os.SEEK_END)
             if stream.tell()==0:stream.write(b'0');stream.flush()
@@ -508,7 +690,7 @@ def cleanup_staged_updates(root,*,dry_run=False,max_seconds=4.0):
             state_info=state_path.stat()if state_path.is_file()else None
             state_token=(state_info.st_dev,state_info.st_ino,state_info.st_size,state_info.st_mtime_ns)if state_info else None
             owned={'ticket.json','journal.json','helper','backup','incoming','retired',
-                   'materialized','recipe-literals','download.json'} | set(_STAGED_ARCHIVE_MANIFESTS)
+                   'materialized','recipe-literals','download.json','update.log'} | set(_STAGED_ARCHIVE_MANIFESTS)
             phase='enumerate_stages'
             for path in sorted(staged.iterdir()):
                 phase='inspect_stage'
@@ -559,7 +741,7 @@ def cleanup_staged_updates(root,*,dry_run=False,max_seconds=4.0):
                     outcome['removed_stages']+=1;outcome['removed_bytes']+=size
                 except OSError:outcome['protected'].append({'stage':path.name,'reason':'remove_failed'})
     except _CacheMaintenanceBusy as error:
-        outcome.update(status='cleanup_busy',retry_pending=True,**_cleanup_failure(error,phase))
+        outcome.update(status='cleanup_busy',retry_pending=False,skipped_busy=True,**_cleanup_failure(error,phase))
     except Exception as error:
         outcome.update(status='cleanup_unavailable',retry_pending=False,**_cleanup_failure(error,phase))
     return outcome
@@ -694,34 +876,177 @@ def _assert_idle(root):
             except OSError:_error('device_busy')
 
 
-def _restore(root,stage,journal):
-    for item in reversed(journal['operations']):
+def last_update_result(root):
+    try:
+        path=updates.contained(Path(root).resolve(),LAST_RESULT)
+        return updates.read_json(path) if path.is_file() else None
+    except Exception:
+        return None
+
+
+def retryable_ticket(root):
+    try:
+        resolved=Path(root).resolve(strict=True)
+        tx_path=resolved/TRANSACTION
+        if not tx_path.is_file():return None
+        tx=updates.read_json(tx_path)
+        if tx.get('phase')!='rolled_back' or not tx.get('ticket'):return None
+        resolved,stage,ticket=_ticket(resolved,tx['ticket'])
+        _,manifest_name,installed=updates.installation(resolved)
+        if installed.get('version')!=ticket.get('from_version'):return None
+        entries=ticket.get('entries')
+        if not isinstance(entries,list) or not entries:return None
+        previous=state(resolved)
+        if 'pacer' in previous.get('components',{}) and not any(row.get('kind')=='pacer' for row in entries):
+            return None
+        for row in entries:
+            kind=row.get('kind')
+            if kind not in {'base','pacer'}:return None
+            file_path=updates.contained(stage,updates.relative_path(row['file']))
+            if not file_path.is_file():return None
+            delivery=row.get('delivery')
+            if delivery is None:
+                entry=row['entry']
+                if kind=='pacer':
+                    if file_path.stat().st_size!=row['personal_size_bytes'] or _digest(file_path)!=row['personal_sha256']:
+                        return None
+                else:
+                    if file_path.stat().st_size!=entry['size_bytes'] or _digest(file_path)!=entry['sha256']:
+                        return None
+            elif delivery=='file_patch':
+                patch_entry=row['patch_entry']
+                expected_size=patch_entry['size_bytes']
+                expected_sha=patch_entry['sha256']
+                actual_size=file_path.stat().st_size
+                if kind=='pacer':
+                    if not (expected_size<actual_size<=MAX_ARCHIVE):return None
+                    digest=hashlib.sha256();remaining=expected_size
+                    with file_path.open('rb') as stream:
+                        while remaining:
+                            block=stream.read(min(1024**2,remaining))
+                            if not block:return None
+                            digest.update(block);remaining-=len(block)
+                    if digest.hexdigest()!=expected_sha:return None
+                else:
+                    if actual_size!=expected_size or _digest(file_path)!=expected_sha:
+                        return None
+            else:
+                return None
+        return str(stage/'ticket.json')
+    except Exception:
+        return None
+
+
+def record_apply_result(root,request,response):
+    root_path=Path(root).resolve()
+    ticket_str=str(response.get('ticket') or (request.get('ticket') if isinstance(request,dict) else None) or '') or None
+    existing=last_update_result(root_path)
+    if (isinstance(existing,dict) and ticket_str and existing.get('ticket')==ticket_str
+            and existing.get('ok')==bool(response.get('ok'))
+            and existing.get('code')==response.get('code')
+            and (existing.get('error') or response.get('ok') is True)):
+        return existing
+    log_path=response.get('log_path')
+    if log_path is None and ticket_str:
+        try:
+            _,stage,_=_ticket(root_path,ticket_str)
+            if (stage/'update.log').is_file():log_path=str(stage/'update.log')
+        except Exception:
+            pass
+    payload={
+        'schema_version':'maauma.update_result.v1',
+        'ok':bool(response.get('ok')),
+        'status':response.get('status') or ('installed' if response.get('ok') else 'failed'),
+        'code':response.get('code'),
+        'version':response.get('version'),
+        'ticket':ticket_str,
+        'failed_path':response.get('failed_path') or ((response.get('error') or {}).get('failed_path') if isinstance(response.get('error'),dict) else None),
+        'error':response.get('error'),
+        'log_path':log_path,
+        'timestamp_utc':_utc_now(),
+    }
+    _write_last_result(root_path,payload)
+    return payload
+
+
+def pending_rollback_ticket(root):
+    try:
+        resolved=Path(root).resolve(strict=True)
+        tx_path=resolved/TRANSACTION
+        if not tx_path.is_file():return None
+        tx=updates.read_json(tx_path)
+        if tx.get('phase') not in {'applying','rollback_failed'} or not tx.get('ticket'):return None
+        resolved,stage,_ticket_data=_ticket(resolved,tx['ticket'])
+        if not (stage/'journal.json').is_file():return None
+        return str(stage/'ticket.json')
+    except Exception:
+        return None
+
+
+def _restore(root,stage,journal,*,attempted_count=None,error=None,log=None):
+    ops=journal['operations'][:attempted_count] if attempted_count is not None else journal['operations']
+    for item in reversed(ops):
         name=updates.relative_path(item['path']);target=updates.contained(root,name)
         if item['existed']:
             backup=updates.transaction_io_path(updates.contained(stage/'backup',name))
             if not backup.is_file():_error('rollback_backup_missing')
-            target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(backup,target)
+            try:
+                if target.is_file() and target.stat().st_size==backup.stat().st_size and _digest(target)==_digest(backup):
+                    if log:log(f'rollback skipped unchanged file {name}')
+                    continue
+            except OSError:
+                pass
+            target.parent.mkdir(parents=True,exist_ok=True)
+            tmp=updates.transaction_io_path(target.with_name(f'.{target.name}.{uuid.uuid4().hex[:8]}.restore'))
+            shutil.copy2(backup,tmp)
+            try:_replace_with_retry(tmp,target,log=log)
+            except Exception:
+                try:tmp.unlink(missing_ok=True)
+                except OSError:pass
+                raise
         elif target.is_file():
             retired=updates.transaction_io_path(updates.contained(stage/'retired',name));retired.parent.mkdir(parents=True,exist_ok=True)
-            os.replace(target,retired)
-    journal['phase']='rolled_back';updates.write_json(stage/'journal.json',journal)
-    updates.write_json(root/TRANSACTION,{'phase':'rolled_back','ticket':str(stage/'ticket.json')})
+            _replace_with_retry(target,retired,log=log)
+    journal['phase']='rolled_back'
+    if error is not None:journal['error']=error
+    updates.write_json(stage/'journal.json',journal)
+    tx={'phase':'rolled_back','ticket':str(stage/'ticket.json')}
+    if error is not None:tx['error']=error
+    updates.write_json(root/TRANSACTION,tx)
+    if log:log(f'rollback completed phase=rolled_back failed_path={error.get("failed_path") if isinstance(error,dict) else None}')
 
 
 def apply_prepared(root,ticket_path,*,parent_pid=None):
     root,stage,ticket=_ticket(root,ticket_path)
-    if parent_pid is not None:updates.wait_for_exit(int(parent_pid))
+    log=_stage_logger(stage)
+    log(f'apply_prepared start ticket={stage/"ticket.json"} parent_pid={parent_pid} base_version={ticket.get("base_version")}')
+    if parent_pid is not None:
+        log(f'waiting for parent_pid={parent_pid} exit')
+        try:updates.wait_for_exit(int(parent_pid))
+        except Exception as exc:
+            log(f'wait_for_exit failed: {type(exc).__name__}: {exc}')
+            if isinstance(exc,updates.UpdateError):
+                exc.ticket=str(stage/'ticket.json');exc.log_path=str(stage/'update.log')
+            raise
     with updates.installation_lock(root):
-        _assert_idle(root)
-        transaction=updates.read_json(root/TRANSACTION) if (root/TRANSACTION).is_file() else {}
-        if transaction.get('phase') in {'applying','rollback_failed'}:_error('rollback_required')
-        _,manifest_name,installed=updates.installation(root);previous=state(root)
-        if installed['version']!=ticket.get('from_version'):_error('stale_update_ticket')
-        journal_path=stage/'journal.json'
-        if journal_path.exists() and updates.read_json(journal_path).get('phase') in {'applying','rollback_failed'}:_error('rollback_required')
-        entries=ticket.get('entries')
-        if not isinstance(entries,list) or not entries:_error('invalid_update_ticket')
-        if 'pacer' in previous['components'] and not any(row.get('kind')=='pacer' for row in entries):_error('compatible_pacer_required')
+        log('acquired installation_lock')
+        try:
+            _assert_idle(root)
+            log('device occupancy idle confirmed')
+            _terminate_installation_pacer_processes(root,log=log)
+            transaction=updates.read_json(root/TRANSACTION) if (root/TRANSACTION).is_file() else {}
+            if transaction.get('phase') in {'applying','rollback_failed'}:_error('rollback_required')
+            _,manifest_name,installed=updates.installation(root);previous=state(root)
+            if installed['version']!=ticket.get('from_version'):_error('stale_update_ticket')
+            journal_path=stage/'journal.json'
+            if journal_path.exists() and updates.read_json(journal_path).get('phase') in {'applying','rollback_failed'}:_error('rollback_required')
+            entries=ticket.get('entries')
+            if not isinstance(entries,list) or not entries:_error('invalid_update_ticket')
+            if 'pacer' in previous['components'] and not any(row.get('kind')=='pacer' for row in entries):_error('compatible_pacer_required')
+        except updates.UpdateError as exc:
+            log(f'preflight rejected: {exc}')
+            exc.ticket=str(stage/'ticket.json');exc.log_path=str(stage/'update.log')
+            raise
         old_managed=set(installed['files'])|{manifest_name}|set(previous.get('managed_files',[]))
         incoming={};mutable_payloads={};base_manifest=installed;component_record=previous['components'].get('pacer')
         from desktop import maauma_file_patches as patches
@@ -761,6 +1086,7 @@ def apply_prepared(root,ticket_path,*,parent_pid=None):
                                       'manifest_sha256':row['patch_entry']['target_manifest_sha256'] if row.get('delivery')=='file_patch' else None}
             if base_manifest['version']!=ticket['base_version']:_error('component_base_mismatch')
             effective=patches.effective(plans)
+            log('validating incremental reuse')
             try:patches.validate_reuse(root,effective)
             except patches.LocalMismatch as error:
                 for row in entries:
@@ -818,6 +1144,7 @@ def apply_prepared(root,ticket_path,*,parent_pid=None):
                 book=root/'backend/runs/mfa-accounts.json'
                 if not book.exists():generated['backend/runs/mfa-accounts.json']=b'{"next_number":1,"accounts":[]}\n'
             changes+=list(generated)
+            log(f'backing up {len(changes)} operations')
             journal={'schema_version':'maauma.suite_transaction.v1','phase':'preparing','operations':[]}
             for name in changes:
                 target=updates.contained(root,name)
@@ -830,9 +1157,14 @@ def apply_prepared(root,ticket_path,*,parent_pid=None):
                 journal['operations'].append(item)
             journal['phase']='applying';updates.write_json(journal_path,journal)
             updates.write_json(root/TRANSACTION,{'phase':'applying','ticket':str(stage/'ticket.json')})
+            log(f'applying {len(journal["operations"])} operations')
+            current_path=None
+            attempted_count=0
             try:
                 for item in journal['operations']:
-                    name=item['path'];target=updates.contained(root,name)
+                    attempted_count+=1
+                    name=item['path'];current_path=name;target=updates.contained(root,name)
+                    _clear_readonly(target)
                     if name in incoming or name in generated:
                         temporary=updates.transaction_io_path(updates.contained(stage/'incoming',name));temporary.parent.mkdir(parents=True,exist_ok=True)
                         if name in generated:temporary.write_bytes(generated[name])
@@ -842,19 +1174,75 @@ def apply_prepared(root,ticket_path,*,parent_pid=None):
                             else:
                                 _,archive,member=incoming_source
                                 with archive.open(member) as source,temporary.open('wb') as output:shutil.copyfileobj(source,output)
-                        target.parent.mkdir(parents=True,exist_ok=True);os.replace(temporary,target)
+                        target.parent.mkdir(parents=True,exist_ok=True);_replace_with_retry(temporary,target,log=log)
                     elif target.exists() and name not in new_managed:
-                        retired=updates.transaction_io_path(updates.contained(stage/'retired',name));retired.parent.mkdir(parents=True,exist_ok=True);os.replace(target,retired)
+                        retired=updates.transaction_io_path(updates.contained(stage/'retired',name));retired.parent.mkdir(parents=True,exist_ok=True);_replace_with_retry(target,retired,log=log)
                 journal['phase']='installed';updates.write_json(journal_path,journal)
                 updates.write_json(root/TRANSACTION,{'phase':'installed','ticket':str(stage/'ticket.json'),
                     'base_version':ticket['base_version']})
-            except Exception:
-                try:_restore(root,stage,journal)
-                except Exception:
-                    journal['phase']='rollback_failed';updates.write_json(journal_path,journal)
-                    updates.write_json(root/TRANSACTION,{'phase':'rollback_failed','ticket':str(stage/'ticket.json')})
-                    _error('rollback_required')
-                _error('install_failed_rolled_back')
+                log(f'apply_prepared installed version={ticket["base_version"]}')
+                _write_last_result(root,{
+                    'schema_version':'maauma.update_result.v1',
+                    'ok':True,
+                    'status':'installed',
+                    'code':'installed',
+                    'version':ticket['base_version'],
+                    'components':list(new_state['components']),
+                    'ticket':str(stage/'ticket.json'),
+                    'failed_path':None,
+                    'error':None,
+                    'log_path':str(stage/'update.log'),
+                    'timestamp_utc':_utc_now(),
+                })
+            except Exception as exc:
+                error_info={
+                    'type':type(exc).__name__,
+                    'message':str(exc)[:500],
+                    'errno':getattr(exc,'errno',None),
+                    'winerror':getattr(exc,'winerror',None),
+                    'failed_path':current_path,
+                    'traceback':traceback.format_exc()[-4000:],
+                }
+                log(f'apply failed at path={current_path}: {error_info["type"]}: {error_info["message"]} (errno={error_info["errno"]}, winerror={error_info["winerror"]})')
+                try:_restore(root,stage,journal,attempted_count=attempted_count,error=error_info,log=log)
+                except Exception as rb_exc:
+                    log(f'rollback failed: {type(rb_exc).__name__}: {rb_exc}')
+                    journal['phase']='rollback_failed';journal['error']=error_info
+                    journal['rollback_error']=f'{type(rb_exc).__name__}: {rb_exc}'
+                    updates.write_json(journal_path,journal)
+                    updates.write_json(root/TRANSACTION,{'phase':'rollback_failed','ticket':str(stage/'ticket.json'),'error':error_info})
+                    _write_last_result(root,{
+                        'schema_version':'maauma.update_result.v1',
+                        'ok':False,
+                        'status':'rollback_failed',
+                        'code':'rollback_required',
+                        'version':ticket.get('base_version'),
+                        'ticket':str(stage/'ticket.json'),
+                        'failed_path':current_path,
+                        'error':error_info,
+                        'log_path':str(stage/'update.log'),
+                        'timestamp_utc':_utc_now(),
+                    })
+                    err=updates.UpdateError('rollback_required')
+                    err.error_info=error_info;err.failed_path=current_path
+                    err.ticket=str(stage/'ticket.json');err.log_path=str(stage/'update.log')
+                    raise err from rb_exc
+                _write_last_result(root,{
+                    'schema_version':'maauma.update_result.v1',
+                    'ok':False,
+                    'status':'rolled_back',
+                    'code':'install_failed_rolled_back',
+                    'version':ticket.get('base_version'),
+                    'ticket':str(stage/'ticket.json'),
+                    'failed_path':current_path,
+                    'error':error_info,
+                    'log_path':str(stage/'update.log'),
+                    'timestamp_utc':_utc_now(),
+                })
+                err=updates.UpdateError('install_failed_rolled_back')
+                err.error_info=error_info;err.failed_path=current_path
+                err.ticket=str(stage/'ticket.json');err.log_path=str(stage/'update.log')
+                raise err from exc
         finally:
             for archive in archives:archive.close()
     return {'ok':True,'status':'installed','version':ticket['base_version'],'components':list(new_state['components']),
@@ -880,7 +1268,14 @@ def launch_install(root,ticket_path,*,parent_pid=None):
     # the parent exits, covering a task that starts during that interval.
     _assert_idle(root)
     helper=stage/'helper'
-    if helper.exists():_error('installer_already_prepared')
+    if helper.exists():
+        journal_file=stage/'journal.json'
+        journal_phase=updates.read_json(journal_file).get('phase') if journal_file.is_file() else None
+        live=_live_suite_helpers(root)
+        if journal_phase in {'rolled_back','rollback_failed'} and live is not None and stage.name not in live:
+            shutil.rmtree(helper)
+        else:
+            _error('installer_already_prepared')
     # Installer/service code is standard-library-only. The embedded interpreter
     # keeps its stdlib ZIP and native DLL/PYD files at runtime's top level; game
     # OCR/scientific site-packages are unused here and can exceed Windows path

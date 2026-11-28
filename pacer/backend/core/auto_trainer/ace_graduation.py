@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 from pathlib import Path
+import re
 
 from core.career_workflow import normalize_ss_sieve
 
@@ -137,28 +138,124 @@ def _valid_five_stats(candidate) -> dict | None:
     return extracted
 
 
+_TRAINED_DETAIL_TITLE_TOKENS = {'能力详情', '能力詳情', '优俊少女详情', '優駿少女詳情', '育成优俊少女详情'}
+_STAT_HEADER_TOKENS = {'速度', '耐力', '力量', '毅力', '智力'}
+
+
 def _extract_stats_from_summary(summary: dict) -> dict | None:
-    direct = _valid_five_stats(summary.get('final_stats'))
-    if direct is not None:
-        return direct
-    for turn in reversed(summary.get('turns') or []):
-        if not isinstance(turn, dict):
-            continue
-        for candidate in (
-            turn.get('stats'),
-            turn.get('current_stats'),
-            (turn.get('main_menu_state') or {}).get('current_stats'),
-            (turn.get('main_menu_state') or {}).get('stats'),
-            (turn.get('provider') or {}).get('stats'),
-            ((turn.get('provider') or {}).get('state_context') or {}).get('current_stats'),
-        ):
-            parsed = _valid_five_stats(candidate)
-            if parsed is not None:
-                return parsed
-    return None
+    return _valid_five_stats(summary.get('final_stats'))
 
 
-def inspect_completed_career(run_root, *, token_reader=None, rank_reader=None) -> dict:
+def _resolve_inside_root(raw_path, root: Path) -> Path | None:
+    if not raw_path:
+        return None
+    try:
+        resolved = Path(raw_path).resolve(strict=True)
+    except OSError:
+        return None
+    return resolved if resolved.is_relative_to(root) else None
+
+
+def _trained_detail_has_layout(small, tokens=None) -> bool:
+    import cv2
+
+    hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
+
+    def _green_ratio(region) -> float:
+        mask = (
+            (region[:, :, 0] >= 30)
+            & (region[:, :, 0] <= 80)
+            & (region[:, :, 1] >= 80)
+            & (region[:, :, 2] >= 120)
+        )
+        return float(mask.mean())
+
+    top_green = _green_ratio(hsv[15:78, 180:540])
+    hdr_green = _green_ratio(hsv[302:336, 24:695])
+    tok_list = tokens or []
+    has_title = any(
+        re.sub(r'\s+', '', str(t.get('text') or '')) in _TRAINED_DETAIL_TITLE_TOKENS
+        for t in tok_list
+        if isinstance(t, dict)
+    )
+    stat_hdr_hits = len({
+        re.sub(r'\s+', '', str(t.get('text') or ''))
+        for t in tok_list
+        if isinstance(t, dict)
+        and re.sub(r'\s+', '', str(t.get('text') or '')) in _STAT_HEADER_TOKENS
+        and isinstance(t.get('bbox'), (list, tuple))
+        and len(t['bbox']) == 4
+        and 295 <= t['bbox'][1] <= 345
+    })
+    return (top_green >= 0.40 or has_title) and (hdr_green >= 0.35 or stat_hdr_hits >= 2)
+
+
+def _pad_and_upscale_stat_crop(crop):
+    import cv2
+
+    padded = cv2.copyMakeBorder(crop, 12, 12, 12, 12, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+    return cv2.resize(padded, (0, 0), fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+
+
+def _isolate_stat_brown_ink(crop):
+    out = crop.copy()
+    ink_mask = (out[:, :, 0] < 130) & (out[:, :, 1] < 135) & (out[:, :, 2] < 155)
+    out[~ink_mask] = (255, 255, 255)
+    return _pad_and_upscale_stat_crop(out)
+
+
+def read_trained_detail_stats(image, tokens=None, *, stat_reader=None) -> dict | None:
+    """Extract all 5 final stats from the fixed pure-numeric ROIs on trained_detail."""
+    import cv2
+
+    if image is None or getattr(image, 'ndim', 0) != 3:
+        return None
+    if image.shape[1::-1] not in {(720, 1280), (1440, 2560)}:
+        return None
+    small = image if image.shape[:2] == (1280, 720) else cv2.resize(image, (720, 1280))
+    if not _trained_detail_has_layout(small, tokens):
+        return None
+
+    from core.auto_trainer.main_menu_state_provider import _CALENDAR_REGION_READER, _confidence_is_valid
+
+    reader = stat_reader or _CALENDAR_REGION_READER
+    x_start = 24.0
+    col_w = (695.0 - x_start) / 5.0
+    stats = {}
+    for idx, stat in enumerate(STATS):
+        cx0 = int(round(x_start + idx * col_w))
+        cx1 = int(round(x_start + (idx + 1) * col_w))
+        primary_crop = small[338:384, cx0 + 54:cx1 - 5]
+        wider_crop = small[338:384, cx0 + 50:cx1 - 3]
+        if primary_crop.size == 0 or wider_crop.size == 0:
+            return None
+        variants = (
+            _pad_and_upscale_stat_crop(primary_crop),
+            _pad_and_upscale_stat_crop(wider_crop),
+            _isolate_stat_brown_ink(primary_crop),
+        )
+        value = None
+        for variant in variants:
+            try:
+                text, conf = reader.read_line(variant)
+            except Exception:
+                continue
+            if not _confidence_is_valid(conf) or float(conf) < 0.85:
+                continue
+            cleaned = re.sub(r'\s+', '', text or '')
+            if not re.fullmatch(r'[0-9]{2,4}', cleaned):
+                continue
+            parsed = int(cleaned)
+            if 0 <= parsed <= 3000:
+                value = parsed
+                break
+        if value is None:
+            return None
+        stats[stat] = value
+    return stats
+
+
+def inspect_completed_career(run_root, *, token_reader=None, rank_reader=None, stat_reader=None) -> dict:
     """Extract final 5-stat, distance-aptitude, and surface-aptitude facts from verified run artifacts."""
     root = Path(run_root).resolve()
     stats = {}
@@ -195,6 +292,166 @@ def inspect_completed_career(run_root, *, token_reader=None, rank_reader=None) -
                     surfaces = valid_surf
                     sources['surfaces'] = str(injected_path)
 
+    def _merge_frame_aptitudes(image, tokens, frame_path: Path, need_dist: bool, need_surf: bool):
+        import cv2
+        from core.auto_trainer.cut_condition_probe import ocr_tokens
+        from scripts.larc_continuation_inspection import read_aptitudes, read_surface_aptitudes
+
+        base_small = cv2.resize(image, (720, 1280))
+        retry_inputs = None
+
+        def _sharpened_retry_inputs():
+            nonlocal retry_inputs
+            if retry_inputs is None:
+                sharpened = cv2.addWeighted(
+                    base_small,
+                    1.5,
+                    cv2.GaussianBlur(base_small, (0, 0), 1.0),
+                    -0.5,
+                    0,
+                )
+                retry_inputs = (sharpened, ocr_tokens(sharpened, token_reader))
+            return retry_inputs
+
+        if need_dist:
+            parsed_dist = read_aptitudes(image, tokens, rank_reader=rank_reader)
+            valid_parsed = {
+                k: v for k, v in (parsed_dist or {}).items()
+                if k in DISTANCES and isinstance(v, str) and len(v) == 1 and v in RANKS
+            }
+            if len(valid_parsed) < len(DISTANCES):
+                sharpened, retry_tokens = _sharpened_retry_inputs()
+                retry_dist = read_aptitudes(sharpened, retry_tokens, rank_reader=rank_reader)
+                for k, v in (retry_dist or {}).items():
+                    if k in DISTANCES and isinstance(v, str) and len(v) == 1 and v in RANKS:
+                        valid_parsed.setdefault(k, v)
+            if valid_parsed:
+                for k, v in valid_parsed.items():
+                    distances.setdefault(k, v)
+                sources.setdefault('distances', str(frame_path))
+        if need_surf:
+            parsed_surf = read_surface_aptitudes(image, tokens, rank_reader=rank_reader)
+            valid_surf = {
+                k: v for k, v in (parsed_surf or {}).items()
+                if k in SURFACES and isinstance(v, str) and len(v) == 1 and v in RANKS
+            }
+            if len(valid_surf) < len(SURFACES):
+                sharpened, retry_tokens = _sharpened_retry_inputs()
+                retry_surf = read_surface_aptitudes(sharpened, retry_tokens, rank_reader=rank_reader)
+                for k, v in (retry_surf or {}).items():
+                    if k in SURFACES and isinstance(v, str) and len(v) == 1 and v in RANKS:
+                        valid_surf.setdefault(k, v)
+            if valid_surf:
+                for k, v in valid_surf.items():
+                    surfaces.setdefault(k, v)
+                sources.setdefault('surfaces', str(frame_path))
+
+    # Priority 2: Post-settlement trained_detail frames (do NOT require complete status;
+    # pending/interrupted settlements that already captured trained_detail remain valid).
+    if not stats or not distances or not surfaces:
+        settle_state_path = root / 'session/larc_terminal_settlement.json'
+        settle_state = _read_json(settle_state_path) if settle_state_path.is_file() else {}
+        report_path = None
+        if settle_state.get('run_session_id') in (None, root.name) and settle_state.get('report_path'):
+            report_path = _resolve_inside_root(settle_state['report_path'], root)
+        if report_path is None:
+            candidate_report = root / 'z/report.json'
+            if candidate_report.is_file():
+                candidate_doc = _read_json(candidate_report)
+                if candidate_doc.get('run_session_id') in (None, root.name):
+                    report_path = candidate_report
+        if report_path is not None:
+            report = _read_json(report_path)
+            if report.get('run_session_id') in (None, root.name):
+                import cv2
+                from core.auto_trainer.cut_condition_probe import ocr_tokens
+
+                for row in reversed(report.get('records') or []):
+                    if not isinstance(row, dict) or row.get('source_page') != 'trained_detail':
+                        continue
+                    frame_path = _resolve_inside_root(row.get('source_frame'), root)
+                    if frame_path is None:
+                        continue
+                    image = cv2.imread(str(frame_path))
+                    if image is None or image.shape[1::-1] not in {(720, 1280), (1440, 2560)}:
+                        continue
+                    base_small = cv2.resize(image, (720, 1280))
+                    tokens = ocr_tokens(base_small, token_reader)
+                    if not stats:
+                        parsed_stats = read_trained_detail_stats(image, tokens, stat_reader=stat_reader)
+                        if parsed_stats is not None:
+                            stats = parsed_stats
+                            sources['stats'] = str(frame_path)
+                    _merge_frame_aptitudes(
+                        image,
+                        tokens,
+                        frame_path,
+                        need_dist=not (set(DISTANCES) <= set(distances)),
+                        need_surf=not (set(SURFACES) <= set(surfaces)),
+                    )
+                    if (
+                        stats
+                        and set(DISTANCES) <= set(distances)
+                        and set(SURFACES) <= set(surfaces)
+                    ):
+                        break
+
+    # Priority 3: Post-race finish_ready screenshot from s/report.json.
+    if not stats or not (set(DISTANCES) <= set(distances)) or not (set(SURFACES) <= set(surfaces)):
+        finish_state_path = root / 'session/larc_terminal_finish.json'
+        finish_state = _read_json(finish_state_path) if finish_state_path.is_file() else {}
+        skills_report_path = None
+        if finish_state.get('run_session_id') in (None, root.name) and finish_state.get('skills_report'):
+            skills_report_path = _resolve_inside_root(finish_state['skills_report'], root)
+        if skills_report_path is None:
+            candidate_skills = root / 's/report.json'
+            if candidate_skills.is_file():
+                candidate_doc = _read_json(candidate_skills)
+                if candidate_doc.get('run_session_id') in (None, root.name):
+                    skills_report_path = candidate_skills
+        if skills_report_path is not None:
+            skills_report = _read_json(skills_report_path)
+            after = skills_report.get('after') if isinstance(skills_report.get('after'), dict) else {}
+            if after.get('page') == 'finish_ready':
+                finish_path = _resolve_inside_root(after.get('screenshot_path'), root)
+                if finish_path is not None:
+                    import cv2
+                    from core.auto_trainer.cut_condition_probe import ocr_tokens
+
+                    finish_img = cv2.imread(str(finish_path))
+                    if finish_img is not None and finish_img.shape[1::-1] in {(720, 1280), (1440, 2560)}:
+                        finish_tokens = ocr_tokens(cv2.resize(finish_img, (720, 1280)), token_reader)
+                        _merge_frame_aptitudes(
+                            finish_img,
+                            finish_tokens,
+                            finish_path,
+                            need_dist=not (set(DISTANCES) <= set(distances)),
+                            need_surf=not (set(SURFACES) <= set(surfaces)),
+                        )
+                        if not stats:
+                            parsed_stats = read_trained_detail_stats(
+                                finish_img, finish_tokens, stat_reader=stat_reader
+                            )
+                            if parsed_stats is not None:
+                                stats = parsed_stats
+                                sources['stats'] = str(finish_path)
+                            else:
+                                try:
+                                    from core.auto_trainer.main_menu_state_provider import provide_main_menu_state
+
+                                    provided = provide_main_menu_state(finish_path, include_ocr=False)
+                                    parsed = _valid_five_stats(
+                                        (provided.get('state_context') or {}).get('current_stats')
+                                        if isinstance(provided, dict)
+                                        else None
+                                    )
+                                    if parsed is not None:
+                                        stats = parsed
+                                        sources['stats'] = str(finish_path)
+                                except Exception:
+                                    pass
+
+    # Priority 4: Summary final_stats only (NEVER fall back to pre-L'Arc menu_060.json / turns).
     if not stats:
         summaries = sorted(
             root.glob('autonomous_*/summary.json'),
@@ -207,77 +464,6 @@ def inspect_completed_career(run_root, *, token_reader=None, rank_reader=None) -
                 stats = extracted
                 sources['stats'] = str(summary_path)
                 break
-
-    if not stats:
-        menus = sorted(
-            root.glob('autonomous_*/menu_*.json'),
-            key=lambda p: (p.stat().st_mtime, p.name),
-            reverse=True,
-        )
-        for menu_path in menus:
-            menu = _read_json(menu_path)
-            parsed = _valid_five_stats((menu.get('state_context') or {}).get('current_stats'))
-            if parsed is not None:
-                stats = parsed
-                sources['stats'] = str(menu_path)
-                break
-
-    need_distances = not distances
-    need_surfaces = not surfaces
-    if need_distances or need_surfaces:
-        settle_state_path = root / 'session/larc_terminal_settlement.json'
-        settle_state = _read_json(settle_state_path) if settle_state_path.is_file() else {}
-        if settle_state.get('status') == 'complete' and settle_state.get('report_path'):
-            try:
-                report_path = Path(settle_state['report_path']).resolve(strict=True)
-            except OSError:
-                report_path = None
-            if report_path is not None and report_path.is_relative_to(root):
-                report = _read_json(report_path)
-                for row in reversed(report.get('records') or []):
-                    if not isinstance(row, dict):
-                        continue
-                    if row.get('source_page') not in {'trained_detail', 'training_complete'}:
-                        continue
-                    frame_raw = row.get('source_frame')
-                    if not frame_raw:
-                        continue
-                    try:
-                        frame_path = Path(frame_raw).resolve(strict=True)
-                    except OSError:
-                        continue
-                    if not frame_path.is_relative_to(root):
-                        continue
-                    import cv2
-                    from core.auto_trainer.cut_condition_probe import ocr_tokens
-                    from scripts.larc_continuation_inspection import read_aptitudes, read_surface_aptitudes
-
-                    image = cv2.imread(str(frame_path))
-                    if image is None or image.shape[1::-1] not in {(720, 1280), (1440, 2560)}:
-                        continue
-                    tokens = ocr_tokens(cv2.resize(image, (720, 1280)), token_reader)
-                    if need_distances:
-                        parsed_dist = read_aptitudes(image, tokens, rank_reader=rank_reader)
-                        valid_parsed = {
-                            k: v for k, v in (parsed_dist or {}).items()
-                            if k in DISTANCES and isinstance(v, str) and len(v) == 1 and v in RANKS
-                        }
-                        if valid_parsed:
-                            distances.update(valid_parsed)
-                            sources['distances'] = str(frame_path)
-                    if need_surfaces:
-                        parsed_surf = read_surface_aptitudes(image, tokens, rank_reader=rank_reader)
-                        valid_surf = {
-                            k: v for k, v in (parsed_surf or {}).items()
-                            if k in SURFACES and isinstance(v, str) and len(v) == 1 and v in RANKS
-                        }
-                        if valid_surf:
-                            surfaces.update(valid_surf)
-                            sources['surfaces'] = str(frame_path)
-                    if (not need_distances or set(DISTANCES) <= set(distances)) and (
-                        not need_surfaces or set(SURFACES) <= set(surfaces)
-                    ):
-                        break
 
     return {
         'run_session_id': root.name,

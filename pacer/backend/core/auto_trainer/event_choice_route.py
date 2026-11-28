@@ -10,6 +10,7 @@ from typing import Any, Callable
 import cv2
 import numpy as np
 
+from core.adb import resolve_screen_size
 from core.frame_io import read_image_with_retry
 
 from core.auto_trainer.event_options import (
@@ -432,7 +433,7 @@ class EventChoiceExecutor:
         if mode == "live":
             if not adb.connect():
                 return {"performed": False, "reason": "adb_connect_failed", "decision": {}}
-            size = tuple(adb.get_screen_size())
+            size = resolve_screen_size(adb, supported=SUPPORTED_EVENT_CHOICE_SCREEN_SIZES)
             if size not in SUPPORTED_EVENT_CHOICE_SCREEN_SIZES:
                 return {"performed": False, "reason": f"unsupported_screen_size:{size}", "decision": {}}
             screenshot_path.parent.mkdir(parents=True, exist_ok=True)

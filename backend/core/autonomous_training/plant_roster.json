@@ -15,7 +15,7 @@
       "name": "特别周",
       "aliases": [],
       "name_source": "community",
-      "outfit": "特别梦想家",
+      "outfit": "特别追梦者",
       "release": "2021-02-24",
       "initial_key": null,
       "icon": "100101.png"
@@ -27,7 +27,7 @@
       "name": "特别周",
       "aliases": [],
       "name_source": "community",
-      "outfit": "国服衣装名待核对 #100102",
+      "outfit": "雀跃♪维他命心拍",
       "release": "2021-07-29",
       "initial_key": null,
       "icon": "100102.png",
@@ -42,7 +42,7 @@
       "name": "特别周",
       "aliases": [],
       "name_source": "community",
-      "outfit": "日之本一的总大将",
+      "outfit": "全国第一总大将",
       "release": "2022-07-20",
       "initial_key": null,
       "icon": "100103.png"
@@ -54,7 +54,7 @@
       "name": "无声铃鹿",
       "aliases": [],
       "name_source": "community",
-      "outfit": "无声无邪",
+      "outfit": "无声无瑕",
       "release": "2021-02-24",
       "initial_key": null,
       "icon": "100201.png"
@@ -66,7 +66,7 @@
       "name": "无声铃鹿",
       "aliases": [],
       "name_source": "community",
-      "outfit": "波浪间的绿宝石",
+      "outfit": "浪间翠玉",
       "release": "2023-07-31",
       "initial_key": null,
       "icon": "100202.png"
@@ -76,9 +76,11 @@
       "character_id": 1003,
       "costume_id": 100301,
       "name": "东海帝王",
-      "aliases": [],
+      "aliases": [
+        "东海帝皇"
+      ],
       "name_source": "community",
-      "outfit": "无上喜悦",
+      "outfit": "喜乐无边",
       "release": "2021-02-24",
       "initial_key": null,
       "icon": "100301.png"
@@ -88,9 +90,11 @@
       "character_id": 1003,
       "costume_id": 100302,
       "name": "东海帝王",
-      "aliases": [],
+      "aliases": [
+        "东海帝皇"
+      ],
       "name_source": "community",
-      "outfit": "超越地平线",
+      "outfit": "飞跃地平线",
       "release": "2021-03-30",
       "initial_key": null,
       "icon": "100302.png"
@@ -100,9 +104,11 @@
       "character_id": 1003,
       "costume_id": 100343,
       "name": "东海帝王",
-      "aliases": [],
+      "aliases": [
+        "东海帝皇"
+      ],
       "name_source": "community",
-      "outfit": "梦见紫云",
+      "outfit": "紫云中的寻梦蝶",
       "release": "2023-10-30",
       "initial_key": null,
       "icon": "100303.png"
@@ -138,7 +144,7 @@
       "name": "富士奇石",
       "aliases": [],
       "name_source": "community",
-      "outfit": "流星之歌剧",
+      "outfit": "流星歌剧",
       "release": "2021-07-12",
       "initial_key": null,
       "icon": "100501.png"
@@ -150,7 +156,7 @@
       "name": "富士奇石",
       "aliases": [],
       "name_source": "community",
-      "outfit": "星光告捷",
+      "outfit": "胜利之星",
       "release": "2022-03-29",
       "initial_key": null,
       "icon": "100502.png"
@@ -162,7 +168,7 @@
       "name": "小栗帽",
       "aliases": [],
       "name_source": "community",
-      "outfit": "星光鼓动",
+      "outfit": "星光跃动",
       "release": "2021-02-24",
       "initial_key": null,
       "icon": "100601.png"
@@ -174,9 +180,9 @@
       "name": "小栗帽",
       "aliases": [],
       "name_source": "community",
-      "outfit": "奇迹的白星",
+      "outfit": "奇迹的胜利之星",
       "outfit_aliases": [
-        "奇迹的胜利之星"
+        "奇迹的白星"
       ],
       "release": "2021-11-29",
       "initial_key": null,
@@ -201,7 +207,7 @@
       "name": "黄金船",
       "aliases": [],
       "name_source": "community",
-      "outfit": "RUN！乱！兰彻！！",
+      "outfit": "RUN！乱！发射！！",
       "release": "2022-07-29",
       "initial_key": null,
       "icon": "100702.png"
@@ -237,7 +243,7 @@
       "name": "伏特加",
       "aliases": [],
       "name_source": "community",
-      "outfit": "防冻的水上维塔",
+      "outfit": "不会结冰的生命之水",
       "release": "2022-11-28",
       "initial_key": null,
       "icon": "100802.png"
@@ -261,7 +267,7 @@
       "name": "大和赤骥",
       "aliases": [],
       "name_source": "community",
-      "outfit": "绯红色的纽伊·埃特瓦雷",
+      "outfit": "绯红的星月之夜",
       "release": "2022-11-28",
       "initial_key": null,
       "icon": "100902.png"
@@ -273,7 +279,7 @@
       "name": "大树快车",
       "aliases": [],
       "name_source": "community",
-      "outfit": "狂野边境",
+      "outfit": "狂野前线",
       "release": "2021-02-24",
       "initial_key": null,
       "icon": "101001.png"
@@ -309,7 +315,7 @@
       "name": "草上飞",
       "aliases": [],
       "name_source": "community",
-      "outfit": "圣翡翠治愈师",
+      "outfit": "圣翠治愈师",
       "release": "2021-06-29",
       "initial_key": null,
       "icon": "101102.png"
@@ -321,7 +327,7 @@
       "name": "菱亚马逊",
       "aliases": [],
       "name_source": "community",
-      "outfit": "亚马逊战士",
+      "outfit": "亚马逊青金石",
       "release": "2021-06-21",
       "initial_key": null,
       "icon": "101201.png"
@@ -345,7 +351,7 @@
       "name": "目白麦昆",
       "aliases": [],
       "name_source": "community",
-      "outfit": "优雅前行",
+      "outfit": "优雅曲线",
       "release": "2021-02-24",
       "initial_key": null,
       "icon": "101301.png"
@@ -357,7 +363,7 @@
       "name": "目白麦昆",
       "aliases": [],
       "name_source": "community",
-      "outfit": "天空的尽头",
+      "outfit": "天际尽头",
       "release": "2021-03-30",
       "initial_key": null,
       "icon": "101302.png"
@@ -369,7 +375,7 @@
       "name": "目白麦昆",
       "aliases": [],
       "name_source": "community",
-      "outfit": "涟漪公平女士",
+      "outfit": "涟漪佳人",
       "release": "2022-07-29",
       "initial_key": null,
       "icon": "101303.png"
@@ -381,7 +387,7 @@
       "name": "神鹰",
       "aliases": [],
       "name_source": "community",
-      "outfit": "神鹰☆Number 1",
+      "outfit": "小鹰☆Número 1",
       "release": "2021-02-24",
       "initial_key": null,
       "icon": "101401.png"
@@ -393,7 +399,7 @@
       "name": "神鹰",
       "aliases": [],
       "name_source": "community",
-      "outfit": "羽蛇神武斗家",
+      "outfit": "羽蛇武斗家",
       "release": "2021-06-29",
       "initial_key": null,
       "icon": "101402.png"
@@ -405,7 +411,7 @@
       "name": "好歌剧",
       "aliases": [],
       "name_source": "community",
-      "outfit": "你的太阳！",
+      "outfit": "O sole suo！",
       "release": "2021-03-02",
       "initial_key": null,
       "icon": "101501.png"
@@ -417,7 +423,7 @@
       "name": "好歌剧",
       "aliases": [],
       "name_source": "community",
-      "outfit": "初晴·蓝色绚烂",
+      "outfit": "新春初晴·宝蓝绚烂",
       "release": "2021-12-31",
       "initial_key": null,
       "icon": "101502.png"
@@ -465,7 +471,7 @@
       "name": "鲁道夫象征",
       "aliases": [],
       "name_source": "community",
-      "outfit": "皓月的弓箭手",
+      "outfit": "皓月下的神箭手",
       "release": "2021-10-28",
       "initial_key": null,
       "icon": "101702.png"
@@ -477,7 +483,7 @@
       "name": "气槽",
       "aliases": [],
       "name_source": "community",
-      "outfit": "皇后大道",
+      "outfit": "女帝之路",
       "release": "2021-02-24",
       "initial_key": null,
       "icon": "101801.png"
@@ -489,7 +495,7 @@
       "name": "气槽",
       "aliases": [],
       "name_source": "community",
-      "outfit": "橡树之冠",
+      "outfit": "橡木王冠",
       "release": "2021-05-28",
       "initial_key": null,
       "icon": "101802.png"
@@ -501,7 +507,7 @@
       "name": "爱丽数码",
       "aliases": [],
       "name_source": "community",
-      "outfit": "超特急！全色特殊PP",
+      "outfit": "超级加急！全彩PP膜特殊加工",
       "release": "2021-09-20",
       "initial_key": null,
       "icon": "101901.png"
@@ -525,7 +531,7 @@
       "name": "青云天空",
       "aliases": [],
       "name_source": "community",
-      "outfit": "青云垂钓",
+      "outfit": "青云垂钓者",
       "release": "2021-06-10",
       "initial_key": null,
       "icon": "102001.png"
@@ -537,7 +543,7 @@
       "name": "青云天空",
       "aliases": [],
       "name_source": "community",
-      "outfit": "小猫派对",
+      "outfit": "星夜猫咪舞会",
       "release": "2022-03-29",
       "initial_key": null,
       "icon": "102002.png"
@@ -561,7 +567,7 @@
       "name": "玉藻十字",
       "aliases": [],
       "name_source": "community",
-      "outfit": "猛鸣神",
+      "outfit": "轰鸣雷神",
       "release": "2022-10-28",
       "initial_key": null,
       "icon": "102102.png"
@@ -597,7 +603,7 @@
       "name": "琵琶晨光",
       "aliases": [],
       "name_source": "community",
-      "outfit": "pf.胜利方程式...",
+      "outfit": "pf.胜利公式",
       "release": "2021-03-18",
       "initial_key": null,
       "icon": "102301.png"
@@ -609,7 +615,7 @@
       "name": "琵琶晨光",
       "aliases": [],
       "name_source": "community",
-      "outfit": "圣诞深红颂歌",
+      "outfit": "嫣红圣诞颂歌",
       "release": "2021-11-29",
       "initial_key": null,
       "icon": "102302.png"
@@ -681,7 +687,7 @@
       "name": "美浦波旁",
       "aliases": [],
       "name_source": "community",
-      "outfit": "代号：糖霜",
+      "outfit": "CODE：淋面装饰",
       "release": "2022-01-28",
       "initial_key": null,
       "icon": "102602.png"
@@ -690,11 +696,11 @@
       "id": "102701",
       "character_id": 1027,
       "costume_id": 102701,
-      "name": "目白赖恩",
+      "name": "目白莱恩",
       "aliases": [
-        "目白莱恩"
+        "目白赖恩"
       ],
-      "name_source": "community",
+      "name_source": "cn_official; skill_sources.json",
       "outfit": "一往无前",
       "release": "2021-02-24",
       "initial_key": null,
@@ -704,10 +710,12 @@
       "id": "102702",
       "character_id": 1027,
       "costume_id": 102713,
-      "name": "目白赖恩",
-      "aliases": [],
-      "name_source": "community",
-      "outfit": "玛格丽特·拉特",
+      "name": "目白莱恩",
+      "aliases": [
+        "目白赖恩"
+      ],
+      "name_source": "cn_official; skill_sources.json",
+      "outfit": "玛格丽特拿铁",
       "release": "2023-01-30",
       "initial_key": null,
       "icon": "102702.png"
@@ -719,7 +727,7 @@
       "name": "菱曙",
       "aliases": [],
       "name_source": "community",
-      "outfit": "Buono☆alla moda",
+      "outfit": "Buono☆时尚",
       "release": "2021-09-10",
       "initial_key": null,
       "icon": "102801.png"
@@ -731,7 +739,7 @@
       "name": "雪之美人",
       "aliases": [],
       "name_source": "community",
-      "outfit": "棉胶布",
+      "outfit": "可可爱爱的六出冰花",
       "release": "2022-09-12",
       "initial_key": null,
       "icon": "102901.png"
@@ -743,7 +751,7 @@
       "name": "雪之美人",
       "aliases": [],
       "name_source": "community",
-      "outfit": "小茶点小雪精",
+      "outfit": "茶点雪女",
       "release": "2024-01-31",
       "initial_key": null,
       "icon": "102902.png"
@@ -755,7 +763,7 @@
       "name": "米浴",
       "aliases": [],
       "name_source": "community",
-      "outfit": "蔷薇之梦",
+      "outfit": "玫瑰之梦",
       "release": "2021-02-24",
       "initial_key": null,
       "icon": "103001.png"
@@ -767,7 +775,7 @@
       "name": "米浴",
       "aliases": [],
       "name_source": "community",
-      "outfit": "Make up Vampire!",
+      "outfit": "Make up Vampire！",
       "release": "2021-09-29",
       "initial_key": null,
       "icon": "103002.png"
@@ -776,10 +784,12 @@
       "id": "103101",
       "character_id": 1031,
       "costume_id": 103101,
-      "name": "艾尼斯风神",
-      "aliases": [],
-      "name_source": "community",
-      "outfit": "空前狂热",
+      "name": "艾尼风神",
+      "aliases": [
+        "艾尼斯风神"
+      ],
+      "name_source": "cn_official; skill_sources.json",
+      "outfit": "全时狂欢",
       "release": "2022-05-10",
       "initial_key": null,
       "icon": "103101.png"
@@ -788,9 +798,11 @@
       "id": "103102",
       "character_id": 1031,
       "costume_id": 103113,
-      "name": "艾尼斯风神",
-      "aliases": [],
-      "name_source": "community",
+      "name": "艾尼风神",
+      "aliases": [
+        "艾尼斯风神"
+      ],
+      "name_source": "cn_official; skill_sources.json",
       "outfit": "MELTY GIFT",
       "release": "2023-01-30",
       "initial_key": null,
@@ -825,7 +837,9 @@
       "character_id": 1033,
       "costume_id": 103301,
       "name": "爱慕织姬",
-      "aliases": [],
+      "aliases": [
+        "爱丽织姬"
+      ],
       "name_source": "community",
       "outfit": "Starry Nocturne",
       "release": "2022-02-16",
@@ -839,7 +853,7 @@
       "name": "稻荷一",
       "aliases": [],
       "name_source": "community",
-      "outfit": "稻荷所缘江户紫",
+      "outfit": "稻荷因缘江户紫",
       "release": "2022-06-10",
       "initial_key": null,
       "icon": "103401.png"
@@ -863,7 +877,7 @@
       "name": "胜利奖券",
       "aliases": [],
       "name_source": "community",
-      "outfit": "Go To Winning!",
+      "outfit": "Go To Winning！",
       "release": "2021-02-24",
       "initial_key": null,
       "icon": "103501.png"
@@ -875,7 +889,7 @@
       "name": "胜利奖券",
       "aliases": [],
       "name_source": "community",
-      "outfit": "Dream Deliverer",
+      "outfit": "梦想传递员",
       "release": "2022-08-29",
       "initial_key": null,
       "icon": "103502.png"
@@ -923,7 +937,7 @@
       "name": "荣进闪耀",
       "aliases": [],
       "name_source": "community",
-      "outfit": "巧克力匠人",
+      "outfit": "精确无比·巧克力大师",
       "release": "2022-01-28",
       "initial_key": null,
       "icon": "103702.png"
@@ -947,7 +961,7 @@
       "name": "真机伶",
       "aliases": [],
       "name_source": "community",
-      "outfit": "朔月的玛·谢利",
+      "outfit": "朔月挚爱",
       "release": "2022-05-30",
       "initial_key": null,
       "icon": "103802.png"
@@ -959,7 +973,7 @@
       "name": "川上公主",
       "aliases": [],
       "name_source": "community",
-      "outfit": "粉红色的公主",
+      "outfit": "粉红公主",
       "release": "2021-10-11",
       "initial_key": null,
       "icon": "103901.png"
@@ -1011,7 +1025,7 @@
       "name": "樱花进王",
       "aliases": [],
       "name_source": "community",
-      "outfit": "樱花、暴进！",
+      "outfit": "樱花，前进！",
       "release": "2021-02-24",
       "initial_key": "bakushin",
       "icon": "104101.png"
@@ -1023,7 +1037,7 @@
       "name": "樱花进王",
       "aliases": [],
       "name_source": "community",
-      "outfit": "红热队长",
+      "outfit": "赤热☆队长",
       "release": "2023-04-28",
       "initial_key": null,
       "icon": "104102.png"
@@ -1059,7 +1073,7 @@
       "name": "东商变革",
       "aliases": [],
       "name_source": "community",
-      "outfit": "普拉塔纳斯·威奇",
+      "outfit": "悬铃木魔女",
       "release": "2022-06-20",
       "initial_key": null,
       "icon": "104401.png"
@@ -1083,7 +1097,7 @@
       "name": "超级溪流",
       "aliases": [],
       "name_source": "community",
-      "outfit": "雪纺丝带妈咪（木乃伊）",
+      "outfit": "雪纺丝带木乃伊",
       "release": "2021-09-29",
       "initial_key": null,
       "icon": "104502.png"
@@ -1095,7 +1109,7 @@
       "name": "醒目飞鹰",
       "aliases": [],
       "name_source": "community",
-      "outfit": "Absolute☆LOVE",
+      "outfit": "绝对☆LOVE",
       "release": "2021-05-06",
       "initial_key": null,
       "icon": "104601.png"
@@ -1136,7 +1150,7 @@
         "东瀛佐敦"
       ],
       "name_source": "https://www.taptap.cn/moment/819281583579072934",
-      "outfit": "流行乐☆Joker",
+      "outfit": "潮流☆Joker",
       "release": "2021-11-08",
       "initial_key": null,
       "icon": "104801.png"
@@ -1186,7 +1200,7 @@
       "name": "成田大进",
       "aliases": [],
       "name_source": "community",
-      "outfit": "差分工程师",
+      "outfit": "另类工程师",
       "release": "2022-08-29",
       "initial_key": null,
       "icon": "105002.png"
@@ -1198,7 +1212,7 @@
       "name": "西野花",
       "aliases": [],
       "name_source": "community",
-      "outfit": "层叠花瓣",
+      "outfit": "叠瓣花蕾",
       "release": "2022-04-11",
       "initial_key": null,
       "icon": "105101.png"
@@ -1219,10 +1233,13 @@
       "id": "105201",
       "character_id": 1052,
       "costume_id": 105201,
-      "name": "乌拉拉",
-      "aliases": [],
-      "name_source": "community",
-      "outfit": "乌拉拉一等奖♪",
+      "name": "春乌菈菈",
+      "aliases": [
+        "乌拉拉",
+        "春乌拉拉"
+      ],
+      "name_source": "cn_official; skill_sources.json",
+      "outfit": "乌菈菈一等奖♪",
       "release": "2021-02-24",
       "initial_key": "urara",
       "icon": "105201.png"
@@ -1231,10 +1248,13 @@
       "id": "105202",
       "character_id": 1052,
       "costume_id": 105210,
-      "name": "乌拉拉",
-      "aliases": [],
-      "name_source": "community",
-      "outfit": "新春初晴♪绽放之樱",
+      "name": "春乌菈菈",
+      "aliases": [
+        "乌拉拉",
+        "春乌拉拉"
+      ],
+      "name_source": "cn_official; skill_sources.json",
+      "outfit": "明媚新春♪樱花绽放",
       "release": "2021-12-31",
       "initial_key": null,
       "icon": "105202.png"
@@ -1246,7 +1266,7 @@
       "name": "青竹回忆",
       "aliases": [],
       "name_source": "community",
-      "outfit": "黑铁大志",
+      "outfit": "黑铁的壮志",
       "release": "2022-08-10",
       "initial_key": null,
       "icon": "105301.png"
@@ -1282,7 +1302,7 @@
       "name": "美丽周日",
       "aliases": [],
       "name_source": "community",
-      "outfit": "☆基拉★多奇☆瓦克∞马贝∞",
+      "outfit": "☆闪亮★心动☆雀跃∞美丽∞",
       "release": "2023-06-19",
       "initial_key": null,
       "icon": "105501.png"
@@ -1306,7 +1326,7 @@
       "name": "待兼福来",
       "aliases": [],
       "name_source": "community",
-      "outfit": "吉兆·初岚",
+      "outfit": "吉兆秋风",
       "release": "2021-08-30",
       "initial_key": null,
       "icon": "105602.png"
@@ -1330,7 +1350,7 @@
       "name": "名将怒涛",
       "aliases": [],
       "name_source": "community",
-      "outfit": "蓝色/怒涛",
+      "outfit": "苍蓝/怒涛",
       "release": "2021-08-11",
       "initial_key": null,
       "icon": "105801.png"
@@ -1354,7 +1374,7 @@
       "name": "目白多伯",
       "aliases": [],
       "name_source": "community",
-      "outfit": "乖僻血脉",
+      "outfit": "宛延曲线",
       "release": "2021-11-19",
       "initial_key": null,
       "icon": "105901.png"
@@ -1366,7 +1386,7 @@
       "name": "目白多伯",
       "aliases": [],
       "name_source": "community",
-      "outfit": "巴克斯·萨菲尔",
+      "outfit": "假日宝石蓝",
       "release": "2022-06-30",
       "initial_key": null,
       "icon": "105902.png"
@@ -1402,7 +1422,7 @@
       "name": "优秀素质",
       "aliases": [],
       "name_source": "community",
-      "outfit": "万千祈愿",
+      "outfit": "重叠交织的心意",
       "release": "2024-01-09",
       "initial_key": null,
       "icon": "106003.png"
@@ -1426,7 +1446,7 @@
       "name": "帝王光辉",
       "aliases": [],
       "name_source": "community",
-      "outfit": "纯白高雅的激励装束",
+      "outfit": "洁白傲气的激励之服",
       "release": "2022-04-28",
       "initial_key": null,
       "icon": "106102.png"
@@ -1435,10 +1455,12 @@
       "id": "106201",
       "character_id": 1062,
       "costume_id": 106201,
-      "name": "待兼诗歌剧",
-      "aliases": [],
-      "name_source": "community",
-      "outfit": "锵锵～斜装登场",
+      "name": "待兼唐怀瑟",
+      "aliases": [
+        "待兼诗歌剧"
+      ],
+      "name_source": "cn_official; skill_sources.json",
+      "outfit": "跌跌撞撞向前冲",
       "release": "2022-02-24",
       "initial_key": null,
       "icon": "106201.png"
@@ -1447,10 +1469,12 @@
       "id": "106202",
       "character_id": 1062,
       "costume_id": 106250,
-      "name": "待兼诗歌剧",
-      "aliases": [],
-      "name_source": "community",
-      "outfit": "蓝色旋风",
+      "name": "待兼唐怀瑟",
+      "aliases": [
+        "待兼诗歌剧"
+      ],
+      "name_source": "cn_official; skill_sources.json",
+      "outfit": "碧蓝湍流",
       "release": "2023-04-28",
       "initial_key": null,
       "icon": "106202.png"
@@ -1474,7 +1498,7 @@
       "name": "目白善信",
       "aliases": [],
       "name_source": "community",
-      "outfit": "赤心的驯鹿先生",
+      "outfit": "赤诚的驯鹿小姐",
       "release": "2023-11-30",
       "initial_key": null,
       "icon": "106402.png"
@@ -1486,7 +1510,7 @@
       "name": "大拓太阳神",
       "aliases": [],
       "name_source": "community",
-      "outfit": "Fun☆Fun☆不坚持",
+      "outfit": "Fun☆Fun☆嗨翻天",
       "release": "2023-01-20",
       "initial_key": null,
       "icon": "106501.png"
@@ -1522,7 +1546,7 @@
       "name": "里见光钻",
       "aliases": [],
       "name_source": "community",
-      "outfit": "花形·弥荣之翠",
+      "outfit": "当红之星·荣兴之翠",
       "release": "2022-12-29",
       "initial_key": null,
       "icon": "106702.png"
@@ -1534,7 +1558,7 @@
       "name": "里见光钻",
       "aliases": [],
       "name_source": "community",
-      "outfit": "施瓦利埃·布鲁",
+      "outfit": "苍蓝骑士",
       "release": "2023-09-11",
       "initial_key": null,
       "icon": "106703.png"
@@ -1546,7 +1570,7 @@
       "name": "北部玄驹",
       "aliases": [],
       "name_source": "community",
-      "outfit": "锦上添花",
+      "outfit": "锦绣·溢彩盛典",
       "release": "2022-02-24",
       "initial_key": null,
       "icon": "106801.png"
@@ -1558,7 +1582,7 @@
       "name": "北部玄驹",
       "aliases": [],
       "name_source": "community",
-      "outfit": "真打・庆鹤之志",
+      "outfit": "压轴主角·庆鹤之志",
       "release": "2022-12-29",
       "initial_key": null,
       "icon": "106802.png",
@@ -1571,7 +1595,7 @@
       "name": "北部玄驹",
       "aliases": [],
       "name_source": "community",
-      "outfit": "偿愿谢幕之花",
+      "outfit": "满愿终舞花",
       "release": "2023-12-28",
       "initial_key": null,
       "icon": "106803.png"
@@ -1583,7 +1607,7 @@
       "name": "樱花千代王",
       "aliases": [],
       "name_source": "community",
-      "outfit": "日下开山·樱花烂漫",
+      "outfit": "举世无双·樱花耀夜",
       "release": "2022-01-20",
       "initial_key": null,
       "icon": "106901.png"
@@ -1621,7 +1645,7 @@
         "目白阿尔丹"
       ],
       "name_source": "https://www.9game.cn/shanyaoyoujunshaonu/9698938.html",
-      "outfit": "斜绿泥石血脉",
+      "outfit": "墨绿柔线",
       "release": "2022-02-08",
       "initial_key": null,
       "icon": "107101.png"
@@ -1659,7 +1683,7 @@
       "name": "目白光明",
       "aliases": [],
       "name_source": "community",
-      "outfit": "光辉血脉",
+      "outfit": "砺光韧线",
       "release": "2022-03-18",
       "initial_key": null,
       "icon": "107401.png"
@@ -1671,7 +1695,7 @@
       "name": "目白光明",
       "aliases": [],
       "name_source": "community",
-      "outfit": "清澈的星光",
+      "outfit": "澄澈星空下的白雪洛丽塔",
       "release": "2023-11-30",
       "initial_key": null,
       "icon": "107402.png"
@@ -1741,7 +1765,7 @@
         "克莉斯耶丝象征"
       ],
       "name_source": "https://www.taptap.cn/app/211956/topic?page=26&type=official",
-      "outfit": "Jetblack Automation",
+      "outfit": "Jetblack Automaton",
       "release": "2023-09-29",
       "initial_key": null,
       "icon": "108302.png"
@@ -1767,7 +1791,7 @@
         "第一红宝石"
       ],
       "name_source": "https://www.sina.cn/news/detail/5327798458647419.html",
-      "outfit": "华丽的红玉",
+      "outfit": "华丽红玉",
       "release": "2023-03-10",
       "initial_key": null,
       "icon": "108501.png"
@@ -1782,7 +1806,7 @@
         "目白拉茉奴"
       ],
       "name_source": "https://www.gaoshouyou.com/zhuanqu/956193.html",
-      "outfit": "洋葱线",
+      "outfit": "墨瑙魅线",
       "release": "2023-10-19",
       "initial_key": null,
       "icon": "108601.png"
@@ -1808,7 +1832,7 @@
       "costume_id": 108801,
       "name": "里见皇冠",
       "aliases": [],
-      "name_source": "community; 国服译名待核实",
+      "name_source": "cn_official; skill_sources.json",
       "outfit": "黑翠千里行",
       "release": "2023-12-11",
       "initial_key": null,
@@ -1820,7 +1844,7 @@
       "costume_id": 108901,
       "name": "高尚骏逸",
       "aliases": [],
-      "name_source": "community; 国服译名待核实",
+      "name_source": "cn_official; skill_sources.json",
       "outfit": "Grand itinéraire",
       "release": "2023-12-20",
       "initial_key": null,
@@ -1830,11 +1854,13 @@
       "id": "109101",
       "character_id": 1091,
       "costume_id": 109101,
-      "name": "比布鲁斯",
+      "name": "维普露斯",
       "aliases": [
-        "强击"
+        "强击",
+        "比布鲁斯",
+        "维普罗斯"
       ],
-      "name_source": "community; 国服译名待核实",
+      "name_source": "cn_official; skill_sources.json",
       "outfit": "Voyage étincelant",
       "release": "2024-01-19",
       "initial_key": null,
@@ -1861,7 +1887,7 @@
       "name": "小林历奇",
       "aliases": [],
       "name_source": "https://www.taptap.cn/moment/839263163579892430",
-      "outfit": "阴阳八卦☆开运衣",
+      "outfit": "阴阳八卦☆开运服",
       "release": "2022-08-19",
       "initial_key": null,
       "icon": "109801.png"
@@ -1937,11 +1963,12 @@
       "id": "110701",
       "character_id": 1107,
       "costume_id": 110701,
-      "name": "踢踏城市",
+      "name": "跳舞城",
       "aliases": [
-        "跳舞城"
+        "踢踏城市",
+        "踢踏舞城"
       ],
-      "name_source": "community; 国服译名待核实",
+      "name_source": "cn_official; skill_sources.json",
       "outfit": "GLITTER！",
       "release": "2023-11-20",
       "initial_key": null,

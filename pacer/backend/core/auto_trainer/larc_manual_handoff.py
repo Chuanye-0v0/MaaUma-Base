@@ -86,7 +86,20 @@ def normalize(value=None):
 
 
 def _read(path):
-    return json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    target = Path(path)
+    delays = (0.05, 0.06, 0.08, 0.10, None)
+    for attempt, delay in enumerate(delays):
+        try:
+            return json.loads(target.read_text(encoding="utf-8-sig"))
+        except FileNotFoundError:
+            # Windows atomic os.replace can briefly hide the target path.
+            if attempt >= 1 or delay is None:
+                raise
+            time.sleep(delay)
+        except (PermissionError, OSError, json.JSONDecodeError):
+            if delay is None:
+                raise
+            time.sleep(delay)
 
 
 def _binding(root):

@@ -42,10 +42,14 @@ public sealed class UmaContinuationOptions : StackPanel
         Watermark = "目标技能：一行一项，可填国服名称或技能ID",
     };
     private readonly TextBox skillMinimum = Input("1", "技能最低命中数");
-    private readonly CheckBox distanceEnabled = new() { Content = "启用目标距离路线（与技能路线二选一）" };
+    private readonly CheckBox distanceEnabled = new() { Content = "启用第2年首次继承距离适性筛选（如中距离 S，与技能路线满足任一条即通过）" };
     private readonly ComboBox distance = Choice("短距离", "英里", "中距离", "长距离");
     private readonly ComboBox rank = Choice("G", "F", "E", "D", "C", "B", "A", "S");
     private readonly ComboBox inheritanceFailure = Choice("暂停保留并通知", "结束本局后回刷切");
+
+    private readonly ComboBox classicArcMode = Choice("筛选", "仅记录，不筛选");
+    private readonly TextBox classicArcMaxRank = Input("1", "名次上限（1=必须夺冠，1～20）");
+    private readonly ComboBox classicArcFailure = Choice("暂停保留并通知", "结束本局后回刷切");
 
     private readonly ComboBox inh2Mode = Choice("筛选", "仅记录，不筛选");
     private readonly TextBox inh2Skills = new()
@@ -56,7 +60,7 @@ public sealed class UmaContinuationOptions : StackPanel
         Watermark = "可选：二继承目标技能（一行一项）；留空则仅按上方条件组合判断",
     };
     private readonly TextBox inh2SkillMinimum = Input("1", "技能最低命中数");
-    private readonly CheckBox inh2DistanceEnabled = new() { Content = "启用二继承目标距离路线（可选）" };
+    private readonly CheckBox inh2DistanceEnabled = new() { Content = "启用第3年二次继承距离适性筛选（如中距离 S）" };
     private readonly ComboBox inh2Distance = Choice("短距离", "英里", "中距离", "长距离");
     private readonly ComboBox inh2Rank = Choice("G", "F", "E", "D", "C", "B", "A", "S");
     private readonly ComboBox inh2Failure = Choice("暂停保留并通知", "结束本局后回刷切");
@@ -76,37 +80,48 @@ public sealed class UmaContinuationOptions : StackPanel
         Children.Add(enabled);
         Children.Add(validation);
         Children.Add(BuildTemplateBar());
-        Children.Add(Note("门槛由你定义；支持首年12月下、经典4月继承、经典6月远征前、高级4月二继承及任意自定义年月节点。普通育成模式下仅暂停保留并通知。"));
+        Children.Add(Note("门槛由你定义；支持首年12月下、第2年经典4月首次继承、经典6月远征前、经典10月上首次凯旋门、第3年高级4月二次继承及任意自定义年月节点。普通育成模式下仅暂停保留并通知。"));
 
         juniorSection = new ConditionSectionEditor("条件", defaultFilterIndex: 1, showModeAndFail: true, sectionLabel: "首年");
         Children.Add(Section("第一节点 · 初级12月下", juniorSection));
 
-        Children.Add(Section("第二节点 · 经典4月（首次继承后）",
+        Children.Add(Section("第二节点 · 第2年 经典4月（首次继承 · 距离适性/技能）",
             Labelled("节点模式", inheritanceMode),
             skills,
             Labelled("技能最低命中数", skillMinimum),
             Note("已学和已可学习都算，不购买；满足技能数量或指定距离等级任一条即继续。"),
             distanceEnabled, Labelled("目标距离", distance), Labelled("要求等级", rank),
+            Note("若希望保留两次继承机会到第3年终审，此处可保持「仅记录，不筛选」，改在下方「第五节点 · 第3年 高级4月」勾选距离适性。"),
             Labelled("明确未通过时", inheritanceFailure)));
 
         preExpeditionSection = new ConditionSectionEditor("条件", defaultFilterIndex: 1, showModeAndFail: true, sectionLabel: "首次远征前");
         Children.Add(Section("第三节点 · 经典6月下（首次远征前）", preExpeditionSection));
 
+        Children.Add(Section("第四节点 · 第2年 经典10月上（首次凯旋门后）",
+            Labelled("节点模式", classicArcMode),
+            Labelled("要求名次上限（1 = 必须夺冠，可填 1～20）", classicArcMaxRank),
+            Note("经典10月上首次凯旋门（含闹钟重赛）完赛后按最终名次判定：填 1 表示未夺冠即触发未通过动作，填 3 表示前 3 名通过；若名次未能清晰识别将自动暂停保留，不会误杀。"),
+            Labelled("明确未通过时", classicArcFailure)));
+
         inheritance2Conditions = new ConditionSectionEditor("二继承条件", defaultFilterIndex: 1, showModeAndFail: false, sectionLabel: "第二次继承后");
-        Children.Add(Section("第四节点 · 高级4月（二次继承后）",
+        Children.Add(Section("第五节点 · 第3年 高级4月（二次继承 · 距离适性/五维/技能）",
             Labelled("节点模式", inh2Mode),
             inheritance2Conditions,
             inh2Skills,
             Labelled("二继承技能最低命中数", inh2SkillMinimum),
             inh2DistanceEnabled, Labelled("二继承目标距离", inh2Distance), Labelled("要求等级", inh2Rank),
+            Note("第3年两次继承均已完成，推荐在此配置「中距离 S + 未通过重开」；若同时配置了五维条件与距离适性，需全部达标才通过。"),
             Labelled("明确未通过时", inh2Failure)));
 
         Children.Add(Section("自定义日期筛选节点（支持经典12月下 / 高级6月下等任意时间）", BuildCustomDatesContent()));
         Children.Add(notify);
-        Children.Add(Note("胡度值门槛与多节点条件均按当手实际观测判定；未知状态不会误杀。自动重开仅在支持自动重开的循环模式下可用。"));
+        Children.Add(Note("胡度值门槛以 0.0 为理论期望中心（约半数正常局 < 0），检查点按全阶段累计胡度判定且中途接管/样本不足时自动跳过；仅建议用于「刷切保底 (cut_preserve)」早期筛胚，成品马循环（ace_career_cycle）优先使用五维总和（stat_sum_min）硬结果筛选。未知状态不会误杀，自动重开仅在支持自动重开的循环模式下可用。"));
 
+        distance.SelectedIndex = 2;
         rank.SelectedIndex = 7;
+        inh2Distance.SelectedIndex = 2;
         inh2Rank.SelectedIndex = 7;
+        classicArcMode.SelectedIndex = 1;
         inheritanceMode.SelectedIndex = 1;
         inh2Mode.SelectedIndex = 1;
         customYear.SelectedIndex = 1;
@@ -157,6 +172,7 @@ public sealed class UmaContinuationOptions : StackPanel
               "junior": { "mode": "observe", "combine": "all", "min_pass": 1, "conditions": [ { "kind": "stat_sum_min", "minimum": 1600 } ], "on_fail": "pause" },
               "pre_expedition": { "mode": "observe", "combine": "all", "min_pass": 1, "conditions": [ { "kind": "realtime_luck_min", "minimum": -4 }, { "kind": "stat_sum_min", "minimum": 2400 } ], "on_fail": "pause" },
               "inheritance": { "mode": "observe", "skills": [], "min_skills": 1, "distances": {}, "on_fail": "pause" },
+              "classic_arc": { "mode": "observe", "max_rank": 1, "on_fail": "pause" },
               "inheritance2": { "mode": "observe", "combine": "all", "min_pass": 1, "conditions": [], "skills": [], "min_skills": 1, "distances": {}, "on_fail": "pause" },
               "custom_dates": []
             }
@@ -350,6 +366,12 @@ public sealed class UmaContinuationOptions : StackPanel
                 ["distances"] = distances,
                 ["on_fail"] = _allowRestart && inheritanceFailure.SelectedIndex == 1 ? "restart" : "pause",
             },
+            ["classic_arc"] = new JObject
+            {
+                ["mode"] = classicArcMode.SelectedIndex == 0 ? "filter" : "observe",
+                ["max_rank"] = Value(classicArcMaxRank, validate, 1, "首次凯旋门·最低要求名次", 1, 20),
+                ["on_fail"] = _allowRestart && classicArcFailure.SelectedIndex == 1 ? "restart" : "pause",
+            },
             ["inheritance2"] = inh2Obj,
             ["custom_dates"] = new JArray(customDateSections.Select(s => s.Read(validate))),
         };
@@ -379,6 +401,11 @@ public sealed class UmaContinuationOptions : StackPanel
             distance.SelectedIndex = Math.Max(0, Array.IndexOf(new[] { "short", "mile", "medium", "long" }, pair.Name));
             rank.SelectedIndex = Math.Max(0, Array.IndexOf(new[] { "G", "F", "E", "D", "C", "B", "A", "S" }, pair.Value.ToString()));
         }
+
+        var arc = value["classic_arc"] as JObject ?? new();
+        classicArcMode.SelectedIndex = (string?)arc["mode"] == "filter" ? 0 : 1;
+        classicArcMaxRank.Text = arc["max_rank"]?.ToString() ?? "1";
+        classicArcFailure.SelectedIndex = (string?)arc["on_fail"] == "restart" ? 1 : 0;
 
         var inh2 = value["inheritance2"] as JObject ?? new();
         inh2Mode.SelectedIndex = (string?)inh2["mode"] == "filter" ? 0 : 1;
@@ -413,6 +440,7 @@ public sealed class UmaContinuationOptions : StackPanel
         _aceCycle = aceCycle;
         var restartLabel = aceCycle ? "放弃本局并重开下一把" : "结束本局后回刷切";
         ApplyFailureChoices(inheritanceFailure, allowRestart, restartLabel);
+        ApplyFailureChoices(classicArcFailure, allowRestart, restartLabel);
         ApplyFailureChoices(inh2Failure, allowRestart, restartLabel);
         juniorSection.SetMode(allowRestart, restartLabel);
         preExpeditionSection.SetMode(allowRestart, restartLabel);
@@ -631,11 +659,11 @@ public sealed class UmaContinuationOptions : StackPanel
             "cut_event_completed", "cut_present",
         };
         private readonly ComboBox kind = Choice(
-            "五维总和最低值", "胡度值最低门槛（-30～30）", "指定属性最低值", "适应性Pt最低值", "协助者积分最低值",
+            "五维总和最低值", "胡度值最低门槛（-30～30，中心0.0）", "指定属性最低值", "适应性Pt最低值", "协助者积分最低值",
             "羁绊达线最低张数", "指定卡羁绊最低值", "友人外出已解锁", "指定卡事件段数", "指定卡事件已完走",
             "大小切事件已走完", "已确认才能出众");
         private readonly ComboBox stat = Choice("速度", "耐力", "力量", "毅力", "智力");
-        private readonly TextBox minimum = Input("", "最低值 / 张数 / 段数（胡度可填负数）");
+        private readonly TextBox minimum = Input("", "最低值 / 张数 / 段数（胡度中心 0.0，可填负数；成品循环优先用五维）");
         private readonly TextBox card = Input("", "支援卡ID（指定卡条件必填）");
         private readonly TextBox bond = Input("80", "羁绊线");
         private readonly TextBox chain = Input("", "事件链ID（同卡有多个链时填写）");

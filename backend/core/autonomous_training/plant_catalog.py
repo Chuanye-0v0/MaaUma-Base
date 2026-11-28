@@ -1,7 +1,7 @@
 """Pre-UAF trainee choices with stable card and costume identities."""
 import json
 from pathlib import Path
-TRAINEES = {'scarlet': '大和赤骥', 'bakushin': '樱花进王', 'urara': '乌拉拉', 'gold_ship': '黄金船', 'vodka': '伏特加'}
+TRAINEES = {'scarlet': '大和赤骥', 'bakushin': '樱花进王', 'urara': '春乌菈菈', 'gold_ship': '黄金船', 'vodka': '伏特加'}
 ROSTER = json.loads(Path(__file__).with_name('plant_roster.json').read_text(encoding='utf8'))
 PREVIEW_VARIANTS = {r['id']: (r['name'], r['outfit']) for r in ROSTER['records'] if not r['initial_key']}
 VARIANTS = {r['id']: r for r in ROSTER['records']}

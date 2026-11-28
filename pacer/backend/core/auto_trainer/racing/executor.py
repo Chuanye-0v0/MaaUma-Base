@@ -12,6 +12,7 @@ from typing import Any, Callable
 import cv2
 import numpy as np
 
+from core.adb import resolve_screen_size
 from core.frame_io import read_image_with_retry
 from core.auto_trainer.action_table import ActionTable
 from core.auto_trainer.career_goal_perception import is_goal_achievement_title
@@ -196,7 +197,7 @@ class RaceRouteExecutor:
         if mode == "live":
             if not adb.connect():
                 return {"performed": False, "reason": "adb_connect_failed", "decision": {}}
-            size = tuple(adb.get_screen_size())
+            size = resolve_screen_size(adb, supported=SUPPORTED_RACE_ROUTE_SCREEN_SIZES)
             if size not in SUPPORTED_RACE_ROUTE_SCREEN_SIZES:
                 return {"performed": False, "reason": f"unsupported_screen_size:{size}", "decision": {}}
             timings['connection_size_seconds']=round(time.monotonic()-capture_started,4)
@@ -461,6 +462,7 @@ class RaceRouteExecutor:
             or (decision.get("reason"), decision.get("route_state"), observed_control.get("action_id")) not in {
                 ("race_result_continue", "race_result", "race_result.continue"),
                 ("close_trophy_reward", "race_result", "safe_advance.trophy_reward_close"),
+                ("close_story_record_modal", "modal", "safe_advance.announcement_close"),
                 ("larc_explanation_continue", "modal", "safe_advance.larc_explanation_continue"),
                 ("continue_scenario_score_record", "race_result", "safe_advance.scenario_score_record_continue"),
                 ("next_support_reward_page", "race_result", "safe_advance.support_reward_next_page"),

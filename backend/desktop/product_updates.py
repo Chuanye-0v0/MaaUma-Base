@@ -43,9 +43,29 @@ def read_json(path):
 def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    raw = (json.dumps(value, ensure_ascii=False, indent=2) + '\n').encode('utf8')
     temporary = path.with_name(path.name + '.tmp')
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n', encoding='utf8')
-    os.replace(temporary, path)
+    temporary.write_bytes(raw)
+    try:
+        os.replace(temporary, path)
+    except PermissionError:
+        if not (path.is_file() and not path.is_symlink()):
+            raise
+        try:
+            os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+        except OSError:
+            pass
+        with path.open('r+b') as stream:
+            stream.write(raw)
+            stream.truncate()
+            stream.flush()
+            os.fsync(stream.fileno())
+        if path.read_bytes() != raw:
+            raise
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 def relative_path(value):
     if not isinstance(value, str) or not value or '\\' in value or (':' in value):

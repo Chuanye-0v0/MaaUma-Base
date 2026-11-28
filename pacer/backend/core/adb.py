@@ -12,6 +12,7 @@ import struct
 import threading
 from functools import wraps
 from contextvars import ContextVar
+from typing import Any
 
 from config.settings import ADB_HOST, ADB_PATH, ADB_PORT, SWIPE_DELAY, TAP_DELAY
 from core.coordinates import CoordinateConfig, CoordinateScaler, DEFAULT_REFERENCE_SIZE
@@ -729,21 +730,30 @@ class ADB:
         """Start a short-lived binary frame stream for training-page capture."""
         return RawScreencapStream(self.address).start()
 
-    def get_screen_size(self):
-        """Return Android wm size, for example (1440, 2560)."""
-        result, ok = self._run("shell", "wm", "size")
-        if ok and result:
-            self._wm_size_text = result.stdout
-            for label, key in (("Physical", "physical_size"), ("Override", "override_size")):
-                observed = re.search(rf"{label} size:\s*(\d+)x(\d+)", result.stdout, re.IGNORECASE)
-                if observed:
-                    self._capture_dimensions[key] = [int(observed.group(1)), int(observed.group(2))]
-            match = re.search(r"Override size:\s*(\d+)x(\d+)", result.stdout, re.IGNORECASE)
-            match = match or re.search(r"(\d+)x(\d+)", result.stdout)
-            if match:
-                size = int(match.group(1)), int(match.group(2))
-                self._capture_dimensions['logical_size'] = list(size)
-                return size
+    def get_screen_size(self, retries: int = 2, retry_delay: float = 0.25):
+        """Return Android wm size, for example (1440, 2560), retrying transient ADB hiccups."""
+        attempts = max(1, int(retries) + 1)
+        for attempt in range(attempts):
+            result, ok = self._run("shell", "wm", "size")
+            if ok and result:
+                self._wm_size_text = result.stdout
+                for label, key in (("Physical", "physical_size"), ("Override", "override_size")):
+                    observed = re.search(rf"{label} size:\s*(\d+)x(\d+)", result.stdout, re.IGNORECASE)
+                    if observed:
+                        self._capture_dimensions[key] = [int(observed.group(1)), int(observed.group(2))]
+                match = re.search(r"Override size:\s*(\d+)x(\d+)", result.stdout, re.IGNORECASE)
+                match = match or re.search(r"(\d+)x(\d+)", result.stdout)
+                if match:
+                    size = int(match.group(1)), int(match.group(2))
+                    self._capture_dimensions['logical_size'] = list(size)
+                    return size
+            if attempt + 1 < attempts:
+                if retry_delay > 0:
+                    time.sleep(retry_delay)
+                try:
+                    self.connect()
+                except Exception:
+                    pass
         return None, None
 
     def _current_screen_size(self):
@@ -830,6 +840,35 @@ class ADB:
             return False
         _result, ok = self._run("shell", skill_overlap_shell(reverse=reverse, travel_px=travel_px))
         return bool(ok)
+
+
+def resolve_screen_size(
+    adb: Any,
+    *,
+    supported: set[tuple[int, int]] | tuple[tuple[int, int], ...] | None = None,
+    max_retries: int = 2,
+    retry_delay: float = 0.3,
+) -> tuple[int | None, int | None]:
+    """Read emulator screen size with transient-None retry and light reconnect."""
+    size: tuple[int | None, int | None] = (None, None)
+    attempts = max(1, int(max_retries) + 1)
+    for attempt in range(attempts):
+        raw = adb.get_screen_size()
+        size = tuple(raw) if raw is not None else (None, None)
+        if supported is not None and size in supported:
+            return size
+        if supported is None and len(size) == 2 and size[0] is not None and size[1] is not None:
+            return size
+        if size != (None, None):
+            return size
+        if attempt + 1 < attempts:
+            if retry_delay > 0:
+                time.sleep(retry_delay)
+            try:
+                adb.connect()
+            except Exception:
+                pass
+    return size
 
 
 class RawScreencapStream:

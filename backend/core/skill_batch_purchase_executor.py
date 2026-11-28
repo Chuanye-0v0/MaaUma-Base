@@ -47,6 +47,8 @@ class SkillBatchExecutionResult:
     confirmation_opened: bool = False
     tap_count: int = 0
     swipe_count: int = 0
+    error_type: str | None = None
+    error_detail: str | None = None
 
 class SkillBatchPurchaseExecutor:
     """Select a precomputed batch without re-planning or rescanning the list."""
@@ -81,8 +83,8 @@ class SkillBatchPurchaseExecutor:
         boundary_error = 'bottom_page_unverified' if reverse else 'top_page_unverified'
         try:
             at_boundary = self.adapter.begin_reverse_selection(self.plan['reverse_scroll_shifts'], MAX_TOP_REWIND_SWIPES) if reverse else self.adapter.rewind_to_top(MAX_TOP_REWIND_SWIPES)
-        except Exception:
-            return self._result(boundary_error)
+        except Exception as exc:
+            return self._result(boundary_error, exc=exc)
         if at_boundary is not True:
             return self._result(boundary_error)
         current_page_index = len(self.plan['reverse_scroll_shifts']) if reverse else 0
@@ -103,8 +105,8 @@ class SkillBatchPurchaseExecutor:
                         self.adapter.swipe_backward()
                     else:
                         self.adapter.swipe_forward()
-                except Exception:
-                    return self._result('page_swipe_failed')
+                except Exception as exc:
+                    return self._result('page_swipe_failed', exc=exc)
                 self._swipe_count += 1
                 current_page_index += direction
             active_ids = tuple((str(item['action_id']) for item in items))
@@ -119,6 +121,8 @@ class SkillBatchPurchaseExecutor:
             cumulative_after = cumulative_cost + group_cost
             base_error = self._validate_page_base(state, expected_current_skill_points=int(self.plan['initial_skill_points']) - cumulative_cost)
             recovered = False
+            rows: dict[str, Mapping[str, Any]] | None = None
+            nudged_this_page = False
             if base_error:
                 recovered_base_error = self._validate_page_base(state, expected_current_skill_points=int(self.plan['initial_skill_points']) - cumulative_after)
                 recovered_selected_error = self._validate_selected_group(state, items, selected_after=selected_after, cumulative_cost=cumulative_after)
@@ -136,8 +140,8 @@ class SkillBatchPurchaseExecutor:
                     self._last_group_reveal_retry_used = True
                     try:
                         revealed = self.adapter.reveal_bottom_after_rewind()
-                    except Exception:
-                        return self._result('last_group_reveal_failed')
+                    except Exception as exc:
+                        return self._result('last_group_reveal_failed', exc=exc)
                     if revealed is not True:
                         return self._result('last_group_reveal_failed')
                     self._swipe_count += 1
@@ -149,6 +153,31 @@ class SkillBatchPurchaseExecutor:
                     if base_error:
                         return self._result(base_error)
                     rows, row_error = self._validate_planned_rows(state, items)
+                if row_error and row_error.startswith(('planned_row_identity_mismatch:', 'planned_row_price_mismatch:', 'planned_row_discount_mismatch:')):
+                    time.sleep(0.6)
+                    retry_state, retry_err = self._fresh_page(active_ids)
+                    if not retry_err and retry_state is not None:
+                        if self._validate_page_base(retry_state, expected_current_skill_points=int(self.plan['initial_skill_points']) - cumulative_cost) is None:
+                            retry_rows, retry_row_err = self._validate_planned_rows(retry_state, items)
+                            if retry_row_err is None:
+                                state = retry_state
+                                rows, row_error = retry_rows, None
+                if row_error and row_error.startswith('planned_row_identity_mismatch:') and callable(getattr(self.adapter, 'nudge_scroll', None)):
+                    nudge_state, nudge_rows, nudge_err, nudge_exc = self._recover_missing_planned_rows(
+                        items=items,
+                        active_ids=active_ids,
+                        initial_row_error=row_error,
+                        cumulative_cost=cumulative_cost,
+                        reverse_traversal=reverse,
+                    )
+                    if nudge_rows is not None and nudge_state is not None:
+                        state = nudge_state
+                        rows, row_error = nudge_rows, None
+                        nudged_this_page = True
+                    elif nudge_exc is not None:
+                        return self._result(nudge_err or 'page_swipe_failed', exc=nudge_exc)
+                    else:
+                        row_error = nudge_err or row_error
                 if row_error:
                     return self._result(row_error)
                 assert rows is not None
@@ -158,9 +187,9 @@ class SkillBatchPurchaseExecutor:
                     row = rows[action_id]
                     try:
                         self.adapter.tap_plus(row['plus_control'], action_id)
-                    except Exception:
+                    except Exception as exc:
                         self._persist_checkpoint(status='tap_failed', page_index=page_index, pending_group_ids=active_ids)
-                        return self._result(f'planned_plus_tap_failed:{action_id}')
+                        return self._result(f'planned_plus_tap_failed:{action_id}', exc=exc)
                     self._tap_count += 1
                 post_state, error = self._fresh_page(active_ids)
                 if error:
@@ -195,6 +224,8 @@ class SkillBatchPurchaseExecutor:
                 next_index = next_group.get('page_index')
                 if type(next_index) is not int or direction * (next_index - page_index) <= 0:
                     return self._result('page_group_order_invalid')
+                if nudged_this_page and rows is not None and callable(getattr(self.adapter, 'nudge_scroll', None)):
+                    self._recalibrate_after_nudge(items=items, live_rows=rows)
         if post_state is None:
             if not last_items:
                 return self._result('batch_plan_empty')
@@ -214,8 +245,8 @@ class SkillBatchPurchaseExecutor:
             return self._result('green_confirm_control_invalid')
         try:
             self.adapter.open_confirmation(confirm_control)
-        except Exception:
-            return self._result('open_confirmation_failed')
+        except Exception as exc:
+            return self._result('open_confirmation_failed', exc=exc)
         self._tap_count += 1
         return self._result('confirmation_opened', confirmation_opened=True)
 
@@ -410,8 +441,93 @@ class SkillBatchPurchaseExecutor:
         selected = set(self._selected)
         return tuple((action for action in self.plan.get('selected_action_ids', []) if action not in selected))
 
-    def _result(self, reason: str, *, confirmation_opened: bool=False) -> SkillBatchExecutionResult:
-        return SkillBatchExecutionResult(stop_reason=reason, selected_action_ids=tuple((action for action in self.plan.get('selected_action_ids', []) if action in self._selected)), remaining_action_ids=self._remaining_actions(), confirmation_opened=confirmation_opened, tap_count=self._tap_count, swipe_count=self._swipe_count)
+    def _result(self, reason: str, *, confirmation_opened: bool=False, exc: Exception | None=None) -> SkillBatchExecutionResult:
+        return SkillBatchExecutionResult(stop_reason=reason, selected_action_ids=tuple((action for action in self.plan.get('selected_action_ids', []) if action in self._selected)), remaining_action_ids=self._remaining_actions(), confirmation_opened=confirmation_opened, tap_count=self._tap_count, swipe_count=self._swipe_count, error_type=None if exc is None else type(exc).__name__, error_detail=None if exc is None else str(exc))
+
+    def _recover_missing_planned_rows(
+        self,
+        *,
+        items: list[Mapping[str, Any]],
+        active_ids: tuple[str, ...],
+        initial_row_error: str,
+        cumulative_cost: int,
+        reverse_traversal: bool,
+    ) -> tuple[Mapping[str, Any] | None, dict[str, Mapping[str, Any]] | None, str | None, Exception | None]:
+        missing_id = initial_row_error.split('planned_row_identity_mismatch:', 1)[1]
+        target_item = next((item for item in items if str(item.get('action_id')) == missing_id), items[0])
+        primary_reverse = self._primary_nudge_reverse(target_item, reverse_traversal=reverse_traversal)
+        schedule = (
+            (primary_reverse, 140),
+            (primary_reverse, 140),
+            (not primary_reverse, 200),
+            (not primary_reverse, 200),
+        )
+        for nudge_reverse, travel_px in schedule:
+            try:
+                nudge_ok = self.adapter.nudge_scroll(reverse=nudge_reverse, travel_px=travel_px)
+            except Exception as exc:
+                return (None, None, 'page_swipe_failed', exc)
+            if nudge_ok is not True:
+                break
+            self._swipe_count += 1
+            nudge_state, nudge_err = self._fresh_page(active_ids)
+            if nudge_err == 'frame_sha_replayed':
+                continue
+            if nudge_err or nudge_state is None:
+                return (None, None, nudge_err or 'fresh_page_capture_failed', None)
+            nudge_base_err = self._validate_page_base(
+                nudge_state,
+                expected_current_skill_points=int(self.plan['initial_skill_points']) - cumulative_cost,
+            )
+            if nudge_base_err is not None:
+                return (None, None, nudge_base_err, None)
+            nudge_rows, nudge_row_err = self._validate_planned_rows(nudge_state, items)
+            if nudge_row_err is None:
+                return (nudge_state, nudge_rows, None, None)
+            if not nudge_row_err.startswith('planned_row_identity_mismatch:'):
+                return (None, None, nudge_row_err, None)
+        return (None, None, initial_row_error, None)
+
+    def _recalibrate_after_nudge(
+        self,
+        *,
+        items: list[Mapping[str, Any]],
+        live_rows: Mapping[str, Mapping[str, Any]],
+    ) -> None:
+        deltas: list[int] = []
+        for item in items:
+            action_id = str(item['action_id'])
+            planned_bbox = item.get('row_bbox')
+            live_row = live_rows.get(action_id) if isinstance(live_rows, Mapping) else None
+            live_bbox = live_row.get('row_bbox') if isinstance(live_row, Mapping) else None
+            if self._valid_bbox(planned_bbox) and self._valid_bbox(live_bbox):
+                deltas.append(int(live_bbox[1]) - int(planned_bbox[1]))
+        if not deltas:
+            return
+        deltas.sort()
+        dy = deltas[len(deltas) // 2]
+        if abs(dy) < 40:
+            return
+        travel_px = min(200, abs(dy))
+        try:
+            if self.adapter.nudge_scroll(reverse=(dy < 0), travel_px=travel_px) is True:
+                self._swipe_count += 1
+        except Exception:
+            return
+
+    @staticmethod
+    def _primary_nudge_reverse(item: Mapping[str, Any], *, reverse_traversal: bool) -> bool:
+        row_index = item.get('row_index')
+        row_bbox = item.get('row_bbox')
+        if row_index == 0 or (SkillBatchPurchaseExecutor._valid_bbox(row_bbox) and row_bbox[1] < 640):
+            return True
+        if (type(row_index) is int and row_index >= 2) or (SkillBatchPurchaseExecutor._valid_bbox(row_bbox) and row_bbox[3] > 900):
+            return False
+        return reverse_traversal
+
+    @staticmethod
+    def _valid_bbox(value: Any) -> bool:
+        return isinstance(value, (list, tuple)) and len(value) == 4 and all(type(part) is int for part in value) and (value[0] < value[2]) and (value[1] < value[3])
 
     @staticmethod
     def _valid_control(value: Any) -> bool:

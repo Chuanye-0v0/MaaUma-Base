@@ -196,7 +196,20 @@ def inspect_growth_adaptation(ctx, output, period, *, preferred_training=None, r
                     for row in inspection_steps]
     grid = next((x for x in reversed(observations) if isinstance(x.get("levels"), list)), None)
     if code or not (session.returned or grid_ready) or grid is None:
-        return {"ok": False, "reason": child.get("stop_reason", "growth_grid_unavailable")}
+        visible_text = str(last.get("frame_safety", {}).get("visible_text", ""))[:300]
+        last_decision_reason = (last.get("decision") or {}).get("reason")
+        return {
+            "ok": False,
+            "reason": child.get("stop_reason", "growth_grid_unavailable"),
+            "grid_errors": list((grid or {}).get("errors") or []),
+            "pending_cost": (grid or {}).get("pending_cost"),
+            "points": (grid or {}).get("points"),
+            "selected_slot": (grid or {}).get("selected_slot"),
+            "visible_text": visible_text,
+            "last_decision_reason": last_decision_reason,
+            "stay_on_grid": stay_on_grid,
+            "session_returned": session.returned,
+        }
     _record_forecast_context(ctx, grid)
     recommendation = recommend_growth_adaptation(grid, period,
         preferred_training=preferred_training, race_day=race_day, state=state, goal=goal,
@@ -216,7 +229,7 @@ def return_from_growth_inspection(ctx, session_path, output):
     session = LarcAdaptationSession.load(Path(session_path), ctx.run_id)
     session.stay_on_grid = False
     session.save()
-    argv = ["--mode", "live", "--scenario", "larc", "--max-steps", "3",
+    argv = ["--mode", "live", "--scenario", "larc", "--max-steps", "6",
         "--screenshot-dir", str(output), "--adb-port", str(ctx.port),
         "--run-session-id", ctx.run_id, "--transition-session-json", str(ctx.route),
         "--skip-session-json", str(ctx.skip),
@@ -248,8 +261,14 @@ def return_from_growth_inspection(ctx, session_path, output):
         finally:
             adb.close()
     _atomic_write_json(Path(output) / "report.json", child)
-    return {"ok": code == 0 and child.get("stop_reason") in {"ready_main_menu", "race_day_main_menu"},
-            "reason": child.get("stop_reason"), "menu_source": child.get("source_screenshot_path")}
+    last_step_result = (child.get("step_reports") or [{}])[-1].get("result", {})
+    visible_text = str(last_step_result.get("frame_safety", {}).get("visible_text", ""))[:300]
+    ok = code == 0 and child.get("stop_reason") in {"ready_main_menu", "race_day_main_menu"}
+    payload = {"ok": ok, "reason": child.get("stop_reason"), "menu_source": child.get("source_screenshot_path")}
+    if not ok:
+        payload["last_decision_reason"] = (last_step_result.get("decision") or {}).get("reason")
+        payload["visible_text"] = visible_text
+    return payload
 
 
 def restore_training_menu(ctx, source, output):

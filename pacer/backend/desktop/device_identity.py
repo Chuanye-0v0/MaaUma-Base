@@ -12,21 +12,55 @@ import uuid
 class DeviceIdentityError(RuntimeError):
     pass
 
+
+def _safe_identity_diagnostic(value, *, returncode=None):
+    diag = {}
+    if isinstance(value, dict):
+        stage = value.get('stage')
+        if isinstance(stage, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,47}', stage):
+            diag['stage'] = stage
+        error_type = value.get('error_type')
+        if isinstance(error_type, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}', error_type):
+            diag['error_type'] = error_type
+        for key in ('win32_error', 'hresult'):
+            num = value.get(key)
+            if type(num) is int and num != 0:
+                diag[key] = num
+    if type(returncode) is int and returncode != 0:
+        diag['returncode'] = returncode
+    return diag
+
+
+def _identity_error(code, diag=None):
+    error = DeviceIdentityError(code)
+    if diag:
+        error.identity_diagnostic = diag
+    return error
+
+
 def helper(root, action, **fields):
     root = _maauma_authorization_root(root)
     executable = Path(root) / ('MaaUmaIdentity.exe' if (Path(root) / 'MaaUmaIdentity.exe').is_file() else 'UmaCutPanel.exe')
     if os.name != 'nt' or not executable.is_file():
-        raise DeviceIdentityError('device_identity_unavailable')
+        raise _identity_error('device_identity_unavailable', {'stage': 'helper_missing'})
     try:
         completed = subprocess.run([str(executable), '--device-identity'], cwd=str(root), input=json.dumps({'action': action, **fields}, ensure_ascii=False), encoding='utf-8', stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=8, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), env=dict(os.environ, DOTNET_ROOT=str(Path(root) / 'dotnet'), DOTNET_MULTILEVEL_LOOKUP='0'))
-        if len(completed.stdout) > 4 * 1024 ** 2:
-            raise DeviceIdentityError('device_identity_unavailable')
-        response = json.loads(completed.stdout)
-    except (OSError, ValueError, subprocess.TimeoutExpired):
-        raise DeviceIdentityError('device_identity_unavailable') from None
+    except subprocess.TimeoutExpired:
+        raise _identity_error('device_identity_unavailable', {'stage': 'helper_timeout'}) from None
+    except OSError:
+        raise _identity_error('device_identity_unavailable', {'stage': 'helper_exec'}) from None
+    if len(completed.stdout) > 4 * 1024 ** 2:
+        raise _identity_error('device_identity_unavailable', {'stage': 'helper_output_too_large', 'returncode': completed.returncode} if completed.returncode else {'stage': 'helper_output_too_large'})
+    try:
+        response = json.loads(completed.stdout.lstrip('\ufeff').strip())
+    except ValueError:
+        raise _identity_error('device_identity_unavailable', _safe_identity_diagnostic({'stage': 'helper_output'}, returncode=completed.returncode)) from None
     if not isinstance(response, dict) or response.get('ok') is not True:
         code = response.get('code') if isinstance(response, dict) else None
-        raise DeviceIdentityError(code if code in {'device_identity_unavailable', 'device_credentials_unreadable', 'device_key_unreadable', 'device_changed'} else 'device_identity_unavailable')
+        resolved = code if code in {'device_identity_unavailable', 'device_credentials_unreadable', 'device_key_unreadable', 'device_changed'} else 'device_identity_unavailable'
+        raise _identity_error(resolved, _safe_identity_diagnostic(response, returncode=completed.returncode))
+    if completed.returncode:
+        raise _identity_error('device_identity_unavailable', _safe_identity_diagnostic({'stage': 'helper_exit'}, returncode=completed.returncode))
     return response
 
 def identity(root):

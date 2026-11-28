@@ -150,6 +150,22 @@ def _modal_controls(hsv):
     return False
 
 
+def _adaptation_confirm_modal_controls(hsv):
+    green = (hsv[:, :, 0] > 30) & (hsv[:, :, 0] < 85) & (hsv[:, :, 1] > 90) & (hsv[:, :, 2] > 120)
+    top_rows = np.flatnonzero(green[:120, 30:690].mean(axis=1) > .7)
+    has_top_header = bool(len(top_rows) and any(
+        20 <= len(band) <= 100
+        for band in np.split(top_rows, np.flatnonzero(np.diff(top_rows) > 1) + 1)
+    ))
+    if not has_top_header:
+        return False
+    return bool(
+        _white_ratio(hsv[105:1110, 30:690], 65, 175) > .45
+        and _white_ratio(hsv[1135:1215, 70:340], 45, 200) > .65
+        and green[1135:1215, 385:655].mean() > .65
+    )
+
+
 def adaptation_controls(image, *, allow_home=True, require_leave_grid=False):
     from core.auto_trainer.safe_advance import SafeAdvanceExecutor, SafeAdvancePlanner
     im = canonical(image)
@@ -159,7 +175,9 @@ def adaptation_controls(image, *, allow_home=True, require_leave_grid=False):
     from core.auto_trainer.larc_pages import larc_race_day_controls
     if SafeAdvanceExecutor._career_home_controls_ready(im) or larc_race_day_controls(im):
         return allow_home
-    if SafeAdvancePlanner._looks_like_confirm_modal_panel(im) or _modal_controls(hsv):
+    if (SafeAdvancePlanner._looks_like_confirm_modal_panel(im)
+            or _modal_controls(hsv)
+            or _adaptation_confirm_modal_controls(hsv)):
         return True
     if require_leave_grid:
         return False

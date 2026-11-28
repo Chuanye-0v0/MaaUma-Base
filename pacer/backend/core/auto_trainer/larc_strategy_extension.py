@@ -177,6 +177,25 @@ class StrategyExtensionProvider:
     ) -> float:
         return value
 
+    def planner_terminal_node_bonus(
+        self,
+        planner: Any,
+        node: Any,
+        after: int,
+        initial_completed: Any,
+        bonus: Any,
+    ) -> float:
+        return 0.0
+
+    def post_full_ss_preference(
+        self,
+        params: Any,
+        preview: dict[str, Any],
+        count: int,
+        value: dict[str, Any],
+    ) -> float:
+        return 0.0
+
     def build_departure_request_extras(
         self,
         *,
@@ -215,6 +234,8 @@ class StrategyExtensionProvider:
         rem_second_exp: int,
         zero_tabs: list[str],
         decked_tabs: list[str],
+        state: Any = None,
+        goal: Any = None,
     ) -> dict[str, Any]:
         return payload
 

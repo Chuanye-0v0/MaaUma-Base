@@ -1601,12 +1601,12 @@ public sealed partial class UmaPacerView : UserControl
         }
         if(command=="start"&&freshCareerSelected) {
             try {await EndPreviousHandoffTaskAsync();}
-            catch(Exception error){commandError=error.Message;hint.Text=error.Message;if(snapshot!=null)Render(context());return;}
+            catch(Exception error){commandError=error.Message;hint.Text=error.Message;try{ToastHelper.Warn("育成启动失败",error.Message);}catch{}if(snapshot!=null)Render(context());return;}
         }
         if(pacerCenter&&workflowLibrary?.LibraryReady==true&&command=="start"&&
             ((string?)snapshot?["control"]?["state"]!="paused"||freshCareerSelected)) {
             try {await workflowLibrary.StartSelectedAsync();}
-            catch(Exception error){commandError=error.Message;hint.Text=error.Message;}
+            catch(Exception error){commandError=error.Message;hint.Text=error.Message;try{ToastHelper.Warn("育成启动失败",error.Message);}catch{}}
             finally{if(!freshCareerSelected)await Refresh();else if(snapshot!=null)Render(context());}
             return;
         }
@@ -1641,7 +1641,7 @@ public sealed partial class UmaPacerView : UserControl
             }
             Render(current); hint.Text="控制请求已发送；以上状态以后台实际响应为准。"+continuation.DraftNotice;
         }
-        catch (Exception error) { commandError=error.Message;hint.Text=commandError; }
+        catch (Exception error) { commandError=error.Message;hint.Text=commandError;try{ToastHelper.Warn(command=="start" ? "育成启动失败" : "育成控制失败",commandError);}catch{} }
         finally { submitting=false; await Refresh(); }
     }
     private static string Duration(JToken? value)
@@ -1672,7 +1672,7 @@ public sealed partial class UmaPacerView : UserControl
             _=>"尚未到达" };
         var lines=new List<string>();
         var nodes=saved["nodes"] as JObject ?? new();
-        foreach(var pair in new[] {("junior","初级12月下"),("inheritance","继承后"),("handoff","首次远征前")}) {
+        foreach(var pair in new[] {("junior","初级12月下"),("inheritance","第2年经典4月"),("pre_expedition","经典6月下"),("classic_arc","经典10月上"),("inheritance2","第3年高级4月"),("handoff","首次远征前")}) {
             var node=nodes[pair.Item1] as JObject;
             var result=node?["result"] as JObject;
             var status=(string?)(node?["flow_status"] ?? result?["status"]);
@@ -1680,11 +1680,16 @@ public sealed partial class UmaPacerView : UserControl
         }
         continuationStatus.Text=string.Join("\n",lines);
         lines.Clear();
-        foreach(var pair in new[] {("junior","初级12月下"),("inheritance","继承后"),("handoff","远征前交接")}) {
+        foreach(var pair in new[] {("junior","初级12月下"),("inheritance","第2年经典4月"),("pre_expedition","经典6月下"),("classic_arc","经典10月上"),("inheritance2","第3年高级4月"),("handoff","远征前交接")}) {
             if(nodes[pair.Item1] is not JObject node)continue;
             var facts=node["facts"] as JObject ?? new();
             var result=node["result"] as JObject ?? new();
             lines.Add(pair.Item2+" · "+Period(node["period"]));
+            if(pair.Item1=="classic_arc") {
+                var ar=result["actual_rank"];
+                var actualLabel=(ar!=null && ar.Type==JTokenType.Integer) ? $"第 {ar} 名" : "未知";
+                lines.Add($"首次凯旋门名次：{actualLabel} / 要求 ≤ 第 {result["max_rank"] ?? 1} 名");
+            }
             lines.Add($"适应性 Pt {facts["adaptation_points"] ?? "未知"} · 协助者积分 {facts["supporter_points"] ?? "未知"}");
             if(facts["stats"] is JObject values)lines.Add(string.Join(" · ",new[] {("speed","速"),("stamina","耐"),("power","力"),("guts","毅"),("wisdom","智")}.Select(p=>$"{p.Item2} {values[p.Item1] ?? "未知"}")));
             foreach(var row in (result["conditions"] as JArray ?? new()).OfType<JObject>()) {
@@ -1693,19 +1698,60 @@ public sealed partial class UmaPacerView : UserControl
                     "stat_sum_min"=>"五维总和", "stat_min"=>"单项属性", "adaptation_points_min"=>"适应性 Pt",
                     "supporter_points_min"=>"协助者积分", "bond_ready_min"=>"羁绊达线张数", "bond_card_min"=>"指定卡羁绊",
                     "friend_outing_unlocked"=>"友人外出", "chain_stage_min"=>"事件段数", "chain_complete"=>"事件完走",
-                    "cut_event_completed"=>"切事件完走", "cut_present"=>"才能出众", _=>"条件" };
+                    "cut_event_completed"=>"切事件完走", "cut_present"=>"才能出众", "realtime_luck_min"=>"实时运气分", _=>"条件" };
                 var actual=row["actual"];
                 var text=actual==null || actual.Type==JTokenType.Null ? "未知" : actual.ToString(Newtonsoft.Json.Formatting.None);
                 lines.Add($"{label} {condition["card_id"] ?? ""}：{((bool?)row["passed"] is bool pass ? pass ? "达标" : "未达标" : "未知")} · 当前 {text}"+(condition["minimum"]!=null ? $" / 最低 {condition["minimum"]}":""));
             }
             if(result["skill_matches"] is JArray matched)lines.Add("技能命中："+(matched.Count==0 ? "无已确认命中":string.Join("、",matched.Values<string>())));
-            foreach(var row in (result["distances"] as JArray ?? new()).OfType<JObject>())
-                lines.Add($"距离 {row["distance"]}：{row["actual"] ?? "未知"} / 要求 {row["required"]}");
+            foreach(var row in (result["distances"] as JArray ?? new()).OfType<JObject>()) {
+                var distName=(string?)row["distance"] switch {
+                    "short"=>"短距离", "mile"=>"英里", "medium"=>"中距离", "middle"=>"中距离", "long"=>"长距离",
+                    var raw=>raw ?? "距离"
+                };
+                lines.Add($"距离 {distName}：{row["actual"] ?? "未知"} / 要求 {row["required"]}");
+            }
             foreach(var row in (facts["cut_events"] as JArray ?? new()).OfType<JObject>())
                 lines.Add($"切事件 {row["kind"] ?? "未分类"}：{row["title"] ?? row["event_id"]} · {((bool?)row["completed"]==true ? "已走完":"结果未确认")}");
             lines.Add("");
         }
         continuationDetails.Text=string.Join("\n",lines);
+    }
+
+    private static string FormatContinuationNote(JObject? note)
+    {
+        if(note==null)return "";
+        var kind=(string?)note["kind"];
+        if(kind!="continuation_gate" && kind!="continuation_handoff")return "";
+        var nodeLabel=(string?)note["node"] switch {
+            "junior"=>"初级12月下", "inheritance"=>"第2年经典4月", "pre_expedition"=>"经典6月下",
+            "classic_arc"=>"经典10月上", "inheritance2"=>"第3年高级4月", "handoff"=>"首次远征前",
+            var raw=>raw ?? "续养检查点"
+        };
+        if(kind=="continuation_handoff")return $"已到达 {nodeLabel}，等待号主手动接管；确认继续后可点击恢复。";
+        var result=note["result"] as JObject;
+        if((string?)result?["status"]=="unknown")
+            return $"在 {nodeLabel} 暂停：适性或面板信息读取不足（请在详情页确认后继续）";
+        var summary=new List<string>();
+        foreach(var row in (result?["conditions"] as JArray ?? new()).OfType<JObject>())
+            if((bool?)row["passed"]==false)
+                summary.Add((string?)row["condition"]?["kind"] switch {
+                    "stat_sum_min"=>"五维总和", "stat_min"=>"单项属性", "adaptation_points_min"=>"适应性 Pt",
+                    "supporter_points_min"=>"协助者积分", "bond_ready_min"=>"羁绊达线张数", "bond_card_min"=>"指定卡羁绊",
+                    "friend_outing_unlocked"=>"友人外出", "chain_stage_min"=>"事件段数", "chain_complete"=>"事件完走",
+                    "cut_event_completed"=>"切事件完走", "cut_present"=>"才能出众", "realtime_luck_min"=>"实时运气分",
+                    var raw=>raw ?? "条件未达标"
+                });
+        foreach(var row in (result?["distances"] as JArray ?? new()).OfType<JObject>())
+            if((bool?)row["passed"]==false) {
+                var dist=(string?)row["distance"] switch {
+                    "short"=>"短距离", "mile"=>"英里", "medium"=>"中距离", "middle"=>"中距离", "long"=>"长距离",
+                    var raw=>raw ?? "距离"
+                };
+                summary.Add($"{dist} {row["actual"] ?? "未知"}/{row["required"]}");
+            }
+        var tail=summary.Count>0 ? $"（{string.Join("、",summary.Take(3))}）" : "";
+        return $"在 {nodeLabel} 门禁暂停{tail}，请确认是否继续。";
     }
 
     private static string StopReportScalar(JToken? token,int limit=160)
@@ -2012,6 +2058,7 @@ public sealed partial class UmaPacerView : UserControl
         action.Text=(string?)control["last_error"] ?? (string?)(control["last_result"] as JObject)?["reason"]
             ?? (string?)record["stop_reason"] ?? (state=="running" ? "当前任务正在运行。" : "等待本局运行记录");
         if(newCutBatch)action.Text="新批次待开始";
+        var continuationPauseNote=FormatContinuationNote(runtime?["note"] as JObject);
         ObserveRuntimeClock(current,runtime);
         if(IsCut&&sieveCounts==null&&aceCounts==null) {
             var status=(string?)cut?["status"] ?? "ready";
@@ -2025,9 +2072,11 @@ public sealed partial class UmaPacerView : UserControl
                 ? "状态待重新检查 · 本局已保留" : CutStates.GetValueOrDefault(status,"状态待确认");
             if(standaloneCutProfiles && !active)stateText.Text=status=="route_failed" ? "本轮中断 · 再开始会重新计数" : stateText.Text?.Replace("本批次","本轮");
             if(runtime?["note"] is JValue note && !string.IsNullOrEmpty((string?)note))action.Text=(string)note!;
+            else if(continuationPauseNote.Length>0)action.Text=continuationPauseNote;
             else if(!active && cut?["stop_reason"] is JValue why)action.Text=(string?)why ?? action.Text;
         }
         if(stopPresentation.CurrentFlow)action.Text=stopPresentation.Message.Length>0?stopPresentation.Message:stopPresentation.Reason;
+        else if(!active && continuationPauseNote.Length>0)action.Text=continuationPauseNote;
         var previousText=MaaUmaPacerStopReason.PreviousText(stopPresentation);
         if(stopPresentation.PreviousReason.Length>0&&previousText=="上一育成段结果："+stopPresentation.PreviousReason) {
             var previousSummary=RuntimeText(stopPresentation.PreviousReason,step:true);

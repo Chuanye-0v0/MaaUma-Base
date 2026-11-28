@@ -108,7 +108,7 @@ def _load_race_api(api):
     from core.autonomous_training.skills import prepare_skills, publish_skill_plan
     from core.autonomous_training.purchase import select_and_open_purchase_confirmation, SKILL_BATCH_PURCHASE_SAFETY_TOKEN
     from core.autonomous_training.harvest_skills import complete_harvest_selection
-    from core.skill_batch_purchase import _primary_evidence, validate_skill_batch_plan
+    from core.skill_batch_purchase import _canonical_plan_sha256, _primary_evidence, validate_skill_batch_plan
     from core.skill_planner.preferences import load_skill_preference_profile
     from scripts import plan_fresh_skill_acquisition as planner_api
     api.prepare = lambda device, output, context, **kwargs: helper.prepare_for_arc_preference(
@@ -117,13 +117,57 @@ def _load_race_api(api):
     api.select, api.token = select_and_open_purchase_confirmation, SKILL_BATCH_PURCHASE_SAFETY_TOKEN
     api.complete, api.validate = complete_harvest_selection, validate_skill_batch_plan
     api.primary_evidence = _primary_evidence
+    api.canonical_plan_sha256 = _canonical_plan_sha256
     api.load_preference = load_skill_preference_profile
     api.replan = lambda **kwargs: helper.replan_with_startup_policy(planner_api, **kwargs)
     api.apply_race_preference = helper.apply_race_preference
 
 
+def _safe_return_after_unconfirmed_selection(device, report_sink, expected_endpoint):
+    """Safely clear any staged selections and exit skills page back to finish_ready."""
+    try:
+        cur = device.capture()
+        if isinstance(report_sink, dict):
+            report_sink["unconfirmed_last_page"] = cur.get("page")
+            report_sink["unconfirmed_last_screenshot_path"] = cur.get("screenshot_path")
+            report_sink["unconfirmed_last_actions"] = sorted((cur.get("actions") or {}).keys())
+        if cur.get("page") == "finish_ready":
+            if isinstance(report_sink, dict):
+                report_sink["returned_after_unconfirmed_selection"] = True
+                report_sink["after_return_points"] = cur.get("current_skill_points")
+            return
+        if cur.get("page") == "skills":
+            actions = cur.get("actions") or {}
+            reset_ctrl = actions.get("reset_skill_selection")
+            if isinstance(reset_ctrl, dict) and reset_ctrl.get("point") and (
+                "open_skill_confirmation" in actions or cur.get("skill_cart_disabled") is False
+            ):
+                rx, ry = reset_ctrl["point"]
+                device.command("-s", expected_endpoint, "shell", "input", "tap", str(rx), str(ry))
+                if isinstance(report_sink, dict):
+                    report_sink["reset_before_unconfirmed_return"] = True
+                time.sleep(0.6)
+                cur = device.capture()
+                actions = cur.get("actions") or {}
+            back_ctrl = actions.get("return_harvest_skills")
+            if cur.get("page") == "skills" and isinstance(back_ctrl, dict) and back_ctrl.get("point"):
+                bx, by = back_ctrl["point"]
+                device.command("-s", expected_endpoint, "shell", "input", "tap", str(bx), str(by))
+                for _ in range(8):
+                    time.sleep(0.4)
+                    obs = device.capture()
+                    if obs.get("page") == "finish_ready":
+                        if isinstance(report_sink, dict):
+                            report_sink["returned_after_unconfirmed_selection"] = True
+                            report_sink["after_return_points"] = obs.get("current_skill_points")
+                        return
+    except Exception as ret_exc:
+        if isinstance(report_sink, dict):
+            report_sink["unconfirmed_return_error"] = f"{type(ret_exc).__name__}:{ret_exc}"
+
+
 def _learn_race_skills(api, device, output, context, preference, initial_points,
-                       *, expected_endpoint=ENDPOINT):
+                       *, expected_endpoint=ENDPOINT, report_sink=None):
     """Use the race planner while retaining D1's existing purchase/return chain."""
     if not hasattr(api, "prepare"):
         _load_race_api(api)
@@ -131,6 +175,12 @@ def _learn_race_skills(api, device, output, context, preference, initial_points,
         api.bind_transport(expected_endpoint)
     prepared = api.prepare(device, output / "prepare", context, expected_endpoint=expected_endpoint)
     if prepared.get("status") != "ready":
+        if isinstance(report_sink, dict):
+            report_sink["prepare_result"] = prepared
+            report_sink["purchase_executed"] = False
+            report_sink["confirmation_opened"] = False
+        if prepared.get("purchase_executed") is False and prepared.get("tap_count", 0) == 0:
+            _safe_return_after_unconfirmed_selection(device, report_sink, expected_endpoint)
         raise ValueError("race_skill_prepare_failed:" + str(prepared.get("reason")))
     prepared = api.apply_race_preference(api, prepared, output / "race_preference", context, preference)
     inventory = json.loads(Path(prepared["inventory_path"]).read_text(encoding="utf-8"))
@@ -144,7 +194,7 @@ def _learn_race_skills(api, device, output, context, preference, initial_points,
             or not 0 <= remaining <= initial_points
             or (not actions and remaining != initial_points) or (actions and remaining >= initial_points)):
         raise ValueError("race_skill_plan_points_or_count_invalid")
-    if context.get("arc_policy", {}).get("enabled"):
+    if context.get("arc_policy", {}).get("enabled") and not context.get("excluded_skill_ids"):
         _prerace_helper()._target_policy().validate_target_plan(
             actions, prepared["target_diagnostic"], remaining_skill_points=remaining)
     if not actions:
@@ -170,8 +220,36 @@ def _learn_race_skills(api, device, output, context, preference, initial_points,
         external_skill_db_path=context["external_skill_db_path"],
         session_id=f"race-terminal-{nonce}", capture_batch_id=f"race-terminal-capture-{nonce}",
         safety_token=api.token, expected_endpoint=expected_endpoint)
+    helper = _prerace_helper()
+    if ((selected.get("confirmation_opened") is not True or selected.get("stop_reason") != "confirmation_opened")
+            and "reverse_scroll_shifts" in plan and helper._is_zero_input_selection_rejection(selected)):
+        fwd_plan_path, fwd_report_path, fwd_plan = helper._write_forward_fallback_artifacts(
+            inventory, plan, prepared["planner_report_path"], output / "selection_forward_fallback",
+            canonical_plan_sha256=api.canonical_plan_sha256, validate=api.validate)
+        fwd_selection_root = output / "selection_forward"
+        fwd_nonce = f"{context['turn_id']}-{time.time_ns()}"
+        fwd_selected = api.select(device=device, inventory_path=prepared["inventory_path"],
+            plan_path=fwd_plan_path, review_path=None, output_dir=fwd_selection_root,
+            mode="live", execute=True, expected_inventory_sha256=inventory["packet_sha256"],
+            expected_plan_sha256=fwd_plan["plan_sha256"], planner_report_path=fwd_report_path,
+            capture_manifest_path=prepared["capture_manifest_path"],
+            external_skill_db_path=context["external_skill_db_path"],
+            session_id=f"race-terminal-{fwd_nonce}", capture_batch_id=f"race-terminal-capture-{fwd_nonce}",
+            safety_token=api.token, expected_endpoint=expected_endpoint)
+        if isinstance(report_sink, dict):
+            report_sink["selection_reverse_failed"] = dict(selected)
+            report_sink["selection_fallback_mode"] = "forward_scroll"
+        selected = fwd_selected
+        if selected.get("confirmation_opened") is True and selected.get("stop_reason") == "confirmation_opened":
+            selection_root = fwd_selection_root
     if selected.get("confirmation_opened") is not True or selected.get("stop_reason") != "confirmation_opened":
-        raise ValueError("race_skill_confirmation_not_opened")
+        if isinstance(report_sink, dict):
+            report_sink["selection_result"] = dict(selected)
+            report_sink["confirmation_opened"] = bool(selected.get("confirmation_opened"))
+            report_sink["purchase_executed"] = False
+        if selected.get("confirmation_opened") is False:
+            _safe_return_after_unconfirmed_selection(device, report_sink, expected_endpoint)
+        raise ValueError(f"race_skill_confirmation_not_opened:{selected.get('stop_reason')}")
     learned = api.complete(device, output, selection_root, selected,
         {"ok": False, "device_action_count": 0, "device_action_count_complete": True,
          "device_action_count_scope": "confirmation_close_return"}, remaining, len(actions), None, expected_endpoint)
@@ -234,6 +312,10 @@ def _terminal(device, api, *, expected_endpoint=ENDPOINT, prior_identity=None,
         if (observed.get("page") != "finish_ready"
                 or type(observed.get("current_skill_points")) is not int
                 or observed["current_skill_points"] < 0):
+            if (observed.get("page") in {"unknown", None}
+                    and getattr(device, "last_capture_transport", None) == "mumu_ipc"
+                    and callable(getattr(device, "disable_native_capture", None))):
+                device.disable_native_capture("terminal_unknown_page")
             if attempt + 1 < max_attempts and observed.get("page") in {"finish_ready", "unknown", "loading", None}:
                 time.sleep(retry_delay)
                 continue
@@ -359,6 +441,7 @@ def run_skill_batch(*, d1_root: Path, run_root: Path, output_dir: Path, turn_id:
                     adb_path: str | None = None, execute: bool = False,
                     current_speed: int | None = None,
                     prior_identity: dict | None = None,
+                    excluded_skill_ids: list[str] | tuple[str, ...] = (),
                     resume_confirmed_return: bool = False, resume_readonly_prepare: Path | None = None) -> dict:
     report = {"schema_version": "larc_d1_skill_batch.v1", "ok": False,
               "reason": "dry_run_no_device_actions", "endpoint": endpoint,
@@ -492,6 +575,9 @@ def run_skill_batch(*, d1_root: Path, run_root: Path, output_dir: Path, turn_id:
             context["current_stats"] = {**(context.get("current_stats") or {}), "speed": current_speed}
         use_race_policy = preference is not None or arc_policy["enabled"]
         context.update(catalogs)
+        clean_excluded = list(dict.fromkeys(str(s) for s in (excluded_skill_ids or ()) if isinstance(s, str) and s))
+        if clean_excluded:
+            context["excluded_skill_ids"] = clean_excluded
         report.update(context=context, preference_path=str(preference) if preference else None)
         device.context.update(mode="harvest", harvest_active=True, harvest_summary=identity)
         report.update(stage="open_skills_pending", input_may_have_occurred=True)
@@ -504,7 +590,8 @@ def run_skill_batch(*, d1_root: Path, run_root: Path, output_dir: Path, turn_id:
         report["stage"] = "learning_pending"
         save()
         learned = (_learn_race_skills(api, device, output / "transaction", context, preference,
-                                    before["current_skill_points"], expected_endpoint=endpoint) if use_race_policy else
+                                    before["current_skill_points"], expected_endpoint=endpoint,
+                                    report_sink=report) if use_race_policy else
             api.learn_harvest_skills(device, output / "transaction", context,
                 execute=True, purchase_allowed=True, expected_endpoint=endpoint))
         report["learning_result"] = learned
@@ -579,6 +666,7 @@ def main() -> int:
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--current-speed", type=int)
     parser.add_argument("--prior-identity-json")
+    parser.add_argument("--exclude-skill-id", action="append", dest="excluded_skill_ids", default=[])
     parser.add_argument("--resume-confirmed-return", action="store_true")
     parser.add_argument("--resume-readonly-prepare", type=Path)
     parsed = vars(parser.parse_args())

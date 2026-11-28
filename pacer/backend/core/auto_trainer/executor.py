@@ -180,23 +180,6 @@ class DefaultTrainingExecutionVerifier:
         )
 
     def _precheck_image_path(self, image_path: Path) -> Path:
-        import cv2
-
-        img = cv2.imread(str(image_path))
-        if img is None:
-            return image_path
-        height, width = img.shape[:2]
-        if (width, height) == PRECHECK_REFERENCE_SIZE:
-            return image_path
-        if (width, height) == (720, 1280):
-            normalized = image_path.with_name(f"{image_path.stem}.precheck_1440x2560.png")
-            wrote = cv2.imwrite(
-                str(normalized),
-                cv2.resize(img, PRECHECK_REFERENCE_SIZE),
-            )
-            if not wrote or not normalized.is_file():
-                return image_path
-            return normalized
         return image_path
 
 
@@ -283,6 +266,34 @@ class TrainingActionExecutor:
         self.sleep_fn = sleep_fn
         self.wall_clock = wall_clock
 
+    def _resolve_screen_size(
+        self,
+        adb: Any,
+        *,
+        max_retries: int = 2,
+        retry_delay: float = 0.6,
+    ) -> tuple[Any, ...]:
+        """Resolve device screen size, retrying transient (None, None) ADB timeouts."""
+        screen_size = adb.get_screen_size()
+        attempts = 0
+        while attempts < max_retries and (
+            not isinstance(screen_size, tuple)
+            or len(screen_size) != 2
+            or screen_size[0] is None
+            or screen_size[1] is None
+        ):
+            attempts += 1
+            if retry_delay > 0:
+                if self.sleep_fn is time.sleep:
+                    controlled_sleep(retry_delay)
+                else:
+                    self.sleep_fn(retry_delay)
+            connect_fn = getattr(adb, "connect", None)
+            if callable(connect_fn):
+                connect_fn()
+            screen_size = adb.get_screen_size()
+        return screen_size
+
     @turn_action
     def execute_training(
         self,
@@ -336,7 +347,7 @@ class TrainingActionExecutor:
                 "reason": "adb_connect_failed",
                 "tap_plan": tap_plan,
             }
-        screen_size = tuple(adb.get_screen_size())
+        screen_size = self._resolve_screen_size(adb)
         if screen_size not in SUPPORTED_EXECUTION_SCREEN_SIZES:
             return {
                 "performed": False,
@@ -578,7 +589,7 @@ class TrainingActionExecutor:
                 "reason": "adb_connect_failed",
                 "tap_plan": tap_plan,
             }
-        screen_size = tuple(adb.get_screen_size())
+        screen_size = self._resolve_screen_size(adb)
         if screen_size not in SUPPORTED_EXECUTION_SCREEN_SIZES:
             return {
                 "performed": False,
@@ -923,7 +934,7 @@ class TrainingActionExecutor:
                 "reason": "adb_connect_failed",
                 "tap_plan": tap_plan,
             }
-        screen_size = tuple(adb.get_screen_size())
+        screen_size = self._resolve_screen_size(adb)
         if screen_size not in SUPPORTED_EXECUTION_SCREEN_SIZES:
             return {
                 "performed": False,
@@ -1128,7 +1139,7 @@ class TrainingActionExecutor:
                 "reason": "adb_connect_failed",
                 "tap_plan": tap_plan,
             }
-        screen_size = tuple(adb.get_screen_size())
+        screen_size = self._resolve_screen_size(adb)
         if screen_size not in SUPPORTED_EXECUTION_SCREEN_SIZES:
             return {
                 "performed": False,
@@ -1459,7 +1470,10 @@ class TrainingActionExecutor:
 
     @staticmethod
     def _size_record(size: tuple[int, int]) -> dict[str, int]:
-        return {"width": int(size[0]), "height": int(size[1])}
+        return {
+            "width": int(size[0]) if size and size[0] is not None else 0,
+            "height": int(size[1]) if size and size[1] is not None else 0,
+        }
 
     @staticmethod
     def _default_adb_factory() -> Any:

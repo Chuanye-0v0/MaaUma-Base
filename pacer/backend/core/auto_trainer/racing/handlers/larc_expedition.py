@@ -107,14 +107,27 @@ class LarcExpeditionHandlerMixin:
         }
         # Two broad, separated section dividers distinguish rewards from a
         # white ranking table, race-detail card or ordinary character page.
-        rows = np.mean(green[int(height*.50):int(height*.86),
+        rows = np.mean(green[int(height*.47):int(height*.86),
                              int(width*.04):int(width*.95)], axis=1)
         header_rows = np.flatnonzero(rows > .70)
         groups = np.split(header_rows, np.flatnonzero(np.diff(header_rows) > 1) + 1)
         bands = [group for group in groups if len(group) >= height*.006]
-        if not (ratios["coach_bubble_white"] > .70 and ratios["rank_gold"] > .10
-                and ratios["reward_panel_white"] > .65 and len(bands) >= 2
-                and bands[-1][0]-bands[0][-1] > height*.04):
+        multi_band_gold_reward = (
+            ratios["coach_bubble_white"] > .70
+            and ratios["rank_gold"] > .10
+            and ratios["reward_panel_white"] > .65
+            and len(bands) >= 2
+            and bands[-1][0] - bands[0][-1] > height * .04
+        )
+        text_verified_reward = (
+            ratios["coach_bubble_white"] > .70
+            and ratios["reward_panel_white"] > .65
+            and len(bands) >= 1
+            and "获得道具" in text
+            and ("粉丝数" in text or "排名表" in text)
+            and not any(term in text for term in ("重新挑战", "下一页"))
+        )
+        if not (multi_band_gold_reward or text_verified_reward):
             return None
         proof: dict[str, Any] = {"page": "ranked_race_rewards",
             "ratios": {key: round(value, 4) for key, value in ratios.items()},
@@ -123,7 +136,7 @@ class LarcExpeditionHandlerMixin:
         # Search the complete current footer; a centered crop clipped that
         # enabled Next and shadowed the later generic result handler.
         x0, x1 = int(width*.02), int(width*.98)
-        y0, y1 = int(height*.86), int(height*.98)
+        y0, y1 = int(height*.85), int(height*.995)
         mask = green[y0:y1, x0:x1].astype(np.uint8)*255
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
         joined = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)

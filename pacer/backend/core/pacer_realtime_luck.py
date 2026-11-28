@@ -28,13 +28,15 @@ BASE_HINT_PROB_UNBOOSTED = 0.0595
 DOMESTIC_CHARGE_SD_PER_MEMBER = 0.38
 DOMESTIC_TURN_CHARGE_SE_FLOOR = 0.18
 
-# L'Arc SSS trigger probability among eligible full matches (3rd SS match onward)
+# L'Arc SSS trigger probability among random non-pity full SS matches (3rd consecutive non-SSS is guaranteed pity)
 SSS_TRIGGER_PROB = 0.20
+SSS_Z_WEIGHT = 0.40
+SS_EXECUTED_BOARD_WEIGHT = 0.50
 
 # Smooth mapping Z -> [-30, +30] with 0.0 strictly at mathematical expectation
 Z_TANH_DIVISOR = 2.75
 MAX_LUCK_SCORE = 30.0
-LUCK_BASIS = "deck_rng_expectation_v3_2"
+LUCK_BASIS = "deck_rng_expectation_v3_3"
 
 
 def _calendar_ordinal(period: Any, fallback_turn: int) -> int:
@@ -480,6 +482,7 @@ def build_pacer_realtime_luck(
         return {
             "available": False,
             "score": None,
+            "cumulative_score": None,
             "recent_delta": None,
             "raw_mean": None,
             "scored_dates": 0,
@@ -540,12 +543,16 @@ def build_pacer_realtime_luck(
             judgment_by_turn[t_ev] = delta_roll / sqrt(max(p_fail * (1.0 - p_fail), 0.035))
 
     turn_z_list: list[float] = []
+    turn_w_list: list[float] = []
     board_z_list: list[float] = []
 
     n_dom = 0
     k_ss = 0
     k_sss = 0
     pending_held_ss = False
+    streak_non_sss = 0
+    n_sss_trials = 0
+    k_sss_random = 0
 
     for turn, row in chosen_turns:
         sb = row.get("state_before") if isinstance(row.get("state_before"), dict) else {}
@@ -692,7 +699,7 @@ def build_pacer_realtime_luck(
         z_board = sum(w * z for _, w, z in weighted_terms) / max(board_norm, 1e-6)
         board_z_list.append(z_board)
 
-        # --- Sub-component (b): Deduplicated SS/SSS metadata (excluded from RNG composite) ---
+        # --- Sub-component (b): Deduplicated SS/SSS metadata + Pity-3 SSS RNG trial tracking ---
         ss_prev = _ss_preview_from_row(row)
         executed_ss = row.get("kind") == "ss"
         full_ss_ready = ss_prev is not None and ss_prev.get("ready_count") == 5
@@ -700,37 +707,72 @@ def build_pacer_realtime_luck(
             ss_kind = (ss_prev or {}).get("kind")
             if not pending_held_ss:
                 k_ss += 1
-                if ss_kind == "SSS":
+                is_sss = ss_kind == "SSS"
+                if is_sss:
                     k_sss += 1
+                if streak_non_sss < 2:
+                    n_sss_trials += 1
+                    if is_sss:
+                        k_sss_random += 1
+                        streak_non_sss = 0
+                    else:
+                        streak_non_sss += 1
+                else:
+                    # 3rd consecutive full SS without SSS is guaranteed pity SSS (0 RNG variance)
+                    streak_non_sss = 0
             pending_held_ss = not executed_ss
 
-        z_turn = z_board
+        # Attenuate unclicked training-board Z on SS-executed turns to reduce selection-bias drag
+        w_board = SS_EXECUTED_BOARD_WEIGHT if executed_ss else 1.0
+        z_turn = w_board * z_board
 
         # --- Sub-component (c): Training Judgment Martingale Shock ---
         if turn in judgment_by_turn:
             z_turn += 0.55 * max(-6.5, min(6.5, judgment_by_turn[turn]))
 
         turn_z_list.append(z_turn)
+        turn_w_list.append(w_board)
 
     n = len(turn_z_list)
-    cum_z = sum(turn_z_list) / sqrt(max(float(n), 4.0))
+    w_sum_sq = sum(w * w for w in turn_w_list)
+    cum_board_z = sum(turn_z_list) / sqrt(max(w_sum_sq, 4.0))
     m_rec = min(n, 5)
-    rec_z = sum(turn_z_list[-m_rec:]) / sqrt(max(float(m_rec), 2.5))
+    rec_w = turn_w_list[-m_rec:]
+    rec_w_sq = sum(w * w for w in rec_w)
+    rec_z = sum(turn_z_list[-m_rec:]) / sqrt(max(rec_w_sq, 2.5)) if rec_w_sq > 0.0 else 0.0
+
+    if n_sss_trials >= 1:
+        sss_z_raw = (k_sss_random - n_sss_trials * SSS_TRIGGER_PROB) / sqrt(
+            n_sss_trials * SSS_TRIGGER_PROB * (1.0 - SSS_TRIGGER_PROB)
+        )
+        sss_z = max(-6.0, min(6.0, sss_z_raw))
+        w_sss = SSS_Z_WEIGHT * min(1.0, sqrt(float(n_sss_trials) / 4.0))
+    else:
+        sss_z = 0.0
+        w_sss = 0.0
+
+    cum_norm = sqrt(1.0 + w_sss * w_sss)
+    cum_total_z = (cum_board_z + w_sss * sss_z) / cum_norm
 
     ss_lam = _ss_renewal_lambda(n_dom)
     mu_ss, _ = _erlang3_renewal_moments(ss_lam)
 
     # Exact dynamic overlap denominator between cumulative and recent window means
-    rho_cr = float(m_rec) / sqrt(max(float(n), 4.0) * max(float(m_rec), 2.5))
+    rho_cr = (
+        (rec_w_sq / sqrt(max(w_sum_sq, 4.0) * max(rec_w_sq, 2.5))) / cum_norm
+        if rec_w_sq > 0.0 else 0.0
+    )
     comp_norm = sqrt(0.78 ** 2 + 0.22 ** 2 + 2.0 * 0.78 * 0.22 * rho_cr)
-    composite_z = (0.78 * cum_z + 0.22 * rec_z) / comp_norm
+    composite_z = (0.78 * cum_total_z + 0.22 * rec_z) / comp_norm
     clamped_score = _map_z_to_score(composite_z)
+    cumulative_score = _map_z_to_score(cum_total_z)
     recent_rounded = _map_z_to_score(rec_z)
     mood = _mood_from_score(n, clamped_score)
 
     return {
         "available": True,
         "score": clamped_score,
+        "cumulative_score": cumulative_score,
         "recent_delta": recent_rounded,
         "raw_mean": None,
         "scored_dates": n,
@@ -739,9 +781,11 @@ def build_pacer_realtime_luck(
         "coverage_label": f"较理论期望 · {n} 回合",
         "deck_counts": {k: int(deck_counts[k]) for k in ALL_CARD_TYPES if deck_counts[k] > 0},
         "components": {
-            "board_z": round(sum(board_z_list) / sqrt(max(float(len(board_z_list)), 1.0)), 3),
+            "board_z": round(sum(w * zb for w, zb in zip(turn_w_list, board_z_list)) / sqrt(max(w_sum_sq, 1.0)), 3),
             "charge_z": 0.0,
-            "sss_z": 0.0,
+            "sss_z": round(sss_z, 3),
+            "sss_random_trials": n_sss_trials,
+            "sss_random_hits": k_sss_random,
             "ss_charge_z": 0.0,
             "ss_pace_z": 0.0,
             "ss_count": k_ss,
@@ -778,6 +822,7 @@ def summarize_realtime_luck(current_review: dict[str, Any] | None) -> dict[str, 
         result.update(
             status="recorded",
             score=computed["score"],
+            cumulative_score=computed["cumulative_score"],
             recent_delta=computed["recent_delta"],
             raw_mean=computed["raw_mean"],
             scored_dates=computed["scored_dates"],

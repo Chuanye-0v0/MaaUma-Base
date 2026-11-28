@@ -64,6 +64,52 @@ def visible_control(tokens, boxes, labels):
     return list(unique)[0] if len(unique)==1 else None
 
 
+def _detect_dismissible_home_popup(tokens, boxes):
+    """Detect only real modal confirmation/notice dialogs, never floating badges."""
+    modal_tokens = [
+        t for t in tokens
+        if 120 <= (t['bbox'][1] + t['bbox'][3]) / 2 <= 1120
+        and not (t['bbox'][0] >= 540 and t['bbox'][1] >= 540)
+    ]
+    modal_text = ''.join(t['text'] for t in modal_tokens)
+    if not modal_text:
+        return None
+    if any(t in modal_text for t in (
+        '放弃', '最终确认', '协助卡编成', '选择育成优俊少女', '选择养成优俊少女',
+    )):
+        return None
+    is_pass_renewal = (
+        ('因子通行证' in modal_text or '训练通行证' in modal_text
+         or ('通行证' in modal_text and any(k in modal_text for k in ('续费', '到期', '过期', '重置', '高级通行证', '特权'))))
+        and ('取消' in modal_text or '关闭' in modal_text)
+    )
+    if is_pass_renewal:
+        center = visible_control(modal_tokens, boxes, {'取消', '关闭'})
+        if center is not None:
+            return ('pass_renewal_cancel', center)
+        return None
+    if any(t in modal_text for t in (
+        '训练值', 'TP', '萝卜', '宝石', '充值', '购买', '支付',
+    )):
+        return None
+    has_activity_cue = ('活动确认' in modal_text) or ('要前往活动页面吗' in modal_text)
+    has_activity_go = any(lbl in modal_text for lbl in ('前往活动首页', '前往活动页面', '前往活动'))
+    if has_activity_cue and has_activity_go:
+        center = visible_control(modal_tokens, boxes, {'取消'})
+        if center is not None:
+            return ('activity_confirm', center)
+        return None
+    if (any(t in modal_text for t in ('公告', '通知', '活动通知'))
+            and not any(t in modal_text for t in (
+                '选择剧本', '育成剧本', '剧本选择', '选择养成剧本', '选择育成剧本',
+                '选择继承', '继承优俊少女', '强化编成',
+            ))):
+        center = visible_control(modal_tokens, boxes, {'取消', '关闭'})
+        if center is not None:
+            return ('notice_popup', center)
+    return None
+
+
 def resource_quantity(text, kind):
     if kind=='tp_items':
         patterns=(r'(?:使用|消耗)(?:数量)?[:：]?(\d+)个',r'使用数量[:：]?(\d+)')
@@ -124,14 +170,19 @@ def analyze_restart_frame(path, *, config, phase, references=None, reader=None, 
             if refill.get('center'):refill['center']=[round(v*scale) for v in refill['center']]
             return {**result,**refill}
     tokens=ocr_tokens(image,reader);text=''.join(t['text'] for t in tokens);boxes=button_boxes(image)
-    if any(term in text for term in ('其他设备登录','其他终端登录','别处登录','账号在其他','账户在其他')):
-        return {**result,'reason':'account_connection_conflict'}
+    result['ocr_text']=text[:400]
+    if SafeAdvancePlanner._is_account_login_conflict_text(text):
+        return {**result,'reason':'account_login_conflict'}
+    if '养成结束确认' in text and '养成结束' in text:
+        return {**result,'state':'existing_career_handoff','reason':'career_end_confirmation_visible'}
     if phase in {'setup','starting','refill','opening','refill_return'} and refill_entry_verified:
         shortage=tp_resource_shortage(tokens,boxes,selected_resource_kind=selected_resource_kind)
         if shortage is not None:
             if shortage.get('center'):shortage['center']=[round(v*scale) for v in shortage['center']]
             return {**result,**shortage}
-    if any(term in text for term in ('充值','人民币','支付','购买商品','购买宝石','购买萝卜','前往商城','前往商店')):
+    dismissible_home = _detect_dismissible_home_popup(tokens,boxes) if phase in {'setup','refill_return'} else None
+    if (any(term in text for term in ('充值','人民币','支付','购买商品','购买宝石','购买萝卜','前往商城','前往商店'))
+            and not (dismissible_home is not None and dismissible_home[0]=='pass_renewal_cancel')):
         return {**result,'reason':'resource_action_outside_cut_scope'}
     if ''.join(text.split()) in {'加载中','连接中'}:
         return {**result,'state':'wait','reason':'restart_loading','next_phase':phase}
@@ -216,6 +267,26 @@ def analyze_restart_frame(path, *, config, phase, references=None, reader=None, 
             return action('open_career_menu',('菜单',),'abandon')
         return result
     if phase in {'setup','starting','refill','refill_return'}:
+        if phase in {'setup','refill_return'}:
+            home_popup=dismissible_home or _detect_dismissible_home_popup(tokens,boxes)
+            if home_popup is not None:
+                popup_kind,center=home_popup
+                return {**result,'state':'dismiss_home_popup','reason':'dismiss_home_popup',
+                    'center':[round(center[0]*scale),round(center[1]*scale)],
+                    'next_phase':phase,'popup_kind':popup_kind}
+            if ('获得了' in text
+                    and not any(term in text for term in (
+                        '购买', '使用', '消费', '消耗', '支付', '补充', '恢复', '不足', '商店', '招募', '重试', '继续吗',
+                    ))):
+                login_skip = SafeAdvancePlanner._received_login_reward_skip_point(
+                    image,
+                    {'buttons': []},
+                    {'normalized_text': '\n'.join(t['text'] for t in tokens), 'resource_terms': []},
+                )
+                if login_skip is not None:
+                    return {**result,'state':'dismiss_home_popup','reason':'dismiss_home_popup',
+                        'center':[round(login_skip[0]*scale),round(login_skip[1]*scale)],
+                        'next_phase':phase,'popup_kind':'login_reward_skip'}
         if support_preparation is not None:
             prepared=support_preparation.analyze(image,tokens,scale=scale,source=path)
             if prepared is not None:
@@ -425,7 +496,7 @@ class CutRestartRoute:
             from core.auto_trainer.cut_support_selection import SupportPreparation
             support_preparation=SupportPreparation(self.session.config,
                 filter_cache=self.session.data.setdefault('support_filter_cache',{}))
-        friend_scans=0;home_entry_retries=0;abandon_confirmation_retries=0
+        friend_scans=0;home_entry_retries=0;abandon_confirmation_retries=0;home_popup_dismissals=0
         transition_budget=TransitionBudget(clock=self.clock);ordinary_reads=0
         setup_navigation_states={'continue_scenario','continue_trainee','continue_inheritance'}
         navigation_budget=TransitionBudget(clock=self.clock,idle_seconds=30.,total_seconds=30.)
@@ -499,6 +570,7 @@ class CutRestartRoute:
                     waiting={**observed,'state':'wait','reason':'setup_navigation_transition',
                         'pending_navigation':last_action_state,'observed_state':observed.get('state'),
                         'observed_reason':observed.get('reason'),
+                        'support_pending_action':support_preparation.pending[0] if (support_preparation and support_preparation.pending) else None,
                         'frame_in_wait_budget':navigation_frame_in_budget,
                         'recognition_seconds':round(self.clock()-captured_at,4)}
                     atomic_json(source.with_suffix('.json'),waiting)
@@ -594,7 +666,11 @@ class CutRestartRoute:
                     return {'ok':True,'reason':'ordinary_abandon_confirmed','source':str(source)}
                 if observed['state'] not in {'open_career_menu','choose_abandon','confirm_abandon'}:
                     return {'ok':False,'reason':'abandon_only_page_out_of_scope','observation':observed}
-            if observed['state']==last_action_state and not retrying_abandon and observed['state']!='scroll_friend_support' and not observed.get('support_action') and not observed.get('trainee_action'):
+            if observed['state']=='dismiss_home_popup':
+                if home_popup_dismissals>=3:
+                    return {'ok':False,'reason':'restart_action_repeated_surface','observation':observed}
+                home_popup_dismissals+=1
+            elif observed['state']==last_action_state and not retrying_abandon and observed['state']!='scroll_friend_support' and not observed.get('support_action') and not observed.get('trainee_action'):
                 if waiting_until and self.clock()<waiting_until:self.sleep(.25);continue
                 if (phase=='setup' and observed['state']=='enter_ordinary_career'
                         and observed.get('global_home_verified') is True and not home_entry_retries
@@ -629,12 +705,24 @@ class CutRestartRoute:
                         succeeded=frames.swipe(*observed['gesture'],observed.get('duration_ms',400),scaled=False)
                     else:succeeded=frames.tap(*observed['center'],scaled=False)
             except Reobserve:
+                if support_preparation is not None:
+                    support_preparation.reset_pending(clear_selection_state=True)
                 transition_budget.reset();navigation_budget.reset();navigation_reads=0;waiting_until=None
                 continue
             if succeeded is not True:
                 return {'ok':False,'reason':'restart_input_unconfirmed','observation':observed}
-            if observed.get('support_action'):
-                support_preparation.submitted(observed['support_action'])
+            if support_preparation is not None:
+                if observed.get('support_action'):
+                    support_preparation.submitted(observed['support_action'])
+                else:
+                    left_support_flow = observed.get('state') in {
+                        'enter_ordinary_career', 'reuse_previous_setup',
+                        'continue_scenario', 'next_scenario',
+                        'continue_trainee', 'inspect_trainee', 'scroll_trainees', 'ordinary_back_to_trainee',
+                        'continue_inheritance', 'confirm_abandon',
+                        'open_tp_refill', 'close_tp_result', 'close_tp_menu',
+                    }
+                    support_preparation.reset_pending(clear_selection_state=left_support_flow)
             if self.on_submitted is not None:
                 self.on_submitted(observed)
             last_action_sha=sha;last_action_state=observed['state'];phase=observed['next_phase']

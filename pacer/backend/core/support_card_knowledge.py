@@ -81,7 +81,7 @@ class SupportCardKnowledgeLibrary:
     def search_cards(self, text=""):
         query = normalized(text)
         return [card for card in self.cards.values() if not query or any(query in normalized(v)
-            for v in [card["card_id"], card["name_zh_cn"], card["name_ja"], *card["aliases"]] if v)]
+            for v in [card["card_id"], card["name_zh_cn"], card.get("character_name_zh_cn"), card["name_ja"], *card["aliases"]] if v)]
 
     def resolve_event(self, request, *, deck_card_ids=None):
         if not isinstance(request, dict):

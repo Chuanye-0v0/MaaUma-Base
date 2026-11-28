@@ -30,6 +30,10 @@ MAX_RAW = 48 * 1024 ** 2  # Legacy inline threshold only; multipart has no repor
 # The base64 envelope fits both the CN gateway and the signed-request body.
 # Keep this byte limit aligned with the feedback service's MAX_PACKED.
 MAX_PACKED = 1_500_000
+# Prefer multipart upload above ~350 KB gzip / 3 MB raw JSON so Worker isolate
+# stays well below its 128 MB heap ceiling on single-request base64/gunzip.
+INLINE_MAX_PACKED = 350_000
+INLINE_MAX_RAW = 3 * 1024 * 1024
 _ORIG_BUILD_OPENER = build_opener
 _CONN_LOCK = threading.Lock()
 _CONN_POOL: dict[tuple[str, str, int, tuple[str, int] | None], http.client.HTTPConnection] = {}
@@ -42,7 +46,16 @@ MESSAGES.update(
     service_rate_limited='授权服务暂时限流，将稍后重试。',
     service_tls_verification_failed='授权连接的 TLS 证书验证失败，未接受该连接或回包。请检查电脑时间、网络或证书设置。',
     service_html_intercepted='授权连接返回了 HTML 网页，未取得授权服务回包。请检查网络或网页拦截。',
-    service_response_incomplete='授权回包在传输中断开，未收到完整结果。恢复连接后会重新验证。')
+    service_response_incomplete='授权回包在传输中断开，未收到完整结果。恢复连接后会重新验证。',
+    gateway_request_too_large='单次上传请求体积过大，请更新程序或先本地导出交给维护者。',
+    gateway_invalid='中转网关配置异常，请稍后重试或联系维护者。',
+    gateway_route_denied='中转网关拒绝了该接口路径，请更新程序后重试。',
+    gateway_unavailable='国内中转网关暂时不可用，已尝试切换线路，请稍后重试或本地导出。',
+    gateway_client_ip_unavailable='国内中转网关未能识别网络出口，请稍后重试或本地导出。',
+    feedback_upload_denied='当前授权不允许续传或提交此复盘分段，请重新生成预览后再试。',
+    feedback_storage_busy='后台正在清理运行日志，请稍等几秒后重试生成预览。',
+    feedback_run_unavailable='这局本地记录文件已不完整或已被清理，无法生成上传预览。',
+    feedback_prepare_failed='本机生成复盘预览失败（尚未上传），可尝试本地导出或反馈给维护者。')
 STATUS_LABELS = {'open': '待查看', 'triaged': '已确认问题', 'fixed': '已修复', 'closed': '已关闭'}
 
 class SupportError(RuntimeError):
@@ -603,13 +616,29 @@ def prepare_feedback(root, run_id, description, *, review=None, include_screensh
         raise SupportError('invalid_description')
     if type(include_screenshot) is not bool:
         raise SupportError('feedback_invalid')
-    if review is not None:
-        return _prepare_feedback(root,run_id,description,review=review,include_screenshot=include_screenshot)
-    from core.auto_trainer.career_review_export import checked_review_run
-    from core.auto_trainer.pacer_storage import read_access_for_run
-    run=checked_review_run(root/'backend',run_id)
-    with read_access_for_run(run):
-        return _prepare_feedback(root,run_id,description,include_screenshot=include_screenshot)
+    try:
+        if review is not None:
+            return _prepare_feedback(root,run_id,description,review=review,include_screenshot=include_screenshot)
+        from core.auto_trainer.career_review_export import checked_review_run
+        from core.auto_trainer.pacer_storage import read_access_for_run
+        run=checked_review_run(root/'backend',run_id)
+        with read_access_for_run(run):
+            return _prepare_feedback(root,run_id,description,include_screenshot=include_screenshot)
+    except (SupportError, UpdateError):
+        raise
+    except RuntimeError as error:
+        if str(error) == 'pacer_run_maintenance_busy':
+            raise SupportError('feedback_storage_busy') from None
+        raise SupportError('feedback_prepare_failed') from None
+    except FileNotFoundError:
+        raise SupportError('feedback_run_unavailable') from None
+    except ValueError as error:
+        msg = str(error).lower()
+        if any(token in msg for token in ('missing', 'not_found', 'not found', 'unavailable', 'run_id', 'review_run')):
+            raise SupportError('feedback_run_unavailable') from None
+        raise SupportError('feedback_invalid') from None
+    except Exception:
+        raise SupportError('feedback_prepare_failed') from None
 
 
 def _prepare_feedback(root, run_id, description, *, review=None, include_screenshot=True):
@@ -714,17 +743,26 @@ def submit_feedback(root, draft_id):
     if file_digest.hexdigest()!=draft.get('sha256'):raise SupportError('feedback_invalid')
     with gzip.open(archive,'rb') as stream:
         for chunk in iter(lambda:stream.read(64*1024),b''):raw_size+=len(chunk)
-    if archive.stat().st_size<=MAX_PACKED and raw_size<=MAX_RAW and draft.get('multipart_required') is not True:
+    packed_size=archive.stat().st_size
+    multipart_required=draft.get('multipart_required') is True
+    inline_preferred=packed_size<=INLINE_MAX_PACKED and raw_size<=INLINE_MAX_RAW and not multipart_required
+    inline_allowed=packed_size<=MAX_PACKED and raw_size<=MAX_RAW and not multipart_required
+    if inline_preferred:
         data=archive.read_bytes()
         response=request(root,'/v1/feedback',dict(idempotency_key=draft_id,payload_gzip_base64=base64.b64encode(data).decode('ascii'),sha256=draft['sha256']))
     else:
         from desktop.feedback_multipart import upload_gzip,UploadError
         info=request(root,'/v1/info',authenticated=False)
-        if info.get('feedback_upload')!='maauma.feedback_upload.v1':raise SupportError('feedback_upload_unsupported')
-        def progress(done,total):
-            print(json.dumps({'schema_version':'maauma.feedback_upload_progress.v1','stage':'upload','completed_parts':done,'total_parts':total}),file=sys.stderr,flush=True)
-        try:response=upload_gzip(archive,draft_id,lambda value:request(root,'/v1/feedback',value),state_path=folder/'upload-state.json',progress=progress)
-        except UploadError as error:raise SupportError(error.code) from None
+        if info.get('feedback_upload')=='maauma.feedback_upload.v1':
+            def progress(done,total):
+                print(json.dumps({'schema_version':'maauma.feedback_upload_progress.v1','stage':'upload','completed_parts':done,'total_parts':total}),file=sys.stderr,flush=True)
+            try:response=upload_gzip(archive,draft_id,lambda value:request(root,'/v1/feedback',value),state_path=folder/'upload-state.json',progress=progress)
+            except UploadError as error:raise SupportError(error.code) from None
+        elif inline_allowed:
+            data=archive.read_bytes()
+            response=request(root,'/v1/feedback',dict(idempotency_key=draft_id,payload_gzip_base64=base64.b64encode(data).decode('ascii'),sha256=draft['sha256']))
+        else:
+            raise SupportError('feedback_upload_unsupported')
     identifier = response.get('feedback_id')
     if not isinstance(identifier, str) or not re.fullmatch('MF-[A-Fa-f0-9-]{36}', identifier):
         raise SupportError('service_mismatch')

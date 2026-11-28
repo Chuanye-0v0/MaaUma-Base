@@ -152,7 +152,13 @@ def _installed(workspace, shared):
     # Immutable installed metadata may be hardlinked to updater staging or a
     # rollback copy. Reading its identity never deletes or writes those links.
     manifest = _read(workspace.parent / 'product-package-manifest.json', 16777216, single_link=False)
-    return bool(manifest and manifest.get('product_id') == 'uma-cut')
+    if manifest and manifest.get('product_id') == 'uma-cut':
+        return True
+    public_manifest = _read(workspace.parent.parent / 'public-package-manifest.json', 16777216, single_link=False)
+    if public_manifest and public_manifest.get('product_id') == 'umaa-public':
+        return True
+    comp_manifest = _read(workspace.parent.parent / 'maauma-component-manifest.json', 16777216, single_link=False)
+    return bool(comp_manifest and comp_manifest.get('product_id') == 'uma-cut')
 
 
 def _endpoint(value):

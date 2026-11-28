@@ -25,6 +25,8 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -2002,9 +2004,66 @@ public partial class TaskQueueViewModel : ViewModelBase, IDisposable
             ? "EmulatorDetectionStarted".ToLocalization()
             : "WindowDetectionStarted".ToLocalization();
 
+    internal static bool IsAdbExecutableAvailable(string? configuredAdbPath = null, string? pathEnvOverride = null, bool checkCommonDirs = true)
+    {
+        if (!string.IsNullOrWhiteSpace(configuredAdbPath)
+            && !string.Equals(configuredAdbPath.Trim(), "adb", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(configuredAdbPath.Trim(), "adb.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            if (File.Exists(configuredAdbPath.Trim()))
+                return true;
+        }
+        if (checkCommonDirs)
+        {
+            var baseDir = AppContext.BaseDirectory;
+            string[] candidates =
+            {
+                Path.Combine(baseDir, "adb.exe"),
+                Path.Combine(baseDir, "platform-tools", "adb.exe"),
+                @"C:\Program Files\Netease\MuMuPlayer-12.0\shell\adb.exe",
+                @"C:\Program Files\Netease\MuMu Player 12\shell\adb.exe",
+                @"D:\Program Files\Netease\MuMuPlayer-12.0\shell\adb.exe",
+                @"D:\Program Files\Netease\MuMu Player 12\shell\adb.exe",
+                @"C:\Program Files\Netease\MuMuPlayerGlobal-12.0\shell\adb.exe",
+            };
+            foreach (var candidate in candidates)
+            {
+                try
+                {
+                    if (File.Exists(candidate))
+                        return true;
+                }
+                catch { }
+            }
+        }
+        var pathEnv = pathEnvOverride ?? Environment.GetEnvironmentVariable("PATH");
+        if (!string.IsNullOrWhiteSpace(pathEnv))
+        {
+            var exeName = OperatingSystem.IsWindows() ? "adb.exe" : "adb";
+            foreach (var segment in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                try
+                {
+                    if (File.Exists(Path.Combine(segment, exeName)))
+                        return true;
+                }
+                catch { }
+            }
+        }
+        return false;
+    }
+
     private (ObservableCollection<object> devices, int index) DetectAdbDevices(bool strictLaunchTarget = false)
     {
+        var sw = Stopwatch.StartNew();
         var devices = MaaProcessor.Toolkit.AdbDevice.Find();
+        sw.Stop();
+        LoggerHelper.Info($"ADB 设备枚举完成：数量={devices.Count}，耗时={sw.ElapsedMilliseconds}ms");
+        if (devices.Count == 0 && !IsAdbExecutableAvailable(Processor.Config.AdbDevice.AdbPath))
+        {
+            LoggerHelper.Warning($"未找到可用的 ADB 程序（耗时={sw.ElapsedMilliseconds}ms，配置路径={Processor.Config.AdbDevice.AdbPath}）。");
+            try { ToastHelper.Warn("未找到 ADB 程序", "未检测到 adb.exe，请确认已安装/启动模拟器或在设置中指定 ADB 路径。"); } catch { }
+        }
         var index = CalculateAdbDeviceIndex(devices, strictLaunchTarget);
         return (new(devices), index);
     }
@@ -2667,7 +2726,15 @@ public partial class TaskQueueViewModel : ViewModelBase, IDisposable
             LoggerHelper.Info($"已保存设备的指纹：{savedDevice1.GenerateDeviceFingerprint()}");
 
             // 搜索当前可用的设备
+            var adbSw = Stopwatch.StartNew();
             var currentDevices = MaaProcessor.Toolkit.AdbDevice.Find();
+            adbSw.Stop();
+            LoggerHelper.Info($"指纹匹配ADB设备枚举完成：数量={currentDevices.Count}，耗时={adbSw.ElapsedMilliseconds}ms");
+            if (currentDevices.Count == 0 && !IsAdbExecutableAvailable(Processor.Config.AdbDevice.AdbPath))
+            {
+                LoggerHelper.Warning($"指纹匹配时未找到可用的 ADB 程序（耗时={adbSw.ElapsedMilliseconds}ms，配置路径={Processor.Config.AdbDevice.AdbPath}）。");
+                try { ToastHelper.Warn("未找到 ADB 程序", "未检测到 adb.exe，请确认已安装/启动模拟器或在设置中指定 ADB 路径。"); } catch { }
+            }
 
             var preferredDeviceIndex = FindPreferredAdbDeviceIndexByLaunchConfig(currentDevices);
             if (preferredDeviceIndex >= 0)

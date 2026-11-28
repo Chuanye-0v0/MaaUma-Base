@@ -1,0 +1,7 @@
+{
+  "schema_version": "larc_skill_driver.v1",
+  "path_base": "backend",
+  "d1_root": "bridges/skills/backend",
+  "external_skill_db_path": "data/skill_database.json",
+  "startup_skill_catalog_dir": "data/skills/cn_larc_end"
+}

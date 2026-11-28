@@ -177,6 +177,14 @@ class ADB:
         _result, ok = self._run('shell', skill_overlap_shell(reverse=reverse, travel_px=travel_px))
         return bool(ok)
 
+    def swipe_skill_nudge(self, *, reverse=False, travel_px=140):
+        """Micro-nudge the skill list without leaving the current logical page."""
+        from core.skill_scroll import skill_nudge_shell
+        if self._skill_scroll_endpoint not in (_public_endpoint(), _public_endpoint()) or self.address != self._skill_scroll_endpoint:
+            return False
+        _result, ok = self._run('shell', skill_nudge_shell(reverse=reverse, travel_px=travel_px))
+        return bool(ok)
+
     def key_event(self, keycode):
         """Send an Android key event, for example BACK=4, HOME=3."""
         self._run('shell', 'input', 'keyevent', str(keycode))

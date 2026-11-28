@@ -19,7 +19,8 @@ from typing import Any, Iterable
 import cv2
 import numpy as np
 from core.image_io import read_image, write_image
-from core.skill_ocr_performance import active_harvest_ocr, tesseract_stdin
+from core.skill_ocr_performance import active_harvest_ocr, harvest_lock, tesseract_stdin
+from core.skill_scroll import MAX_SKILL_OVERLAP_SHIFT
 SCHEMA_VERSION = 'uma.skill_acquisition_manifest.v1'
 REFERENCE_WIDTH = 720
 REFERENCE_HEIGHT = 1280
@@ -197,10 +198,11 @@ def _rapidocr_engine():
     global _RAPIDOCR_ENGINE
     harvest = active_harvest_ocr()
     if harvest is not None:
-        if harvest['engine'] is None:
-            from rapidocr_onnxruntime import RapidOCR
-            harvest['engine'] = RapidOCR(det_limit_type='max', det_limit_side_len=960, intra_op_num_threads=1, inter_op_num_threads=1)
-        return harvest['engine']
+        with harvest_lock(harvest):
+            if harvest['engine'] is None:
+                from rapidocr_onnxruntime import RapidOCR
+                harvest['engine'] = RapidOCR(det_limit_type='max', det_limit_side_len=960, intra_op_num_threads=2, inter_op_num_threads=1)
+            return harvest['engine']
     if _RAPIDOCR_ENGINE is None:
         try:
             from rapidocr_onnxruntime import RapidOCR
@@ -213,7 +215,7 @@ def _rapidocr_engine():
             raise SkillAcquisitionOcrRuntimeError(f'rapidocr_engine_init_failed:{exc}') from exc
     return _RAPIDOCR_ENGINE
 
-def _harvest_fixed_text_lines(image, engine, upscale, *, minimum=0.98):
+def _harvest_fixed_text_lines(image, engine, upscale, *, minimum=0.95):
     """Recognize ink-bounded lines in known field crops; uncertain cases fall back."""
     if not image.size or image.shape[0] > 150 or image.shape[1] > 700:
         return None
@@ -228,13 +230,16 @@ def _harvest_fixed_text_lines(image, engine, upscale, *, minimum=0.98):
     groups = np.split(rows, np.where(np.diff(rows) > 4)[0] + 1)
     if not 1 <= len(groups) <= 4 or any((not 8 <= group[-1] - group[0] + 1 <= 42 for group in groups)):
         return None
+    harvest = active_harvest_ocr()
     items = []
     for group in groups:
         top, bottom = (max(0, int(group[0]) - 2), min(image.shape[0], int(group[-1]) + 3))
         columns = np.flatnonzero(mask[top:bottom].any(axis=0))
         left, right = (max(0, int(columns[0]) - 2), min(image.shape[1], int(columns[-1]) + 3))
-        result, _ = engine(image[top:bottom, left:right], use_det=False, use_cls=False)
-        active_harvest_ocr()['rapid_calls'] += 1
+        with harvest_lock(harvest):
+            result, _ = engine(image[top:bottom, left:right], use_det=False, use_cls=False)
+            if harvest is not None:
+                harvest['rapid_calls'] += 1
         if not result or len(result) != 1 or float(result[0][1]) < minimum:
             return None
         text = str(result[0][0]).strip()
@@ -246,29 +251,34 @@ def _harvest_fixed_text_lines(image, engine, upscale, *, minimum=0.98):
 def _rapidocr_ocr_data(image: np.ndarray, *, upscale: int=2, force_detection: bool=False, full_resolution: bool=False) -> list[dict[str, Any]]:
     harvest = active_harvest_ocr()
     cache_key = (image.shape, str(image.dtype), upscale, force_detection, full_resolution, hashlib.sha256(image.tobytes()).digest()) if harvest is not None else None
-    if harvest is not None and cache_key in harvest['cache']:
-        harvest['cache_hits'] += 1
-        return copy.deepcopy(harvest['cache'][cache_key])
-    if harvest is not None and len(harvest['cache']) >= 2048:
-        harvest['cache'].pop(next(iter(harvest['cache'])))
+    if harvest is not None:
+        with harvest_lock(harvest):
+            if cache_key in harvest['cache']:
+                harvest['cache_hits'] += 1
+                return copy.deepcopy(harvest['cache'][cache_key])
+            if len(harvest['cache']) >= 2048:
+                harvest['cache'].pop(next(iter(harvest['cache'])))
     engine = _rapidocr_engine()
     if full_resolution and harvest is not None:
-        if 'full_resolution_engine' not in harvest:
-            from core.ocr_runtime import create_ocr
-            harvest['full_resolution_engine'] = create_ocr()
-        engine = harvest['full_resolution_engine']
+        with harvest_lock(harvest):
+            if 'full_resolution_engine' not in harvest:
+                from core.ocr_runtime import create_ocr
+                harvest['full_resolution_engine'] = create_ocr()
+            engine = harvest['full_resolution_engine']
     if harvest is not None and (not force_detection):
         lines = _harvest_fixed_text_lines(image, engine, upscale)
         if lines is not None:
-            harvest['cache'][cache_key] = copy.deepcopy(lines)
+            with harvest_lock(harvest):
+                harvest['cache'][cache_key] = copy.deepcopy(lines)
             return lines
     prepared = image
     if upscale > 1:
         prepared = cv2.resize(image, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
     try:
-        result, _elapse = engine(prepared, use_det=True, use_cls=False) if harvest is not None and (not full_resolution) else engine(prepared)
-        if harvest is not None:
-            harvest['rapid_calls'] += 1
+        with harvest_lock(harvest):
+            result, _elapse = engine(prepared, use_det=True, use_cls=False) if harvest is not None and (not full_resolution) else engine(prepared)
+            if harvest is not None:
+                harvest['rapid_calls'] += 1
     except Exception as exc:
         raise SkillAcquisitionOcrRuntimeError(f'rapidocr_ocr_failed:{exc}') from exc
     items: list[dict[str, Any]] = []
@@ -283,7 +293,8 @@ def _rapidocr_ocr_data(image: np.ndarray, *, upscale: int=2, force_detection: bo
         box = entry[0] if len(entry) > 0 and entry[0] else None
         items.append({'text': text, 'confidence': score, 'box': box})
     if harvest is not None:
-        harvest['cache'][cache_key] = copy.deepcopy(items)
+        with harvest_lock(harvest):
+            harvest['cache'][cache_key] = copy.deepcopy(items)
     return items
 
 def _rapidocr_box_center(box: Any) -> tuple[float, float]:
@@ -358,7 +369,7 @@ def _read_name_rapidocr(crop: np.ndarray) -> dict[str, Any]:
         normalized = _normalize_ocr_text(text)
         if normalized:
             candidates.append({'variant': f'rapidocr_up{upscale}', 'text': normalized, 'confidence': round(min(1.0, confidence), 4)})
-            if active_harvest_ocr() is not None and confidence >= 0.98 and re.search('[\\u3400-\\u9fff]', normalized):
+            if active_harvest_ocr() is not None and confidence >= 0.94 and len(normalized) >= 2 and re.search('[\\u3400-\\u9fff]', normalized):
                 break
     if candidates and max((item['confidence'] for item in candidates)) < 0.9 and (crop.shape[0] >= 40):
         for upscale in (2, 3):
@@ -523,18 +534,46 @@ def read_current_skill_points(image: np.ndarray, *, runtime: TesseractRuntime | 
 def inspect_skill_acquisition_page(image: np.ndarray, *, runtime: TesseractRuntime | None=None) -> dict[str, Any]:
     """Return structural evidence that a frame is the skill acquisition page."""
     normalized, _scale = _normalize_image(image)
-    title_crop = cv2.resize(normalized[3:38, 20:135], None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
-    title_text, title_confidence = _ocr_data(title_crop, psm=7, runtime=runtime)
-    normalized_title = re.sub('\\s+', '', title_text)
     title_region = normalized[0:45, 0:180]
     title_hsv = cv2.cvtColor(title_region, cv2.COLOR_BGR2HSV)
     title_purple = float(np.mean((title_hsv[:, :, 0] >= 115) & (title_hsv[:, :, 0] <= 160) & (title_hsv[:, :, 1] > 40) & (title_hsv[:, :, 2] > 60)))
     title_white = float(np.mean((title_hsv[:, :, 1] < 60) & (title_hsv[:, :, 2] > 175)))
     title_visual_matches = title_purple > 0.35 and title_white > 0.3
-    title_matches = '技能' in normalized_title and '获取' in normalized_title
-    current_points = read_current_skill_points(normalized, runtime=runtime)
+    title_text = ''
+    title_confidence = 0.0
+    title_matches = False
+    has_rapidocr = rapidocr_available()
+    if has_rapidocr:
+        try:
+            title_text, title_confidence = _rapidocr_join_text(_rapidocr_ocr_data(normalized[3:38, 20:135], upscale=3))
+            normalized_title = re.sub('\\s+', '', title_text)
+            title_matches = '技能' in normalized_title and '获取' in normalized_title
+        except SkillAcquisitionOcrRuntimeError:
+            title_text = ''
+            title_confidence = 0.0
+            title_matches = False
+    if not title_matches and (not has_rapidocr or not title_visual_matches):
+        try:
+            title_crop = cv2.resize(normalized[3:38, 20:135], None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
+            title_text, title_confidence = _ocr_data(title_crop, psm=7, runtime=runtime)
+            normalized_title = re.sub('\\s+', '', title_text)
+            title_matches = '技能' in normalized_title and '获取' in normalized_title
+        except SkillAcquisitionOcrRuntimeError:
+            if not title_visual_matches:
+                raise
+    current_points: int | None = None
+    if has_rapidocr:
+        try:
+            current_points = read_current_skill_points(normalized, runtime=runtime, backend='rapidocr')
+        except SkillAcquisitionOcrRuntimeError:
+            current_points = None
     if current_points is None:
-        current_points = read_current_skill_points(normalized, runtime=runtime, backend='rapidocr')
+        try:
+            current_points = read_current_skill_points(normalized, runtime=runtime, backend='tesseract')
+        except SkillAcquisitionOcrRuntimeError:
+            if not has_rapidocr:
+                raise
+            current_points = None
     row_count = len(detect_skill_row_boxes(normalized))
     accepted = (title_matches or title_visual_matches) and current_points is not None and (row_count > 0)
     return {'accepted': accepted, 'title_ocr': title_text, 'title_confidence': round(title_confidence, 4), 'title_matches': title_matches, 'title_visual_matches': title_visual_matches, 'title_visual_evidence': {'purple_ratio': round(title_purple, 4), 'white_ratio': round(title_white, 4)}, 'current_skill_points': current_points, 'detected_usable_rows': row_count}
@@ -599,7 +638,7 @@ def _read_hint(row: np.ndarray, *, runtime: TesseractRuntime | None=None, backen
                 return (None, None, '')
     raw_attempts: list[str] = []
     discount_only: int | None = None
-    for crop_height in (50, 60, 78):
+    for crop_height in (60, 78, 50):
         bubble = row[0:min(height, crop_height), 492:608]
         if bubble.size == 0:
             continue
@@ -664,11 +703,122 @@ def _scaled_bbox(bbox: tuple[int, int, int, int], scale: tuple[float, float]) ->
     sx, sy = scale
     return [round(x1 * sx), round(y1 * sy), round(x2 * sx), round(y2 * sy)]
 
+def _write_row_icon(row: np.ndarray, *, output_dir: Path | None, page_index: int, row_index: int) -> str | None:
+    if output_dir is None:
+        return None
+    icon = row[35:min(125, row.shape[0]), 12:98]
+    if not icon.size:
+        return None
+    icon_dir = output_dir / 'icons'
+    icon_dir.mkdir(parents=True, exist_ok=True)
+    icon_name = f'page_{page_index:02d}_row_{row_index:02d}_icon.png'
+    icon_path = icon_dir / icon_name
+    if not write_image(str(icon_path), icon):
+        raise OSError(f'failed to write icon crop: {icon_path}')
+    return str(Path('icons') / icon_name).replace('\\', '/')
+
+
+def _reuse_shifted_row_entry(
+    normalized: np.ndarray,
+    bbox: tuple[int, int, int, int],
+    *,
+    prev_normalized: np.ndarray | None,
+    prev_entries_by_bbox: dict[tuple[int, int, int, int], dict[str, Any]] | None,
+    shift: float | None,
+    source_page: Path,
+    page_index: int,
+    row_index: int,
+    source_scale: tuple[float, float],
+    output_dir: Path | None,
+) -> dict[str, Any] | None:
+    if prev_normalized is None or not prev_entries_by_bbox or type(shift) not in (int, float):
+        return None
+    if not 1 <= float(shift) <= MAX_SKILL_OVERLAP_SHIFT:
+        return None
+    x1, y1, x2, y2 = bbox
+    if y1 == LIST_VIEWPORT[1] and (y2 - y1) < ROW_HEIGHT:
+        return None
+    if (y2 - y1) != ROW_HEIGHT:
+        return None
+    expected_py1 = y1 + round(float(shift))
+    match_bbox: tuple[int, int, int, int] | None = None
+    prev_entry: dict[str, Any] | None = None
+    best_dist = 4
+    for cand_bbox, cand_entry in prev_entries_by_bbox.items():
+        px1, py1, px2, py2 = cand_bbox
+        if px1 != x1 or px2 != x2 or (py2 - py1) != ROW_HEIGHT:
+            continue
+        dist = abs(py1 - expected_py1)
+        if dist <= 3 and dist < best_dist:
+            best_dist = dist
+            match_bbox = cand_bbox
+            prev_entry = cand_entry
+    if match_bbox is None or prev_entry is None:
+        return None
+    px1, py1, px2, py2 = match_bbox
+    curr_row = normalized[y1:y2, x1:x2]
+    prev_row = prev_normalized[py1:py2, px1:px2]
+    diff = cv2.absdiff(prev_row, curr_row)
+    if float(diff.mean()) >= 2.0 or float(np.percentile(diff, 99)) > 12.0:
+        return None
+    right_diff = diff[:, 465:650]
+    if float(right_diff.mean()) >= 1.5 or int(right_diff.max()) > 25:
+        return None
+    acquired = _pink_ratio(curr_row[:, 490:650]) > 0.01
+    plus_available = not acquired and _green_ratio(curr_row[:, 590:650]) > 0.01
+    minus_state = 'not_applicable' if acquired else 'available' if _green_ratio(curr_row[:, 465:525]) > 0.01 else 'disabled'
+    if (
+        acquired != bool(prev_entry.get('acquired'))
+        or plus_available != bool(prev_entry.get('plus_available'))
+        or minus_state != prev_entry.get('minus_state')
+    ):
+        return None
+    icon_crop_relative = _write_row_icon(curr_row, output_dir=output_dir, page_index=page_index, row_index=row_index)
+    reused = copy.deepcopy(prev_entry)
+    reused['icon_crop'] = icon_crop_relative
+    reused['source_pages'] = [str(source_page)]
+    reused['row_fingerprint'] = _perceptual_fingerprint(curr_row)
+    if isinstance(reused.get('source_evidence'), list) and reused['source_evidence']:
+        ev = reused['source_evidence'][0]
+        ev['source_page'] = str(source_page)
+        ev['page_index'] = page_index
+        ev['row_index'] = row_index
+        ev['row_bbox'] = _scaled_bbox(bbox, source_scale)
+        ev['normalized_row_bbox'] = list(bbox)
+        ev['icon_crop'] = icon_crop_relative
+    harvest = active_harvest_ocr()
+    if isinstance(harvest, dict):
+        with harvest_lock(harvest):
+            harvest['shift_row_cache_hits'] = harvest.get('shift_row_cache_hits', 0) + 1
+            harvest['cache_hits'] = harvest.get('cache_hits', 0) + 1
+    return reused
+
+
 def _parse_row(normalized: np.ndarray, bbox: tuple[int, int, int, int], *, source_page: Path, page_index: int, row_index: int, source_scale: tuple[float, float], output_dir: Path | None, ocr_backend: str, runtime: TesseractRuntime | None) -> dict[str, Any]:
     x1, y1, x2, y2 = bbox
     row = normalized[y1:y2, x1:x2]
     row_height = row.shape[0]
     top_partial = y1 == LIST_VIEWPORT[1] and row_height < ROW_HEIGHT
+    icon_crop_relative = _write_row_icon(row, output_dir=output_dir, page_index=page_index, row_index=row_index)
+    harvest = active_harvest_ocr()
+    row_cache = harvest.get('row_cache') if isinstance(harvest, dict) else None
+    row_cache_key = (ocr_backend, top_partial, row.shape, hashlib.sha256(row.tobytes()).digest()) if isinstance(row_cache, dict) else None
+    if row_cache_key is not None:
+        with harvest_lock(harvest):
+            if row_cache_key in row_cache:
+                harvest['row_cache_hits'] = harvest.get('row_cache_hits', 0) + 1
+                harvest['cache_hits'] += 1
+                cached = copy.deepcopy(row_cache[row_cache_key])
+                cached['icon_crop'] = icon_crop_relative
+                cached['source_pages'] = [str(source_page)]
+                evidence_item = cached['source_evidence'][0]
+                evidence_item['source_page'] = str(source_page)
+                evidence_item['page_index'] = page_index
+                evidence_item['row_index'] = row_index
+                evidence_item['row_bbox'] = _scaled_bbox(bbox, source_scale)
+                evidence_item['normalized_row_bbox'] = list(bbox)
+                evidence_item['icon_crop'] = icon_crop_relative
+                return cached
     name_crop = row[0:min(50, row_height), 100:470]
     description_crop = row[0:row_height, 100:470] if top_partial else row[45:min(132, row_height), 100:470]
     name_result = {'text': None, 'confidence': 0.0, 'accepted': False, 'candidates': []} if top_partial else _read_name(name_crop, ocr_backend, runtime)
@@ -680,16 +830,6 @@ def _parse_row(normalized: np.ndarray, bbox: tuple[int, int, int, int], *, sourc
     hint_level, discount_percent, hint_ocr_raw = _read_hint(row, runtime=runtime, backend=ocr_backend)
     rarity, frame = _row_frame(row, acquired)
     minus_state = 'not_applicable' if acquired else 'available' if _green_ratio(row[:, 465:525]) > 0.01 else 'disabled'
-    icon_crop_relative: str | None = None
-    icon = row[35:min(125, row_height), 12:98]
-    if output_dir is not None and icon.size:
-        icon_dir = output_dir / 'icons'
-        icon_dir.mkdir(parents=True, exist_ok=True)
-        icon_name = f'page_{page_index:02d}_row_{row_index:02d}_icon.png'
-        icon_path = icon_dir / icon_name
-        if not write_image(str(icon_path), icon):
-            raise OSError(f'failed to write icon crop: {icon_path}')
-        icon_crop_relative = str(Path('icons') / icon_name).replace('\\', '/')
     unknown_reason: list[str] = []
     if ocr_backend == 'none':
         unknown_reason.extend(['name_ocr_unavailable', 'description_ocr_unavailable'])
@@ -719,7 +859,13 @@ def _parse_row(normalized: np.ndarray, bbox: tuple[int, int, int, int], *, sourc
     confidence = round(sum(field_confidences) / len(field_confidences), 4)
     scaled_bbox = _scaled_bbox(bbox, source_scale)
     evidence = {'source_page': str(source_page), 'page_index': page_index, 'row_index': row_index, 'row_bbox': scaled_bbox, 'normalized_row_bbox': list(bbox), 'icon_crop': icon_crop_relative, 'cost_evidence': dict(cost_evidence), 'name_ocr_candidates': name_result['candidates'], 'description_ocr_raw': description_result['raw'], 'hint_ocr_raw': hint_ocr_raw}
-    return {'name': name_result['text'], 'description': description_result['text'], 'rarity': rarity, 'frame': frame, 'acquired': acquired, 'hint_level': hint_level, 'discount_percent': discount_percent, 'cost': cost, 'cost_evidence': cost_evidence, 'plus_available': plus_available, 'minus_state': minus_state, 'icon_crop': icon_crop_relative, 'source_pages': [str(source_page)], 'source_evidence': [evidence], 'confidence': confidence, 'field_confidence': {'structure': 0.95, 'name': round(effective_name_confidence, 4), 'description': description_result['confidence'], 'cost': cost_evidence['confidence'] if cost_evidence['source'] in {'tesseract_fallback', 'tesseract_crosscheck'} else 0.95 if acquired or cost is not None else 0.0, 'hint': 0.9 if hint_level is not None else None}, 'unknown_reason': unknown_reason, 'row_fingerprint': _perceptual_fingerprint(row), 'ocr_raw': {'name_candidates': name_result['candidates'], 'description': description_result['raw'], 'hint': hint_ocr_raw}}
+    entry = {'name': name_result['text'], 'description': description_result['text'], 'rarity': rarity, 'frame': frame, 'acquired': acquired, 'hint_level': hint_level, 'discount_percent': discount_percent, 'cost': cost, 'cost_evidence': cost_evidence, 'plus_available': plus_available, 'minus_state': minus_state, 'icon_crop': icon_crop_relative, 'source_pages': [str(source_page)], 'source_evidence': [evidence], 'confidence': confidence, 'field_confidence': {'structure': 0.95, 'name': round(effective_name_confidence, 4), 'description': description_result['confidence'], 'cost': cost_evidence['confidence'] if cost_evidence['source'] in {'tesseract_fallback', 'tesseract_crosscheck'} else 0.95 if acquired or cost is not None else 0.0, 'hint': 0.9 if hint_level is not None else None}, 'unknown_reason': unknown_reason, 'row_fingerprint': _perceptual_fingerprint(row), 'ocr_raw': {'name_candidates': name_result['candidates'], 'description': description_result['raw'], 'hint': hint_ocr_raw}}
+    if row_cache_key is not None:
+        with harvest_lock(harvest):
+            if len(row_cache) >= 512:
+                row_cache.pop(next(iter(row_cache)))
+            row_cache[row_cache_key] = copy.deepcopy(entry)
+    return entry
 
 def _dedupe_key(entry: dict[str, Any]) -> tuple[str, str]:
     name = entry.get('name')
@@ -892,7 +1038,97 @@ def _write_review_pack(manifest: dict[str, Any], output_dir: Path) -> None:
     todo = {'schema_version': 'uma.skill_acquisition_truth_todo.v1', 'source_manifest': 'manifest.json', 'instructions': 'Confirm or correct OCR fields. Do not infer unknown skills without visual evidence.', 'items': [{'item_id': f'skill_{index:03d}', 'review_status': 'todo', 'predicted': {key: skill.get(key) for key in ('name', 'description', 'rarity', 'acquired', 'hint_level', 'discount_percent', 'cost')}, 'confirmed': None, 'source_evidence': skill.get('source_evidence', []), 'unknown_reason': skill.get('unknown_reason', [])} for index, skill in enumerate(manifest['skills'])]}
     (output_dir / 'truth.todo.json').write_text(json.dumps(todo, ensure_ascii=False, indent=2), encoding='utf-8')
 
-def parse_skill_acquisition_pages(page_paths: Iterable[str | Path], *, output_dir: str | Path | None=None, ocr_backend: str='auto', assume_continuous_scroll: bool=False, tessdata_dir: str | Path | None=None) -> dict[str, Any]:
+def parse_single_skill_page(
+    path: Path,
+    *,
+    page_index: int,
+    output_dir: Path | None,
+    ocr_backend: str,
+    runtime: TesseractRuntime | None,
+    prev_normalized: np.ndarray | None = None,
+    prev_entry_by_bbox: dict[tuple[int, int, int, int], dict[str, Any]] | None = None,
+    prev_shift: float | None = None,
+    prev_pt_crop: np.ndarray | None = None,
+    prev_points: int | None = None,
+) -> dict[str, Any]:
+    source = _read_image(path)
+    normalized, source_scale = _normalize_image(source)
+    pt_crop = normalized[390:455, 510:690].copy()
+    if (
+        prev_points is not None
+        and prev_pt_crop is not None
+        and pt_crop.shape == prev_pt_crop.shape
+        and int(cv2.absdiff(pt_crop, prev_pt_crop).max()) <= 10
+    ):
+        current_points = prev_points
+    else:
+        current_points = read_current_skill_points(normalized, runtime=runtime, backend=ocr_backend)
+    warning = f'current_skill_points_unreadable:{path}' if current_points is None else None
+    layout = _detect_skill_row_layout(normalized)
+    row_boxes = layout['usable_boxes']
+    page_entries: list[dict[str, Any]] = []
+    for row_index, bbox in enumerate(row_boxes):
+        reused = _reuse_shifted_row_entry(
+            normalized,
+            bbox,
+            prev_normalized=prev_normalized,
+            prev_entries_by_bbox=prev_entry_by_bbox,
+            shift=prev_shift,
+            source_page=path,
+            page_index=page_index,
+            row_index=row_index,
+            source_scale=source_scale,
+            output_dir=output_dir,
+        )
+        if reused is not None:
+            page_entries.append(reused)
+        else:
+            page_entries.append(_parse_row(
+                normalized,
+                bbox,
+                source_page=path,
+                page_index=page_index,
+                row_index=row_index,
+                source_scale=source_scale,
+                output_dir=output_dir,
+                ocr_backend=ocr_backend,
+                runtime=runtime,
+            ))
+    entry_by_bbox = {tuple(entry['source_evidence'][0]['normalized_row_bbox']): entry for entry in page_entries}
+    continuation_page = {
+        'path': path,
+        'page_index': page_index,
+        'scale': source_scale,
+        'top_fragment': layout['top_fragment'],
+        'bottom_fragment': layout['bottom_fragment'],
+        'top_entry': entry_by_bbox.get(tuple(layout['top_fragment'])) if layout['top_fragment'] else None,
+        'bottom_entry': entry_by_bbox.get(tuple(layout['bottom_fragment'])) if layout['bottom_fragment'] else None,
+    }
+    page_result = {
+        'source_page': str(path),
+        'width': int(source.shape[1]),
+        'height': int(source.shape[0]),
+        'current_skill_points': current_points,
+        'detected_usable_rows': len(page_entries),
+        'row_bboxes': [_scaled_bbox(box, source_scale) for box in row_boxes],
+        'continuation_fragments': {
+            key: _scaled_bbox(layout[key], source_scale) if layout[key] else None
+            for key in ('top_fragment', 'bottom_fragment')
+        },
+    }
+    return {
+        'page_entries': page_entries,
+        'entry_by_bbox': entry_by_bbox,
+        'continuation_page': continuation_page,
+        'page_result': page_result,
+        'current_points': current_points,
+        'warning': warning,
+        'normalized': normalized,
+        'pt_crop': pt_crop,
+    }
+
+
+def parse_skill_acquisition_pages(page_paths: Iterable[str | Path], *, output_dir: str | Path | None=None, ocr_backend: str='auto', assume_continuous_scroll: bool=False, tessdata_dir: str | Path | None=None, overlap_evidence: list[dict[str, Any]] | None=None) -> dict[str, Any]:
     """Parse and deduplicate one or more skill-acquisition screenshots."""
     effective_backend, rapidocr_available = resolve_ocr_backend(ocr_backend)
     paths = [Path(path) for path in page_paths]
@@ -902,26 +1138,65 @@ def parse_skill_acquisition_pages(page_paths: Iterable[str | Path], *, output_di
     destination = Path(output_dir) if output_dir is not None else None
     if destination is not None:
         destination.mkdir(parents=True, exist_ok=True)
+    shift_by_page_index: dict[int, float] = {}
+    for item in overlap_evidence or ():
+        if (
+            isinstance(item, dict)
+            and item.get('verified') is True
+            and type(item.get('page_index')) is int
+            and type(item.get('shift')) in (int, float)
+        ):
+            shift_by_page_index[item['page_index']] = float(item['shift'])
+    harvest = active_harvest_ocr()
+    dest_key = str(destination.resolve()) if destination is not None else None
     page_results: list[dict[str, Any]] = []
     all_entries: list[dict[str, Any]] = []
     point_values: list[int] = []
     warnings: list[str] = []
     continuation_pages: list[dict[str, Any]] = []
+    prev_normalized: np.ndarray | None = None
+    prev_entry_by_bbox: dict[tuple[int, int, int, int], dict[str, Any]] | None = None
+    prev_pt_crop: np.ndarray | None = None
+    prev_points: int | None = None
     for page_index, path in enumerate(paths):
-        source = _read_image(path)
-        normalized, source_scale = _normalize_image(source)
-        current_points = read_current_skill_points(normalized, runtime=runtime, backend=effective_backend)
+        parsed_page = None
+        if isinstance(harvest, dict) and harvest.get('preparsed_pages'):
+            raw_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+            cache_key = (str(path.resolve()), page_index, raw_sha, dest_key, effective_backend)
+            with harvest_lock(harvest):
+                cached_page = harvest['preparsed_pages'].get(cache_key)
+                if cached_page is not None:
+                    parsed_page = copy.deepcopy(cached_page)
+        if parsed_page is None:
+            if prev_normalized is None and page_index > 0 and prev_entry_by_bbox is not None and (page_index in shift_by_page_index):
+                prev_src = _read_image(paths[page_index - 1])
+                prev_normalized, _ = _normalize_image(prev_src)
+            parsed_page = parse_single_skill_page(
+                path,
+                page_index=page_index,
+                output_dir=destination,
+                ocr_backend=effective_backend,
+                runtime=runtime,
+                prev_normalized=prev_normalized,
+                prev_entry_by_bbox=prev_entry_by_bbox,
+                prev_shift=shift_by_page_index.get(page_index),
+                prev_pt_crop=prev_pt_crop,
+                prev_points=prev_points,
+            )
+            prev_normalized = parsed_page['normalized']
+        else:
+            prev_normalized = None
+        current_points = parsed_page['current_points']
         if current_points is not None:
             point_values.append(current_points)
-        else:
-            warnings.append(f'current_skill_points_unreadable:{path}')
-        layout = _detect_skill_row_layout(normalized)
-        row_boxes = layout['usable_boxes']
-        page_entries = [_parse_row(normalized, bbox, source_page=path, page_index=page_index, row_index=row_index, source_scale=source_scale, output_dir=destination, ocr_backend=effective_backend, runtime=runtime) for row_index, bbox in enumerate(row_boxes)]
-        all_entries.extend(page_entries)
-        entry_by_bbox = {tuple(entry['source_evidence'][0]['normalized_row_bbox']): entry for entry in page_entries}
-        continuation_pages.append({'path': path, 'page_index': page_index, 'scale': source_scale, 'top_fragment': layout['top_fragment'], 'bottom_fragment': layout['bottom_fragment'], 'top_entry': entry_by_bbox.get(tuple(layout['top_fragment'])) if layout['top_fragment'] else None, 'bottom_entry': entry_by_bbox.get(tuple(layout['bottom_fragment'])) if layout['bottom_fragment'] else None})
-        page_results.append({'source_page': str(path), 'width': int(source.shape[1]), 'height': int(source.shape[0]), 'current_skill_points': current_points, 'detected_usable_rows': len(page_entries), 'row_bboxes': [_scaled_bbox(box, source_scale) for box in row_boxes], 'continuation_fragments': {key: _scaled_bbox(layout[key], source_scale) if layout[key] else None for key in ('top_fragment', 'bottom_fragment')}})
+        elif parsed_page.get('warning'):
+            warnings.append(parsed_page['warning'])
+        all_entries.extend(parsed_page['page_entries'])
+        continuation_pages.append(parsed_page['continuation_page'])
+        page_results.append(parsed_page['page_result'])
+        prev_entry_by_bbox = parsed_page['entry_by_bbox']
+        prev_pt_crop = parsed_page.get('pt_crop')
+        prev_points = current_points
     if assume_continuous_scroll:
         for previous, current in zip(continuation_pages, continuation_pages[1:]):
             previous_fragment = previous['bottom_fragment']

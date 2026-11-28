@@ -18,7 +18,18 @@ TRAINING_FAILURE_RESTART = 'training_failure_restart'
 
 
 def read(path):
-    return json.loads(Path(path).read_text(encoding='utf-8-sig')) if Path(path).is_file() else {}
+    target = Path(path)
+    if not target.is_file():
+        return {}
+    for delay in (0.05, 0.06, 0.08, 0.10, None):
+        try:
+            return json.loads(target.read_text(encoding='utf-8-sig'))
+        except FileNotFoundError:
+            return {}
+        except (PermissionError, OSError, json.JSONDecodeError):
+            if delay is None:
+                raise
+            time.sleep(delay)
 
 
 def sieve_source_matches(source, run_root, turn):
@@ -938,6 +949,12 @@ def continue_after_cut_report(session, root, report, control, *, career_runner=N
             if store.node['kind'] == 'career':
                 store.choose('completed', evidence={'normal_settlement_complete': True})
             store.data['status'] = 'completed'
+        if getattr(args, 'training_records', 'discard') != 'keep':
+            try:
+                from core.auto_trainer.pacer_storage import prune_completed_attempt
+                prune_completed_attempt(root, outcome='completed')
+            except Exception:
+                pass
     elif store.data.get('status') not in {'waiting', 'preserved'}:
         store.data['status'] = 'stopped'
     if screening_transfer:

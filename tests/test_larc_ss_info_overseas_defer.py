@@ -69,7 +69,7 @@ class _DummyTrainingParser:
 class LarcSSInfoOverseasDeferTests(unittest.TestCase):
     def test_overseas_expedition_period_detection(self) -> None:
         for yr, m, h in (
-            (2, 7, "second"), (2, 8, "first"), (2, 8, "second"), (2, 9, "first"), (2, 9, "second"),
+            (2, 7, "first"), (2, 7, "second"), (2, 8, "first"), (2, 8, "second"), (2, 9, "first"), (2, 9, "second"),
             (3, 7, "first"), (3, 7, "second"), (3, 8, "first"), (3, 8, "second"), (3, 9, "first"), (3, 9, "second"),
         ):
                 args_top = types.SimpleNamespace(
@@ -84,8 +84,9 @@ class LarcSSInfoOverseasDeferTests(unittest.TestCase):
                 self.assertTrue(_is_larc_overseas_expedition_period(args_nested), (yr, m, h))
 
         for yr, m, h, status in (
+            (1, 7, "first", "verified"),
             (1, 8, "first", "verified"),
-            (2, 7, "first", "verified"),
+            (2, 6, "second", "verified"),
             (2, 10, "first", "verified"),
             (3, 6, "second", "verified"),
             (3, 10, "second", "verified"),

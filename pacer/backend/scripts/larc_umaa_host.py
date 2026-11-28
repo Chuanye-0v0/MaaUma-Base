@@ -33,22 +33,27 @@ _JSON_CACHE = {}
 
 
 def read_json(path):
-    try:
-        p = Path(path)
-        st = p.stat()
-        key = (str(p), st.st_mtime_ns, st.st_size)
-        cached = _JSON_CACHE.get(key)
-        if cached is not None:
-            return dict(cached)
-        value = json.loads(p.read_text(encoding='utf-8-sig'))
-        if isinstance(value, dict):
-            if len(_JSON_CACHE) > 256:
-                _JSON_CACHE.clear()
-            _JSON_CACHE[key] = value
-            return dict(value)
-        return {}
-    except (OSError, ValueError):
-        return {}
+    p = Path(path)
+    for delay in (0.04, 0.06, 0.08, None):
+        try:
+            st = p.stat()
+            key = (str(p), st.st_mtime_ns, st.st_size)
+            cached = _JSON_CACHE.get(key)
+            if cached is not None:
+                return dict(cached)
+            value = json.loads(p.read_text(encoding='utf-8-sig'))
+            if isinstance(value, dict):
+                if len(_JSON_CACHE) > 256:
+                    _JSON_CACHE.clear()
+                _JSON_CACHE[key] = value
+                return dict(value)
+            return {}
+        except FileNotFoundError:
+            return {}
+        except (PermissionError, OSError, ValueError):
+            if delay is None:
+                return {}
+            time.sleep(delay)
 
 
 

@@ -2,7 +2,7 @@
 from pathlib import Path
 import re
 
-from core.auto_trainer.dashboard_control import ControlProfile, DashboardControlService
+from core.auto_trainer.dashboard_control import ControlProfile, ControlStateError, DashboardControlService
 from core.auto_trainer.dashboard_runner import RunnerHeartbeatWorker
 from core.auto_trainer.runtime_control import (
     RunControl, RunStopped, ResumeFromCurrentPage, current_page_resume, bind,
@@ -125,10 +125,17 @@ def _restart_after_mei_unlock_failure(args, report, control, attempt_index, *, m
         if isinstance(batch, dict) and isinstance(batch.get('runs'), list) and batch['runs']:
             batch['runs'][-1] = {'run_id': new_root.name, 'run_root': str(new_root), 'status': 'created'}
             batch['current_run_id'] = new_root.name
-        store.bind(new_root)
-        store.data.update(active_node=store.document['run_graph']['entry'], status='running')
-        store.advance_controls()
-        store.save()
+            store.bind(new_root)
+            store.data.update(active_node=store.document['run_graph']['entry'], status='running')
+            store.advance_controls()
+            store.save()
+        else:
+            from copy import deepcopy
+            from scripts.career_workflow_runtime import WorkflowState
+
+            new_store = WorkflowState(new_root, document=deepcopy(store.document), endpoint=f'127.0.0.1:{args.adb_port}')
+            new_store.bind(new_root)
+            new_store.save()
 
     limit = int(options.get('max_actions', getattr(args, 'max_actions', 72)) or 72)
     argv = build_argv(
@@ -267,8 +274,11 @@ def make_larc_runner_factory(run=None, *, umaa_root=None,control_factory=None,le
                         if (args.execute and not report.get('workflow_batch_root')
                                 and report.get('run_session_id') == Path(args.run_root).name):
                             try:
-                                from core.auto_trainer.pacer_storage import maintain
+                                from core.auto_trainer.pacer_storage import maintain, prune_completed_attempt
                                 root = Path(args.run_root).absolute()
+                                if (report.get('career_complete') is True and code == 0
+                                        and getattr(args, 'training_records', 'discard') != 'keep'):
+                                    prune_completed_attempt(root, outcome='completed')
                                 maintain(Path(__file__).resolve().parents[1],min_interval=0,
                                     exclude_run=root,
                                     runtime_owner={'run_root':root,
@@ -295,13 +305,20 @@ def make_larc_runner_factory(run=None, *, umaa_root=None,control_factory=None,le
                     )
                 except Exception:
                     pass
+                control.finish()
                 port.finish(outcome="stopped", reason=reason, evidence_sha256=None)
                 raise
             finally:
                 control.finish()
-            port.finish(outcome="completed" if code == 0 else "stopped",
-                        reason=re.sub(r"[^a-z0-9_.:-]", "_", str(report.get("stop_reason", "runner_finished")).lower())[:96],
-                        evidence_sha256=None)
+            outcome = "completed" if code == 0 else "stopped"
+            finish_reason = re.sub(r"[^a-z0-9_.:-]", "_", str(report.get("stop_reason", "runner_finished")).lower())[:96]
+            try:
+                port.finish(outcome=outcome, reason=finish_reason, evidence_sha256=None)
+            except ControlStateError as err:
+                if err.code == "runner_finish_rejected" and outcome == "completed":
+                    port.finish(outcome="stopped", reason=finish_reason, evidence_sha256=None)
+                else:
+                    raise
         finally:
             if args.execute:
                 try:
@@ -317,8 +334,9 @@ def create_larc_control_service(state_dir, profiles, *, run=None, umaa_root=None
     """Profiles contain approved CLI arguments; button requests contain no shell."""
     service=DashboardControlService(state_dir=Path(state_dir),
         profiles={name: ControlProfile(name, {"argv": list(argv)}) for name, argv in profiles.items()},
-        runner_factory=make_larc_runner_factory(run, umaa_root=umaa_root,control_factory=control_factory,lease=lease,state_dir=state_dir))
-    if control_factory is not None and (service.snapshot()['state'] not in {'idle','stopped'} or (Path(state_dir)/'runner.lock').exists()):
+        runner_factory=make_larc_runner_factory(run, umaa_root=umaa_root,control_factory=control_factory,lease=lease,state_dir=state_dir),
+        heartbeat_timeout=45.0)
+    if umaa_root is not None and (service.snapshot()['state'] not in {'idle','stopped'} or (Path(state_dir)/'runner.lock').exists()):
         from scripts.larc_umaa_common import occupancy
         if len(profiles)!=1:raise ValueError('career_reconnect_profile_ambiguous')
         argv=list(next(iter(profiles.values())));port=int(argv[argv.index('--adb-port')+1])

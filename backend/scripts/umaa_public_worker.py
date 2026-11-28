@@ -53,6 +53,8 @@ def main():
         except Exception:
             diagnostic = dict(error_type=type(error).__name__, error='exception_details_unavailable', traceback='')
         result = dict(ok=False, game_task_complete=False, reason=reason, **diagnostic, device_action_count_complete=False)
+        if isinstance(locals().get('request'), dict) and request.get('task'):
+            result['kind'] = request['task']
         try:
             emit(dict(type='error', message=f"{request['task']}: {result['error_type']}: {result['error']}", reason=result['reason'], error_type=result['error_type']))
         except Exception:

@@ -8,7 +8,7 @@ import re
 _INT_STR_RE = re.compile(r'^[+-]?\d+$')
 
 VERSION = 'larc_continuation.v1'
-NODES = ('junior', 'inheritance', 'pre_expedition', 'inheritance2')
+NODES = ('junior', 'inheritance', 'pre_expedition', 'classic_arc', 'inheritance2')
 STATS = ('speed', 'stamina', 'power', 'guts', 'wisdom')
 DISTANCES = ('short', 'mile', 'medium', 'long')
 RANKS = 'GFEDCBAS'
@@ -58,6 +58,9 @@ def defaults():
         'inheritance': {
             'mode': 'filter', 'skills': [], 'min_skills': 1,
             'distances': {}, 'on_fail': 'pause',
+        },
+        'classic_arc': {
+            'mode': 'observe', 'max_rank': 1, 'on_fail': 'pause',
         },
         'inheritance2': {
             'mode': 'observe', 'combine': 'all', 'min_pass': 1,
@@ -109,7 +112,7 @@ def _coerce_float_opt(value):
 def _coerce_section_numbers(section):
     if not isinstance(section, dict):
         return
-    for key in ('min_pass', 'min_skills'):
+    for key in ('min_pass', 'min_skills', 'max_rank'):
         if key in section:
             coerced = _coerce_int_opt(section[key])
             if coerced is not None:
@@ -332,6 +335,14 @@ def normalize(value):
         require_non_empty=False,
         enabled=result['enabled'],
     )
+    if result['enabled']:
+        result['classic_arc']['max_rank'] = _integer(
+            result['classic_arc'].get('max_rank', 1), '首次凯旋门·最低要求名次', 1, 20
+        )
+    else:
+        coerced_rank = _coerce_int_opt(result['classic_arc'].get('max_rank'))
+        if coerced_rank is not None:
+            result['classic_arc']['max_rank'] = coerced_rank
     inheritance2 = result['inheritance2']
     if (result['enabled'] and inheritance2['mode'] == 'filter'
             and not inheritance2['conditions'] and not inheritance2['skills'] and not inheritance2['distances']):
@@ -434,18 +445,53 @@ def condition_result(condition, facts):
     return {'condition': deepcopy(condition), 'actual': value, 'passed': _minimum(value, target)}
 
 
+_MIN_NODE_LUCK_SCORED_DATES = {
+    'junior': 18,
+    'pre_expedition': 28,
+    'inheritance2': 40,
+}
+
+
+def _takeover_insufficient_luck(node_name, condition, row, facts):
+    if condition.get('kind') != 'realtime_luck_min':
+        return None
+    detail = facts.get('realtime_luck_detail') or {}
+    if detail.get('status') == 'error':
+        return None
+    if facts.get('mid_career_takeover') is True:
+        return 'mid_career_takeover_partial_history'
+    scored_dates = detail.get('scored_dates')
+    min_dates = _MIN_NODE_LUCK_SCORED_DATES.get(node_name)
+    if type(scored_dates) is int and min_dates is not None and scored_dates < min_dates:
+        return 'mid_career_takeover_partial_history'
+    return None
+
+
 def _evaluate_condition_section(node_name, section, facts):
     rows = [condition_result(condition, facts) for condition in section['conditions']]
+    skipped = 0
     if section['mode'] == 'observe':
         status = 'observed'
     elif not rows:
         status = 'not_configured'
     else:
-        required = len(rows) if section['combine'] == 'all' else section['min_pass']
-        yes = sum(row['passed'] is True for row in rows)
-        unknown = sum(row['passed'] is None for row in rows)
-        status = 'passed' if yes >= required else ('failed' if yes + unknown < required else 'unknown')
-    return {'node': node_name, 'status': status, 'conditions': rows, 'on_fail': section['on_fail']}
+        for cond, row in zip(section['conditions'], rows):
+            skip_reason = _takeover_insufficient_luck(node_name, cond, row, facts)
+            if skip_reason:
+                row['skipped_reason'] = skip_reason
+                skipped += 1
+        effective = [row for row in rows if 'skipped_reason' not in row]
+        if not effective:
+            status = 'observed'
+        else:
+            required = len(effective) if section['combine'] == 'all' else min(section['min_pass'], len(effective))
+            yes = sum(row['passed'] is True for row in effective)
+            unknown = sum(row['passed'] is None for row in effective)
+            status = 'passed' if yes >= required else ('failed' if yes + unknown < required else 'unknown')
+    res = {'node': node_name, 'status': status, 'conditions': rows, 'on_fail': section['on_fail']}
+    if skipped > 0:
+        res['takeover_skipped_conditions'] = skipped
+    return res
 
 
 def evaluate_junior(config, facts):
@@ -510,9 +556,10 @@ def evaluate_inheritance2(config, facts):
                            False if all(v is False for v in routes) else None)
             verdicts.append(apt_verdict)
         if section['conditions']:
-            verdicts.append({'passed': True, 'failed': False}.get(cond_eval['status']))
+            if not (cond_eval['status'] == 'observed' and cond_eval.get('takeover_skipped_conditions')):
+                verdicts.append({'passed': True, 'failed': False}.get(cond_eval['status']))
         if not verdicts:
-            status = 'not_configured'
+            status = 'observed' if cond_eval.get('takeover_skipped_conditions') else 'not_configured'
         elif False in verdicts:
             status = 'failed'
         elif None in verdicts:
@@ -523,3 +570,29 @@ def evaluate_inheritance2(config, facts):
             'skill_matches': matches, 'skill_route': skill_pass,
             'distances': distances, 'distance_route': distance_pass,
             'on_fail': section['on_fail']}
+
+
+def evaluate_classic_arc(config, facts):
+    section = config['classic_arc']
+    max_rank = section['max_rank']
+    race = facts.get('classic_arc_result')
+    rank = race.get('rank') if isinstance(race, dict) else None
+    actual_rank = rank if type(rank) is int and 1 <= rank <= 20 else None
+    if section['mode'] == 'observe':
+        status = 'observed'
+    elif actual_rank is None:
+        status = 'unknown'
+    elif actual_rank <= max_rank:
+        status = 'passed'
+    else:
+        status = 'failed'
+    return {
+        'node': 'classic_arc',
+        'status': status,
+        'max_rank': max_rank,
+        'actual_rank': actual_rank,
+        'won': (actual_rank == 1) if actual_rank is not None else None,
+        'clock_retries_used': race.get('clock_retries_used') if isinstance(race, dict) else None,
+        'source': race.get('source') if isinstance(race, dict) else None,
+        'on_fail': section['on_fail'],
+    }

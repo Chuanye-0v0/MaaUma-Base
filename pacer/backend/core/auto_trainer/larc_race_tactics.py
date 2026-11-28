@@ -59,6 +59,10 @@ def parse_modal_style_aptitudes(text):
         match = re.search(rf"{label}([SABCDEFG])", compact)
         if match is not None:
             aptitudes[style] = match[1]
+    if "leader" not in aptitudes:
+        fallback = re.search(r"(?<!领)跑([SABCDEFG])", compact)
+        if fallback is not None:
+            aptitudes["leader"] = fallback[1]
     return aptitudes
 
 
@@ -70,11 +74,24 @@ def _modal_planes(image):
     return green, white
 
 
+def _has_tactic_modal_labels(compact: str) -> bool:
+    if "战术" not in compact:
+        return False
+    hits = sum(1 for label in STYLE_LABELS.values() if label in compact)
+    if hits == len(STYLE_LABELS):
+        return True
+    return hits >= 3 and (
+        bool(re.search(r"跑[SABCDEFG]", compact))
+        or "已选择" in compact
+        or ("取消" in compact and "确定" in compact)
+    )
+
+
 def is_tactic_modal_visible(image, text) -> bool:
     if image is None or len(getattr(image, "shape", ())) < 2:
         return False
     compact = "".join(str(text).split())
-    if "战术" not in compact or not all(label in compact for label in STYLE_LABELS.values()):
+    if not _has_tactic_modal_labels(compact):
         return False
     green, white = _modal_planes(image)
     return bool(
@@ -107,8 +124,7 @@ def race_tactic_control(
     target = STYLE_LABELS.get(desired)
     result = {"target_style": desired, "target_label": target}
     is_tactic_modal = (
-        "战术" in compact
-        and all(label in compact for label in STYLE_LABELS.values())
+        _has_tactic_modal_labels(compact)
         and green[310:348, 30:690].mean() > .7
         and all(white[753:800, x-42:x+42].mean() > .45 for x in STYLE_CENTERS.values())
     )

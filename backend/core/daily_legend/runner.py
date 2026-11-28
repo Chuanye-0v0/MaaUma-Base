@@ -168,7 +168,25 @@ class DailyLegendRunner(LegendRaceRunner):
         self._record_settlement('unknown_after_reconnect')
 
     def _enter(self):
-        self._act('confirm_selected')
+        for attempt in range(2):
+            try:
+                self._act('confirm_selected')
+                break
+            except ReobserveRequired as error:
+                outcome = getattr(error, 'action_outcome', {})
+                fresh = error.observation
+                if (attempt > 0 or self.pending
+                        or outcome.get('execution_status') != 'not_executed'
+                        or outcome.get('input_attempts') != 0
+                        or outcome.get('acknowledged_inputs') != 0
+                        or fresh.get('endpoint') != self.device.endpoint
+                        or fresh.get('page') not in {'selection', 'details', 'legend'}
+                        or (self.device.output_dir / 'confirm_selected-submitted.json').exists()):
+                    raise
+                self.current = fresh
+                self._remember_event()
+                self.device.horse = None
+                self._choose()
         self._wait({'lineup'}, 'lineup_not_observed')
         self._enter_from_lineup()
 

@@ -56,12 +56,10 @@ class TrainingMenuPrechecker:
 
         original_height, original_width = img.shape[:2]
         original_size = (original_width, original_height)
-        normalized_from: list[int] | None = None
-        if original_size in NORMALIZABLE_SIZES:
-            img = cv2.resize(img, EXPECTED_SIZE)
-            normalized_from = [original_width, original_height]
-
-        height, width = img.shape[:2]
+        is_normalizable = original_size in NORMALIZABLE_SIZES
+        normalized_from = [original_width, original_height] if is_normalizable else None
+        effective_size = EXPECTED_SIZE if (original_size == EXPECTED_SIZE or is_normalizable) else original_size
+        height, width = effective_size[1], effective_size[0]
         failures: list[str] = []
         evidence: dict[str, Any] = {
             "image": str(path),
@@ -70,10 +68,10 @@ class TrainingMenuPrechecker:
         if normalized_from is not None:
             evidence["layout"]["normalized_from"] = normalized_from
 
-        if (width, height) != EXPECTED_SIZE:
+        if effective_size != EXPECTED_SIZE:
             return self._reject(["layout"], evidence, "unsupported training layout size")
 
-        canonical = cv2.resize(img, (720, 1280), interpolation=cv2.INTER_AREA)
+        canonical = img if original_size == (720, 1280) else cv2.resize(img, (720, 1280), interpolation=cv2.INTER_AREA)
         hsv = cv2.cvtColor(canonical, cv2.COLOR_BGR2HSV)
         header = hsv[42:126, 15:149]
         blue_header = float(np.mean(
@@ -86,7 +84,10 @@ class TrainingMenuPrechecker:
         if blue_header != (self.scenario == "larc"):
             return self._reject(["scenario_layout_mismatch"], evidence, "scenario layout mismatch")
         if self.scenario == "larc":
-            return self._check_larc(img, hsv, expected_tab=expected_tab, evidence=evidence)
+            return self._check_larc(canonical, hsv, expected_tab=expected_tab, evidence=evidence)
+
+        if is_normalizable:
+            img = cv2.resize(img, EXPECTED_SIZE)
 
         perception = Perception().analyze_image(img)
         evidence["perception"] = {
@@ -498,7 +499,7 @@ class TrainingMenuPrechecker:
             ("attribute_panel", self._check_attribute_panel),
             ("failure_rate_region", self._check_failure_region),
         ):
-            evidence[name] = check(img)
+            evidence[name] = check(img, hsv=hsv)
             if not evidence[name]["present"]:
                 failures.append(name)
         for name, check in (
@@ -506,7 +507,7 @@ class TrainingMenuPrechecker:
             ("race_hub", self._check_race_hub_overlay),
             ("settings_overlay", self._check_settings_overlay),
         ):
-            evidence[name] = check(img)
+            evidence[name] = check(img, hsv=hsv)
             if evidence[name]["present"]:
                 failures.append(name)
         evidence["forbidden_regions"] = self._check_forbidden_intersections(rois)
@@ -1047,12 +1048,37 @@ class TrainingMenuPrechecker:
 
         return None
 
-    def _check_attribute_panel(self, img: np.ndarray) -> dict[str, Any]:
-        if img.shape[1] < 1405 or img.shape[0] < 1780:
-            return {"present": False, "reason": "image_too_small"}
-        band_hsv = cv2.cvtColor(img[1480:1780, :1405], cv2.COLOR_BGR2HSV)
-
-        legacy_roi = band_hsv[0:180, 45:1405]
+    def _check_attribute_panel(
+        self, img: np.ndarray, *, hsv: np.ndarray | None = None
+    ) -> dict[str, Any]:
+        is_720p = (
+            (hsv is not None and hsv.shape[:2] == (1280, 720))
+            or img.shape[:2] == (1280, 720)
+        )
+        if is_720p:
+            band_hsv = (
+                hsv[740:890, :703]
+                if (hsv is not None and hsv.shape[:2] == (1280, 720))
+                else cv2.cvtColor(img[740:890, :703], cv2.COLOR_BGR2HSV)
+            )
+            legacy_roi = band_hsv[0:90, 22:703]
+            header = band_hsv[80:110, 22:703]
+            values = band_hsv[110:150, 22:703]
+            edges = (22, 135, 253, 371, 490, 598, 703)
+            label_band = band_hsv[90:110]
+            cell_top, cell_bottom = 110, 150
+            rank_pad, cell_right_pad = 35, 2
+        else:
+            if img.shape[1] < 1405 or img.shape[0] < 1780:
+                return {"present": False, "reason": "image_too_small"}
+            band_hsv = cv2.cvtColor(img[1480:1780, :1405], cv2.COLOR_BGR2HSV)
+            legacy_roi = band_hsv[0:180, 45:1405]
+            header = band_hsv[160:220, 45:1405]
+            values = band_hsv[220:300, 45:1405]
+            edges = (45, 270, 506, 742, 979, 1196, 1405)
+            label_band = band_hsv[180:220]
+            cell_top, cell_bottom = 220, 300
+            rank_pad, cell_right_pad = 70, 5
         legacy_blue = float(
             np.mean(
                 (legacy_roi[:, :, 0] >= 85)
@@ -1080,8 +1106,6 @@ class TrainingMenuPrechecker:
             and not (legacy_blue > 0.75 and legacy_orange < 0.05)
         )
 
-        header = band_hsv[160:220, 45:1405]
-        values = band_hsv[220:300, 45:1405]
         header_pink = float(
             np.mean(
                 (header[:, :, 0] >= 145)
@@ -1099,9 +1123,8 @@ class TrainingMenuPrechecker:
             # Floating training gains can overlap the upper header strip.
             # Read each actual label cell so a blank cell cannot borrow its
             # neighbours' labels, and pair this fallback with numeric readiness.
-            label_edges = (45, 270, 506, 742, 979, 1196, 1405)
-            for left, right in zip(label_edges, label_edges[1:]):
-                cell = band_hsv[180:220, left:right]
+            for left, right in zip(edges, edges[1:]):
+                cell = label_band[:, left:right]
                 label_cells.append({
                     "white_ratio": float(np.mean((cell[:, :, 1] < 70) & (cell[:, :, 2] > 170))),
                     "saturated_ratio": float(np.mean((cell[:, :, 1] > 60) & (cell[:, :, 2] > 100))),
@@ -1144,8 +1167,7 @@ class TrainingMenuPrechecker:
             # Rank badges (SS/A/etc.) may be large and gold. Locate the six
             # numeric cells without counting their left-hand rank artwork as
             # missing white panel background.
-            edges = (45, 270, 506, 742, 979, 1196, 1405)
-            cells = [band_hsv[220:300, edges[index] + (70 if index < 5 else 0):edges[index + 1] - 5]
+            cells = [band_hsv[cell_top:cell_bottom, edges[index] + (rank_pad if index < 5 else 0):edges[index + 1] - cell_right_pad]
                      for index in range(6)]
             numeric_cells_white = float(np.mean([np.mean((cell[:, :, 1] < 70) &
                 (cell[:, :, 2] > 170)) for cell in cells]))
@@ -1205,10 +1227,17 @@ class TrainingMenuPrechecker:
             "present": bool(present),
         }
 
-    def _check_failure_region(self, img: np.ndarray) -> dict[str, Any]:
-        if img.shape[1] < 360 or img.shape[0] < 1860:
-            return {"present": False, "reason": "image_too_small"}
-        roi = cv2.cvtColor(img[1660:1860, 0:360], cv2.COLOR_BGR2HSV)
+    def _check_failure_region(
+        self, img: np.ndarray, *, hsv: np.ndarray | None = None
+    ) -> dict[str, Any]:
+        if hsv is not None and hsv.shape[:2] == (1280, 720):
+            roi = hsv[830:930, 0:180]
+        elif img.shape[:2] == (1280, 720):
+            roi = cv2.cvtColor(img[830:930, 0:180], cv2.COLOR_BGR2HSV)
+        else:
+            if img.shape[1] < 360 or img.shape[0] < 1860:
+                return {"present": False, "reason": "image_too_small"}
+            roi = cv2.cvtColor(img[1660:1860, 0:360], cv2.COLOR_BGR2HSV)
         orange = float(np.mean((roi[:, :, 0] >= 5) & (roi[:, :, 0] <= 32) & (roi[:, :, 1] > 70) & (roi[:, :, 2] > 100)))
         blue = float(np.mean((roi[:, :, 0] >= 88) & (roi[:, :, 0] <= 118) & (roi[:, :, 1] > 70) & (roi[:, :, 2] > 100)))
         white = float(np.mean((roi[:, :, 1] < 70) & (roi[:, :, 2] > 170)))
@@ -1220,20 +1249,35 @@ class TrainingMenuPrechecker:
             "present": bool(present),
         }
 
-    def _check_race_entry_overlay(self, img: np.ndarray) -> dict[str, Any]:
-        height, width = img.shape[:2]
+    def _check_race_entry_overlay(
+        self, img: np.ndarray, *, hsv: np.ndarray | None = None
+    ) -> dict[str, Any]:
+        src_hsv = hsv if (hsv is not None and hsv.ndim == 3 and hsv.shape[2] == 3) else None
+        height, width = (src_hsv.shape[:2] if src_hsv is not None else img.shape[:2])
+        coord_scale = 2 if (width, height) == (720, 1280) else 1
         x1, x2 = int(width * 0.45), int(width * 0.90)
         y1, y2 = int(height * 0.72), int(height * 0.92)
-        bgr_roi = img[y1:y2, x1:x2]
-        if bgr_roi.size == 0:
-            return {
-                "bbox_xyxy": [x1, y1, x2, y2],
-                "pink_ratio": 0.0,
-                "red_ratio": 0.0,
-                "white_ratio": 0.0,
-                "present": False,
-            }
-        roi = cv2.cvtColor(bgr_roi, cv2.COLOR_BGR2HSV)
+        if src_hsv is not None:
+            roi = src_hsv[y1:y2, x1:x2]
+            if roi.size == 0:
+                return {
+                    "bbox_xyxy": [x1 * coord_scale, y1 * coord_scale, x2 * coord_scale, y2 * coord_scale],
+                    "pink_ratio": 0.0,
+                    "red_ratio": 0.0,
+                    "white_ratio": 0.0,
+                    "present": False,
+                }
+        else:
+            bgr_roi = img[y1:y2, x1:x2]
+            if bgr_roi.size == 0:
+                return {
+                    "bbox_xyxy": [x1 * coord_scale, y1 * coord_scale, x2 * coord_scale, y2 * coord_scale],
+                    "pink_ratio": 0.0,
+                    "red_ratio": 0.0,
+                    "white_ratio": 0.0,
+                    "present": False,
+                }
+            roi = cv2.cvtColor(bgr_roi, cv2.COLOR_BGR2HSV)
         pink = float(
             np.mean(
                 (roi[:, :, 0] >= 145)
@@ -1250,8 +1294,12 @@ class TrainingMenuPrechecker:
             )
         )
         white = float(np.mean((roi[:, :, 1] < 70) & (roi[:, :, 2] > 180)))
-        title_bgr = img[int(height * 0.07):int(height * 0.28), int(width * 0.15):int(width * 0.85)]
-        title = cv2.cvtColor(title_bgr, cv2.COLOR_BGR2HSV) if title_bgr.size else np.zeros((1, 1, 3), dtype=np.uint8)
+        if src_hsv is not None:
+            title_slice = src_hsv[int(height * 0.07):int(height * 0.28), int(width * 0.15):int(width * 0.85)]
+            title = title_slice if title_slice.size else np.zeros((1, 1, 3), dtype=np.uint8)
+        else:
+            title_bgr = img[int(height * 0.07):int(height * 0.28), int(width * 0.15):int(width * 0.85)]
+            title = cv2.cvtColor(title_bgr, cv2.COLOR_BGR2HSV) if title_bgr.size else np.zeros((1, 1, 3), dtype=np.uint8)
         title_pale_green = float(
             np.mean(
                 (title[:, :, 0] >= 35)
@@ -1270,7 +1318,7 @@ class TrainingMenuPrechecker:
             and title_dark >= 0.05
         )
         return {
-            "bbox_xyxy": [x1, y1, x2, y2],
+            "bbox_xyxy": [x1 * coord_scale, y1 * coord_scale, x2 * coord_scale, y2 * coord_scale],
             "pink_ratio": round(pink, 4),
             "red_ratio": round(red, 4),
             "white_ratio": round(white, 4),
@@ -1279,11 +1327,17 @@ class TrainingMenuPrechecker:
             "present": bool(present),
         }
 
-    def _check_race_hub_overlay(self, img: np.ndarray) -> dict[str, Any]:
-        height, width = img.shape[:2]
+    def _check_race_hub_overlay(
+        self, img: np.ndarray, *, hsv: np.ndarray | None = None
+    ) -> dict[str, Any]:
+        src_hsv = hsv if (hsv is not None and hsv.ndim == 3 and hsv.shape[2] == 3) else None
+        height, width = (src_hsv.shape[:2] if src_hsv is not None else img.shape[:2])
 
         def crop_hsv(region: tuple[float, float, float, float]) -> np.ndarray | None:
             x0, x1, y0, y1 = region
+            if src_hsv is not None:
+                sub = src_hsv[int(height * y0): int(height * y1), int(width * x0): int(width * x1)]
+                return sub if sub.size else None
             sub = img[int(height * y0): int(height * y1), int(width * x0): int(width * x1)]
             if sub.size == 0:
                 return None
@@ -1319,33 +1373,25 @@ class TrainingMenuPrechecker:
             "present": bool(present),
         }
 
-    def _check_settings_overlay(self, img: np.ndarray) -> dict[str, Any]:
-        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        height, width = hsv.shape[:2]
+    def _check_settings_overlay(
+        self, img: np.ndarray, *, hsv: np.ndarray | None = None
+    ) -> dict[str, Any]:
+        src_hsv = hsv if (hsv is not None and hsv.ndim == 3 and hsv.shape[2] == 3) else cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        height, width = src_hsv.shape[:2]
 
         def ratio(
             region: tuple[float, float, float, float],
-            mask: np.ndarray,
+            kind: str,
         ) -> float:
             x0, x1, y0, y1 = region
-            roi = mask[int(height * y0): int(height * y1), int(width * x0): int(width * x1)]
+            roi = src_hsv[int(height * y0): int(height * y1), int(width * x0): int(width * x1)]
             if roi.size == 0:
                 return 0.0
-            return float(np.mean(roi))
-
-        green = (
-            (hsv[:, :, 0] >= 38)
-            & (hsv[:, :, 0] <= 92)
-            & (hsv[:, :, 1] > 70)
-            & (hsv[:, :, 2] > 80)
-        )
-        white = (hsv[:, :, 1] < 70) & (hsv[:, :, 2] > 175)
-        purple = (
-            (hsv[:, :, 0] >= 125)
-            & (hsv[:, :, 0] <= 155)
-            & (hsv[:, :, 1] > 20)
-            & (hsv[:, :, 2] > 80)
-        )
+            if kind == "green":
+                return float(np.mean((roi[:, :, 0] >= 38) & (roi[:, :, 0] <= 92) & (roi[:, :, 1] > 70) & (roi[:, :, 2] > 80)))
+            if kind == "white":
+                return float(np.mean((roi[:, :, 1] < 70) & (roi[:, :, 2] > 175)))
+            return float(np.mean((roi[:, :, 0] >= 125) & (roi[:, :, 0] <= 155) & (roi[:, :, 1] > 20) & (roi[:, :, 2] > 80)))
 
         top_header = (0.02, 0.98, 0.02, 0.095)
         left_bottom = (0.08, 0.48, 0.895, 0.965)
@@ -1353,14 +1399,14 @@ class TrainingMenuPrechecker:
         center_panel = (0.05, 0.95, 0.10, 0.88)
         right_scrollbar = (0.965, 0.985, 0.10, 0.88)
 
-        top_green = ratio(top_header, green)
-        top_white = ratio(top_header, white)
-        left_white = ratio(left_bottom, white)
-        left_green = ratio(left_bottom, green)
-        right_green = ratio(right_bottom, green)
-        right_white = ratio(right_bottom, white)
-        center_white = ratio(center_panel, white)
-        scrollbar_purple = ratio(right_scrollbar, purple)
+        top_green = ratio(top_header, "green")
+        top_white = ratio(top_header, "white")
+        left_white = ratio(left_bottom, "white")
+        left_green = ratio(left_bottom, "green")
+        right_green = ratio(right_bottom, "green")
+        right_white = ratio(right_bottom, "white")
+        center_white = ratio(center_panel, "white")
+        scrollbar_purple = ratio(right_scrollbar, "purple")
 
         present = (
             top_green > 0.45

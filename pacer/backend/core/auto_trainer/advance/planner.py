@@ -488,12 +488,16 @@ class SafeAdvancePlanner(
             text = "".join(str(screen_text.get("normalized_text", "")).split())
             disconnect = self._connection_conflict_return_title_button(img)
             if disconnect is not None:
+                if self._is_account_login_conflict_text(text):
+                    return self._stop("account_login_conflict", evidence=evidence)
                 if ("连接已断开" in text and "返回标题页面" in text
                         and "长时间内未进行操作" in text and "与服务器的连接发生中断" in text
                         and not any(term in text for term in ("其他设备", "别的设备", "其他终端", "账号"))):
                     return self._tap_decision("return_title_from_connection_conflict",
                         "safe_advance.return_title", disconnect, evidence)
                 return self._stop("connection_conflict", evidence=evidence)
+            if self._is_account_login_conflict_text(text):
+                return self._stop("account_login_conflict", evidence=evidence)
             title = self._current_cn_title_start_point(img)
             if title is None and (screen_text.get("primary_hint") or {}).get("screen") == "title_screen":
                 title = self._cn_title_start_point(img)
@@ -748,6 +752,8 @@ class SafeAdvancePlanner(
                     evidence,
                 )
             if screen_text.get("dangerous"):
+                if self._is_account_login_conflict_text(screen_text.get("normalized_text", "")):
+                    return self._stop("account_login_conflict", evidence=evidence)
                 resource_terms = {
                     str(term)
                     for term in screen_text.get("resource_terms", [])
@@ -848,6 +854,17 @@ class SafeAdvancePlanner(
                         training_pass_close,
                         evidence,
                     )
+                pass_renewal_cancel = self._pass_renewal_cancel_button(
+                    screen_text,
+                    img,
+                )
+                if pass_renewal_cancel is not None:
+                    return self._tap_decision(
+                        "close_pass_renewal_popup",
+                        "safe_advance.pass_renewal_cancel",
+                        pass_renewal_cancel,
+                        evidence,
+                    )
                 return self._stop("resource_prompt", evidence=evidence)
 
             normalized_text = "".join(
@@ -879,6 +896,17 @@ class SafeAdvancePlanner(
                     "confirm_additional_data_download",
                     "safe_advance.additional_data_download_confirm",
                     additional_data_download,
+                    evidence,
+                )
+            pass_renewal_cancel = self._pass_renewal_cancel_button(
+                screen_text,
+                img,
+            )
+            if pass_renewal_cancel is not None:
+                return self._tap_decision(
+                    "close_pass_renewal_popup",
+                    "safe_advance.pass_renewal_cancel",
+                    pass_renewal_cancel,
                     evidence,
                 )
         if (
@@ -1369,6 +1397,9 @@ class SafeAdvancePlanner(
 
         connection_conflict_return = self._connection_conflict_return_title_button(img)
         if connection_conflict_return is not None:
+            raw_text = str((screen_text or {}).get("normalized_text", ""))
+            if self._is_account_login_conflict_text(raw_text):
+                return self._stop("account_login_conflict", evidence=evidence)
             return {
                 "action": "tap",
                 "reason": "return_title_from_connection_conflict",
@@ -2662,18 +2693,9 @@ class SafeAdvancePlanner(
             perception, screen_text, img
         )
         if unused_points_finish is not None:
-            if not allow_finish_training_with_unused_skill_points:
-                return self._tap_decision(
-                    "cancel_career_end_finish",
-                    "safe_advance.career_end_finish_cancel",
-                    self._finish_training_cancel_for_unused_points(screen_text, img),
-                    evidence,
-                )
-            return self._tap_decision(
-                "finish_training_confirm",
-                "safe_advance.finish_training",
-                unused_points_finish,
-                evidence,
+            return self._plan_finish_training_confirmation(
+                unused_points_finish, screen_text, img, evidence,
+                allow_finish_training_with_unused_skill_points=allow_finish_training_with_unused_skill_points,
             )
         safe_confirm = self._safe_green_confirm_button(perception, img)
         if safe_confirm is not None:
@@ -2795,21 +2817,10 @@ class SafeAdvancePlanner(
             }
         finish_training = self._finish_training_confirm_button(perception, img)
         if finish_training is not None:
-            finish_cancel = self._finish_training_cancel_for_unused_points(
-                screen_text, img
-            )
-            if finish_cancel is not None:
-                return self._tap_decision(
-                    "cancel_career_end_finish",
-                    "safe_advance.career_end_finish_cancel",
-                    finish_cancel,
-                    evidence,
-                )
-            return self._configured_decision("finish_training_confirm", img, evidence) or self._tap_decision(
-                "finish_training_confirm",
-                "safe_advance.finish_training",
-                finish_training,
-                evidence,
+            return self._plan_finish_training_confirmation(
+                finish_training, screen_text, img, evidence,
+                allow_finish_training_with_unused_skill_points=allow_finish_training_with_unused_skill_points,
+                visual_fallback=True,
             )
         safe_confirm = self._safe_green_confirm_button(perception, img)
         if safe_confirm is not None:
@@ -3112,21 +3123,10 @@ class SafeAdvancePlanner(
             }
         finish_training = self._finish_training_confirm_button(perception, img)
         if finish_training is not None:
-            finish_cancel = self._finish_training_cancel_for_unused_points(
-                screen_text, img
-            )
-            if finish_cancel is not None:
-                return self._tap_decision(
-                    "cancel_career_end_finish",
-                    "safe_advance.career_end_finish_cancel",
-                    finish_cancel,
-                    evidence,
-                )
-            return self._configured_decision("finish_training_confirm", img, evidence) or self._tap_decision(
-                "finish_training_confirm",
-                "safe_advance.finish_training",
-                finish_training,
-                evidence,
+            return self._plan_finish_training_confirmation(
+                finish_training, screen_text, img, evidence,
+                allow_finish_training_with_unused_skill_points=allow_finish_training_with_unused_skill_points,
+                visual_fallback=True,
             )
         safe_confirm = self._safe_green_confirm_button(perception, img)
         if safe_confirm is not None:

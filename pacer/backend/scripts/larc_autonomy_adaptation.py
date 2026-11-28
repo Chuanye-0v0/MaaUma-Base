@@ -245,6 +245,7 @@ def run_larc_adaptation(*, run_root: Path, output_dir: Path, adb_port: int,
     phase_option = "bundle" if saved_phase else phase.replace('_', '-')
     args = advance_args([
         "--mode", "live", "--scenario", "larc", "--max-steps", str(max_steps),
+        "--wait-seconds", "0.4",
         "--screenshot-dir", str(output_dir / "advance"), "--adb-port", str(adb_port),
         *(["--native-capture", "--settle-seconds", "0.2"] if native_instance_id(adb_port) is not None else []),
         "--run-session-id", run_id, "--transition-session-json", str(route_path),

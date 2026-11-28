@@ -159,9 +159,17 @@ def _saved_game_frame(run,segment_id,snapshot,now):
     observed=(snapshot.get('capture_time_source')=='capture_return_time'
         and bool(safe_frame_observation(snapshot.get('observation'))))
     source=Path(snapshot.get('path','')).resolve()
-    if not observed and (not source.is_relative_to(segment.resolve())or source==segment.resolve()
+    run_resolved=run.resolve()
+    segment_resolved=segment.resolve()
+    allowed_roots=(segment_resolved,(run/'s').resolve()) if snapshot.get('source_scope')=='terminal_skills' else (segment_resolved,)
+    matched_root=next(
+        (root for root in allowed_roots if root.is_relative_to(run_resolved) and source.is_relative_to(root) and source!=root),
+        None,
+    )
+    if not observed and (
+            matched_root is None
             or source.suffix.lower()not in {'.png','.jpg','.jpeg','.webp'}
-            or any(part in {'member_portraits','crops','roi','assets'}for part in source.relative_to(segment.resolve()).parts)):
+            or any(part in {'member_portraits','crops','roi','assets'}for part in source.relative_to(matched_root).parts)):
         raise ValueError('diagnostic_saved_frame_scope_mismatch')
     captured=snapshot.get('captured_at_unix')
     started=segment.stat().st_ctime
@@ -247,6 +255,83 @@ def save_stop_diagnostic(run,port,reason,*,capture=None,now=None,saved_frame=Non
     return metadata
 
 
+def _pick_newer_saved_frame(run,segment,choices,best,best_time,now,*,source_scope=None):
+    for captured,source in sorted(choices,reverse=True)[:16]:
+        try:
+            frame=_decode(source.read_bytes())
+            best_frame=(best or {}).get('frame') if isinstance(best,dict) else None
+            if (isinstance(best,dict) and isinstance(best.get('observation'),dict)
+                    and best['observation'].get('schema_version')=='uma.stop_frame_observation.v1'
+                    and hasattr(best_frame,'shape') and frame.shape==best_frame.shape
+                    and frame.dtype==best_frame.dtype
+                    and memoryview(frame).tobytes()==memoryview(best_frame).tobytes()):
+                break
+            row={'frame':frame,'path':str(source),'captured_at_unix':captured,
+                'run_session_id':run.name,'segment_id':segment.name,
+                'capture_time_source':'same_segment_saved_game_frame_mtime'}
+            if source_scope=='terminal_skills':
+                row['source_scope']='terminal_skills'
+            _saved_game_frame(run,segment.name,row,now)
+            return row,captured
+        except (OSError,ValueError,cv2.error):continue
+    return best,best_time
+
+
+def _skill_worker_saved_frame(run,segment,summary,best,best_time,now):
+    """Harvest the newest valid game frame from active/stopped skill-worker batches, bounded."""
+    candidates=[]
+    terminal=summary.get('terminal_skills')
+    if (isinstance(terminal,dict) and terminal.get('run_session_id')==run.name
+            and isinstance(terminal.get('batches'),list)):
+        for value in reversed(terminal['batches'][-2:]):
+            candidates.append((value,'terminal_skills'))
+    prerace=summary.get('prerace_skills')
+    if (isinstance(prerace,list) and prerace and isinstance(prerace[-1],dict)
+            and isinstance(prerace[-1].get('batches'),list)):
+        for value in reversed(prerace[-1]['batches'][-2:]):
+            candidates.append((value,'prerace_skills'))
+    run_resolved=run.resolve()
+    segment_resolved=segment.resolve()
+    terminal_root=(run_resolved/'s').resolve()
+    scan_dirs=(
+        ('capture',re.compile(r'[0-9]{10,}\.png')),
+        ('transaction/selection/live_capture',re.compile(r'batch_[0-9]{3,}\.png')),
+        ('transaction/prepare/capture',re.compile(r'page_[0-9]{2,}\.png')),
+    )
+    for value,source_scope in candidates:
+        if not isinstance(value,str):continue
+        try:
+            worker_path=Path(value).resolve()
+            if worker_path.name!='worker_report.json' or not worker_path.is_file():continue
+            in_terminal=terminal_root.is_relative_to(run_resolved) and worker_path.is_relative_to(terminal_root)
+            in_segment=segment_resolved.is_relative_to(run_resolved) and worker_path.is_relative_to(segment_resolved)
+            if source_scope=='terminal_skills':
+                if not (in_segment or in_terminal):continue
+            elif not in_segment:
+                continue
+            if worker_path.stat().st_size>4*1024*1024:continue
+            loaded=json.loads(worker_path.read_text('utf-8-sig'))
+            if not isinstance(loaded,dict) or loaded.get('run_session_id')!=run.name:continue
+            worker_dir=worker_path.parent.resolve()
+            choices=[]
+            for rel_dir,pattern in scan_dirs:
+                target_dir=(worker_dir/rel_dir).resolve()
+                if not target_dir.is_relative_to(worker_dir) or not target_dir.is_dir():continue
+                for count,entry in enumerate(target_dir.iterdir()):
+                    if count>=256:break
+                    if not pattern.fullmatch(entry.name):continue
+                    source=entry.resolve()
+                    if not source.is_relative_to(worker_dir) or not source.is_file():continue
+                    info=source.stat()
+                    if best_time<info.st_mtime<=now and 0<info.st_size<=16*1024*1024:
+                        choices.append((info.st_mtime,source))
+            if choices:
+                best,best_time=_pick_newer_saved_frame(
+                    run,segment,choices,best,best_time,now,source_scope=source_scope)
+        except (OSError,ValueError,TypeError):continue
+    return best
+
+
 def _ordinary_saved_frame(run,segment,summary,memory,now):
     """Known current race output plus the last owned memory frame, bounded."""
     best=memory
@@ -262,33 +347,20 @@ def _ordinary_saved_frame(run,segment,summary,memory,now):
                     if path.stat().st_size<=4*1024*1024:
                         loaded=json.loads(path.read_text('utf-8-sig'))
                         if isinstance(loaded,dict)and loaded.get('run_session_id')==run.name:report=loaded
-                    if report is None:return best,None
-                    choices=[]
-                    for count,source in enumerate(path.parent.iterdir()):
-                        if count>=256:break
-                        if not re.fullmatch(r'race_(?:route_step_)?[0-9]{3,}\.png',source.name):continue
-                        source=source.resolve()
-                        if not source.is_relative_to(segment)or not source.is_file():continue
-                        info=source.stat()
-                        if best_time<info.st_mtime<=now and 0<info.st_size<=16*1024*1024:
-                            choices.append((info.st_mtime,source))
-                    for captured,source in sorted(choices,reverse=True)[:16]:
-                        try:
-                            frame=_decode(source.read_bytes())
-                            best_frame=(best or {}).get('frame') if isinstance(best,dict) else None
-                            if (isinstance(best,dict) and isinstance(best.get('observation'),dict)
-                                    and best['observation'].get('schema_version')=='uma.stop_frame_observation.v1'
-                                    and hasattr(best_frame,'shape') and frame.shape==best_frame.shape
-                                    and frame.dtype==best_frame.dtype
-                                    and memoryview(frame).tobytes()==memoryview(best_frame).tobytes()):
-                                break
-                            row={'frame':frame,'path':str(source),'captured_at_unix':captured,
-                                'run_session_id':run.name,'segment_id':segment.name,
-                                'capture_time_source':'same_segment_saved_game_frame_mtime'}
-                            _saved_game_frame(run,segment.name,row,now)
-                            best=row;break
-                        except (OSError,ValueError,cv2.error):continue
+                    if report is not None:
+                        choices=[]
+                        for count,source in enumerate(path.parent.iterdir()):
+                            if count>=256:break
+                            if not re.fullmatch(r'race_(?:route_step_)?[0-9]{3,}\.png',source.name):continue
+                            source=source.resolve()
+                            if not source.is_relative_to(segment)or not source.is_file():continue
+                            info=source.stat()
+                            if best_time<info.st_mtime<=now and 0<info.st_size<=16*1024*1024:
+                                choices.append((info.st_mtime,source))
+                        if choices:
+                            best,best_time=_pick_newer_saved_frame(run,segment,choices,best,best_time,now)
                 except (OSError,ValueError,TypeError):pass
+    best=_skill_worker_saved_frame(run,segment,summary,best,best_time,now)
     return best,report
 
 

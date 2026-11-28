@@ -108,7 +108,12 @@ def _plan_harvest_styles(context_data, build_context, catalog, preference_profil
 def run_fresh_dry_run(*, pages: list[Path], resolver_catalog: Path, planner_catalog: Path | None, output_dir: Path, turn_id: str, build_context: dict[str, Any] | None, preference_profile: SkillPreferenceProfile | None=None, prior_owned_skill_ids: list[str] | None=None, capture_manifest: dict[str, Any] | None=None) -> dict[str, Any]:
     """Parse fresh files and issue an offline-only, fail-closed planner report."""
     binding = capture_fingerprint(pages, turn_id=turn_id, capture_manifest=capture_manifest)
-    parsed = parse_skill_acquisition_pages(pages, output_dir=output_dir / 'parser_output', assume_continuous_scroll=True)
+    parsed = parse_skill_acquisition_pages(
+        pages,
+        output_dir=output_dir / 'parser_output',
+        assume_continuous_scroll=True,
+        overlap_evidence=capture_manifest.get('overlap_evidence') if isinstance(capture_manifest, dict) else None,
+    )
     resolved = resolve_skill_manifest(parsed, load_skill_catalog(resolver_catalog), manifest_dir=output_dir / 'parser_output')
     mapping = {item['name']: item['skill_id'] for item in resolved.get('skills', []) if item.get('name') and item.get('skill_id')}
     observation = build_skill_planner_observation(resolved, name_to_skill_id=mapping)

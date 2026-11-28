@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import time
 from time import sleep
+import uuid
 
 
 from core.event_knowledge_lookup import PERSONAL_PATH
@@ -28,20 +29,22 @@ CHARACTER_ROSTER = Path(__file__).resolve().parents[1]/'autonomous_training/plan
 def atomic_json(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + '.tmp')
-    with temporary.open('w', encoding='utf-8') as stream:
-        json.dump(data, stream, ensure_ascii=False, indent=2)
-        stream.flush()
-        os.fsync(stream.fileno())
+    temporary = path.parent / f"{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
     # The native panel can have this file open for a snapshot on Windows.
-    # Retry only publication of the already-written state, never a game action.
+    # Use a unique temp file per writer and retry atomic replacement briefly.
     try:
-        for delay in (0.02, 0.05, 0.1, 0.2, 0.4, None):
+        with temporary.open('w', encoding='utf-8') as stream:
+            json.dump(data, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        for delay in (0.02, 0.05, 0.08, 0.12, 0.20, None):
             try:
                 os.replace(temporary, path)
                 break
-            except OSError as exc:
-                if getattr(exc, 'winerror', None) not in {5, 32, 33} or delay is None:
+            except (PermissionError, OSError) as exc:
+                winerror = getattr(exc, 'winerror', None)
+                retryable = isinstance(exc, PermissionError) or winerror in {5, 32, 33}
+                if not retryable or delay is None:
                     raise
                 sleep(delay)
     finally:
@@ -155,7 +158,9 @@ class CutFarmingConfig:
 
 @lru_cache(maxsize=1)
 def _character_identities():
-    """Exact local names/aliases, plus the user's confirmed CN name for 1076."""
+    """Exact local names/aliases, plus CN official & legacy aliases from name_match."""
+    from core.name_match import _CHARACTER_ALIASES
+
     try:
         records=json.loads(CHARACTER_ROSTER.read_text(encoding='utf-8-sig')).get('records',[])
     except (OSError,ValueError,TypeError):
@@ -170,10 +175,33 @@ def _character_identities():
         for name in [row.get('name'),*row.get('aliases',[])]:
             if isinstance(name,str) and name.strip():
                 names.setdefault(re.sub(r'\s+','',name),set()).add(identifier)
+    for cid_str, alias_list in _CHARACTER_ALIASES.items():
+        if cid_str.isdigit():
+            cid_int = int(cid_str)
+            for name in alias_list:
+                if isinstance(name, str) and name.strip():
+                    names.setdefault(re.sub(r'\s+', '', name), set()).add(cid_int)
     # 2026-10-20: the user supplied the same 107601 configuration and game
     # screenshots. This is an exact alias, never a fuzzy OCR substitution.
     for name in ('樱花劳蕾尔','樱花桂冠'):names.setdefault(name,set()).add(1076)
     return cards,names
+
+
+@lru_cache(maxsize=1)
+def _canonical_character_names():
+    try:
+        records=json.loads(CHARACTER_ROSTER.read_text(encoding='utf-8-sig')).get('records',[])
+    except (OSError,ValueError,TypeError):
+        return {}
+    canonical={}
+    for row in records:
+        card=str(row.get('id',''))
+        identifier=row.get('character_id')
+        if identifier is None and re.fullmatch(r'\d{6}',card):identifier=int(card[:4])
+        name=row.get('name')
+        if type(identifier) is int and isinstance(name,str) and name.strip():
+            canonical.setdefault(identifier, name.strip())
+    return canonical
 
 
 def _configured_character_id(config):
@@ -187,7 +215,11 @@ def _configured_character_id(config):
 
 def expected_character_name(config):
     if config.validation_mode:
-        if _configured_character_id(config)==1076:return '樱花桂冠'
+        cid=_configured_character_id(config)
+        if cid==1076:return '樱花桂冠'
+        if cid is not None:
+            canonical=_canonical_character_names().get(cid)
+            if canonical:return canonical
         return config.validation_character_name.strip()
     return {'101001':'大树快车','103102':'艾尼风神','106501':'大拓太阳神'}[config.character_id]
 

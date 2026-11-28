@@ -7,6 +7,7 @@ from dataclasses import asdict, replace
 import hashlib
 from pathlib import Path
 import json
+import re
 import time
 
 import cv2
@@ -161,11 +162,43 @@ def _read_locked_ss_slot(canonical, width, height):
             "disabled_ratio": round(disabled, 4), "gold_ratio": round(gold, 4)}
 
 
+def _read_overseas_ss_unavailable(canonical, width, height, *, line_reader=None):
+    """Detect active overseas expedition training screen where SS is unavailable."""
+    from core.auto_trainer.larc_preview_text import _line, _reader
+
+    slot = cv2.cvtColor(canonical[1035:1115, 610:698], cv2.COLOR_BGR2HSV)
+    if slot.size == 0:
+        return None
+    dim_blue = float(
+        ((slot[:, :, 0] >= 90) & (slot[:, :, 0] <= 125)
+         & (slot[:, :, 1] >= 40) & (slot[:, :, 2] <= 185)).mean()
+    )
+    if dim_blue < 0.55:
+        return None
+    try:
+        read = _reader(line_reader)
+        cal_text = _line(canonical, (155, 35, 420, 76), read, minimum=0.80) or ""
+        header_text = _line(canonical, (20, 120, 320, 180), read, minimum=0.80) or ""
+    except Exception:
+        return None
+    if not (re.search(r"(?:经典级|高级).*[789]月", cal_text) or "海外远征" in cal_text or "海外远征" in header_text):
+        return None
+    return {
+        "status": "accepted",
+        "reason": "overseas_expedition_ss_unavailable",
+        "bbox": [round(610 * width / 720), round(1035 * height / 1280),
+                 round(698 * width / 720), round(1115 * height / 1280)],
+        "dim_blue_ratio": round(dim_blue, 4),
+        "calendar_text": cal_text,
+    }
+
+
 def read_navigation(image, *, reader=None):
     reader = reader or LarcSSInformationReader()
     info = reader.read(image)
     result = {"page_verified": info["page_verified"], "open": None, "close": None,
-              "scroll": None, "information": info, "ss_locked": None}
+              "scroll": None, "information": info, "ss_locked": None,
+              "ss_overseas_unavailable": None}
     h, w = image.shape[:2]
     if not 0.55 <= w / h <= 0.575:
         return result
@@ -182,6 +215,8 @@ def read_navigation(image, *, reader=None):
                         round((y1 + loc[1] + template.shape[0]/2)*h/1280)]
     if not info["page_verified"] and result["open"] is None:
         result["ss_locked"] = _read_locked_ss_slot(canonical, w, h)
+        if result["ss_locked"] is None:
+            result["ss_overseas_unavailable"] = _read_overseas_ss_unavailable(canonical, w, h)
     if info["page_verified"]:
         hsv = cv2.cvtColor(canonical, cv2.COLOR_BGR2HSV)
         # The grey thumb is inside a fixed narrow track, not a person/card edge.
@@ -504,6 +539,21 @@ class LarcSSInformationProbe:
                                                "evidence": nav["ss_locked"]})
                 # No navigation occurred. Do not cache an information scan:
                 # a later unlocked frame must still be collected normally.
+                return report
+            if nav["open"] is None and nav.get("ss_overseas_unavailable") is not None:
+                sha = observe_route("training_menu", path)
+                report.update(
+                    status="optional_unavailable",
+                    reason="overseas_expedition_no_ss_information",
+                    returned_to_training=True,
+                    turn_consumed=False,
+                    turn_consuming_action_executed=False,
+                    ss_availability={
+                        "status": "overseas_unavailable",
+                        "source": dict(source(path), sha256=sha),
+                        "evidence": nav["ss_overseas_unavailable"],
+                    },
+                )
                 return report
             if nav["open"] is None:
                 raise ValueError("information_entry_unverified")

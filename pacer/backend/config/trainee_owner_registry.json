@@ -1,0 +1,44 @@
+{
+  "action_eligible": false,
+  "entries": [
+    {
+      "factor_key_prefix": "1006",
+      "identity_id": "oguri_cap",
+      "source_roles": [
+        "factor_key_inventory",
+        "career_setup_identity_fixture"
+      ],
+      "trainee_id": "1006"
+    },
+    {
+      "factor_key_prefix": "1035",
+      "identity_id": "winning_ticket",
+      "source_roles": [
+        "factor_key_inventory",
+        "reviewed_event_owner_fixture"
+      ],
+      "trainee_id": "1035"
+    }
+  ],
+  "production_ready": false,
+  "schema_version": "uma.trainee_owner_registry.v1",
+  "source_artifacts": [
+    {
+      "path": "data/apk_extracted/factor_database.json",
+      "role": "factor_key_inventory",
+      "sha256": "7d745789008d4fb44e7d77e0d20f867f7f2f747a7d639b8f3f1ae4e3e9aa9d66"
+    },
+    {
+      "path": "config/current_career_setup.json",
+      "role": "career_setup_identity_fixture",
+      "sha256": "a4fa3d0235240523bea0b9dc87df96c957c1acc245de341bdd2cf1ae9d80b0be"
+    },
+    {
+      "path": "data/event_knowledge/staging/real_fixture_winning_ticket_stage2_v1.json",
+      "role": "reviewed_event_owner_fixture",
+      "sha256": "9febf83550e3c2016eaaae68931832cf84cd966fc8349e9775a77e088b7290e5"
+    }
+  ],
+  "usable_for_action": false
+}
+

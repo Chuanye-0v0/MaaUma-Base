@@ -5,6 +5,7 @@ from pathlib import Path
 from core import parent_library as store
 from core.parent_compatibility import (CompatibilityCatalog, characters_from_roster,
     entry_summaries, evaluate_entries, evaluate_lineage, suggest_entries)
+from core.parent_race_records import RaceCatalog
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,7 +38,8 @@ def _add_coverage(value, request, library, planner_catalog_path):
     value['factor_coverage'] = pair_coverage(library, value['parent_entry_ids'], targets, raw_targets, catalog)
 
 
-def dispatch(request, *, root=None, relations_path=None, roster_path=None, planner_catalog_path=None):
+def dispatch(request, *, root=None, relations_path=None, roster_path=None, planner_catalog_path=None,
+             race_catalog_path=None):
     if not isinstance(request, dict) or request.get('action') not in FIELDS:
         return _error('parent_compatibility_invalid_request', '不支持这项本地相性操作。')
     action = request['action']
@@ -59,14 +61,17 @@ def dispatch(request, *, root=None, relations_path=None, roster_path=None, plann
         if action == 'parent_compatibility_catalog':
             return _success({'characters': characters, 'entries': entries, **catalog.metadata()})
         target = request.get('target_character_id')
+        race_catalog = RaceCatalog.load(race_catalog_path)
         if action == 'parent_compatibility_evaluate':
             if ('parent_entry_ids' in request) == ('lineage' in request):
                 raise ValueError('请选择本地成品组合或手动七节点中的一种方式。')
-            value = evaluate_entries(target, request['parent_entry_ids'], entries, catalog, characters)
+            value = evaluate_entries(target, request['parent_entry_ids'], entries, catalog, characters,
+                                     race_catalog=race_catalog)
             _add_coverage(value, request, library, planner_catalog_path)
             return _success(value)
         value = suggest_entries(target, entries, catalog, characters,
-            candidate_entry_ids=request.get('candidate_entry_ids'), limit=request.get('limit', 20))
+            candidate_entry_ids=request.get('candidate_entry_ids'), limit=request.get('limit', 20),
+            race_catalog=race_catalog)
         for suggestion in value['suggestions']:
             _add_coverage(suggestion, request, library, planner_catalog_path)
         return _success(value)

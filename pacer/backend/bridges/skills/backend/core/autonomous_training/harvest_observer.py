@@ -171,6 +171,16 @@ def observe_harvest(raw: bytes, tokens: list[dict], *, allow_navigation=False,
             and contains("是否确定获得该因子", (150, 1000, 570, 1140))):
         result["page"] = "factor_confirm"
         add_action("confirm_factor_choice", "确定", (400, 1120, 650, 1240))
+        if "confirm_factor_choice" not in result["actions"] and exact("取消", (70, 1120, 320, 1240)) is not None:
+            patch = image[1140:1228, 390:640]
+            if patch.size > 0:
+                hsv = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV)
+                green_ratio = float(
+                    ((hsv[:, :, 0] >= 32) & (hsv[:, :, 0] <= 85)
+                     & (hsv[:, :, 1] >= 90) & (hsv[:, :, 2] >= 110)).mean()
+                )
+                if green_ratio >= 0.45:
+                    result["actions"]["confirm_factor_choice"] = {"point": [515, 1184], "visual_fallback": True}
     elif (exact("养成结束确认", (180, 250, 540, 390))
             and contains("即将完成养成", (200, 580, 520, 720))
             and exact("剩余技能点数", (150, 700, 450, 820))):

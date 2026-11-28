@@ -684,14 +684,27 @@ def year3_shortfall_payload(state: Any, goal: Any) -> dict[str, Any] | None:
         "surplus_scarcity_factor": params.surplus_scarcity_factor,
         "stamina_shortfall_trigger": params.stamina_shortfall_trigger,
     }
-    return active_provider().augment_year3_shortfall_payload(
-        params,
-        payload,
-        now=now,
-        rem_second_exp=rem_second_exp,
-        zero_tabs=z_tabs,
-        decked_tabs=d_tabs,
-    )
+    provider = active_provider()
+    try:
+        return provider.augment_year3_shortfall_payload(
+            params,
+            payload,
+            now=now,
+            rem_second_exp=rem_second_exp,
+            zero_tabs=z_tabs,
+            decked_tabs=d_tabs,
+            state=state,
+            goal=goal,
+        )
+    except TypeError:
+        return provider.augment_year3_shortfall_payload(
+            params,
+            payload,
+            now=now,
+            rem_second_exp=rem_second_exp,
+            zero_tabs=z_tabs,
+            decked_tabs=d_tabs,
+        )
 
 
 def shortfall_premium(

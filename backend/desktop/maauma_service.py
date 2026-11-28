@@ -46,22 +46,58 @@ class NoRedirect(HTTPRedirectHandler):
         raise ServiceError('service_redirect_rejected')
 
 
+def _safe_identity_diagnostic(value,*,returncode=None):
+    diag={}
+    if isinstance(value,dict):
+        stage=value.get('stage')
+        if isinstance(stage,str) and re.fullmatch(r'[a-z][a-z0-9_]{0,47}',stage):
+            diag['stage']=stage
+        error_type=value.get('error_type')
+        if isinstance(error_type,str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}',error_type):
+            diag['error_type']=error_type
+        for key in ('win32_error','hresult'):
+            num=value.get(key)
+            if type(num) is int and num!=0:
+                diag[key]=num
+    if type(returncode) is int and returncode!=0:
+        diag['returncode']=returncode
+    return diag
+
+
+def _identity_error(code,diag=None):
+    error=ServiceError(code)
+    if diag:
+        error.identity_diagnostic=diag
+    return error
+
+
 def identity_helper(root,action,**fields):
     executable=Path(root)/'MaaUmaIdentity.exe'
-    if os.name!='nt' or not executable.is_file():raise ServiceError('device_identity_unavailable')
+    if os.name!='nt' or not executable.is_file():
+        raise _identity_error('device_identity_unavailable',{'stage':'helper_missing'})
     try:
         environment=dict(os.environ,DOTNET_ROOT=str(Path(root)/'dotnet'),DOTNET_MULTILEVEL_LOOKUP='0')
         completed=subprocess.run([str(executable),'--device-identity'],cwd=root,
             input=json.dumps({'action':action,**fields},ensure_ascii=False),encoding='utf8',
             stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=8,
             creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),env=environment)
-        if completed.returncode or len(completed.stdout)>4*1024**2:raise ValueError()
-        value=json.loads(completed.stdout)
-    except (OSError,ValueError,subprocess.TimeoutExpired):raise ServiceError('device_identity_unavailable') from None
+    except subprocess.TimeoutExpired:
+        raise _identity_error('device_identity_unavailable',{'stage':'helper_timeout'}) from None
+    except OSError:
+        raise _identity_error('device_identity_unavailable',{'stage':'helper_exec'}) from None
+    if len(completed.stdout)>4*1024**2:
+        raise _identity_error('device_identity_unavailable',{'stage':'helper_output_too_large','returncode':completed.returncode} if completed.returncode else {'stage':'helper_output_too_large'})
+    try:
+        raw_out=completed.stdout.lstrip('\ufeff').strip()
+        value=json.loads(raw_out)
+    except ValueError:
+        raise _identity_error('device_identity_unavailable',_safe_identity_diagnostic({'stage':'helper_output'},returncode=completed.returncode)) from None
     if not isinstance(value,dict) or value.get('ok') is not True:
         code=value.get('code') if isinstance(value,dict) else None
-        raise ServiceError(code if code in {'device_changed','device_key_unreadable','device_credentials_unreadable'}
-                           else 'device_identity_unavailable')
+        resolved=code if code in {'device_changed','device_key_unreadable','device_credentials_unreadable','device_identity_unavailable'} else 'device_identity_unavailable'
+        raise _identity_error(resolved,_safe_identity_diagnostic(value,returncode=completed.returncode))
+    if completed.returncode:
+        raise _identity_error('device_identity_unavailable',_safe_identity_diagnostic({'stage':'helper_exit'},returncode=completed.returncode))
     return value
 
 
@@ -359,9 +395,13 @@ def patch_catalog(root,*,kind,from_version,to_version,base_version):
 
 
 def info(root):
+    from desktop.maauma_components import last_update_result, pending_rollback_ticket, retryable_ticket
     try:cfg=config(root)
     except ServiceError:return {'ok':True,'status':'service_info','configured':False,'activated':False,
-                               'products':[],'allow_preview':False}
+                               'products':[],'allow_preview':False,
+                               'last_update_result':last_update_result(root),
+                               'retryable_ticket':retryable_ticket(root),
+                               'pending_rollback_ticket':pending_rollback_ticket(root)}
     try:auth=credentials(root);active=True
     except (ServiceError,UpdateError,OSError,ValueError):auth={};active=False
     state=contained(root,'config/maauma-modules.json')
@@ -369,7 +409,11 @@ def info(root):
             'base_url':cfg['base_url'],'channel':cfg['channel'],'download_source':cfg['download_source'],'products':auth.get('products',[]),
             'allow_preview':active and auth.get('allow_preview') is True,
             'trace_id':auth.get('distribution_receipt',{}).get('trace_id'),
-            'modules':read_json(state) if state.is_file() else {'components':{}},'authorization_root':str(Path(root).resolve())}
+            'modules':read_json(state) if state.is_file() else {'components':{}},
+            'authorization_root':str(Path(root).resolve()),
+            'last_update_result':last_update_result(root),
+            'retryable_ticket':retryable_ticket(root),
+            'pending_rollback_ticket':pending_rollback_ticket(root)}
 
 
 def _storage_policy_path(root):

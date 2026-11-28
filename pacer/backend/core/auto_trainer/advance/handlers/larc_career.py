@@ -222,6 +222,16 @@ class LarcCareerHandlerMixin:
         evidence["recognition_scope"] = "common_career"
         screen_text = evidence.get("screen_text")
         if screen_text is not None and screen_text.get("dangerous"):
+            if self._is_account_login_conflict_text(screen_text.get("normalized_text", "")):
+                return self._stop("account_login_conflict", evidence=evidence)
+            pass_renewal_cancel = self._pass_renewal_cancel_button(screen_text, img)
+            if pass_renewal_cancel is not None:
+                return self._tap_decision(
+                    "close_pass_renewal_popup",
+                    "safe_advance.pass_renewal_cancel",
+                    pass_renewal_cancel,
+                    evidence,
+                )
             return self._stop("resource_prompt", evidence=evidence)
         if scenario == "larc":
             recommendation = self._race_recommendation_top_confirm_button(evidence,
@@ -305,10 +315,10 @@ class LarcCareerHandlerMixin:
             return handoff("career_end_confirmation", route_state="modal", evidence=evidence)
         unused_points_finish = self._finish_training_unused_points_confirm_button(evidence["perception"], screen_text, img)
         if unused_points_finish is not None:
-            if not allow_finish_training_with_unused_skill_points:
-                return self._tap_decision("cancel_career_end_finish", "safe_advance.career_end_finish_cancel",
-                    self._finish_training_cancel_for_unused_points(screen_text, img), evidence)
-            return self._tap_decision("finish_training_confirm", "safe_advance.finish_training", unused_points_finish, evidence)
+            return self._plan_finish_training_confirmation(
+                unused_points_finish, screen_text, img, evidence,
+                allow_finish_training_with_unused_skill_points=allow_finish_training_with_unused_skill_points,
+            )
         if scenario == "larc":
             history = exchange_history_continue_point(img)
             if history is not None:
@@ -319,12 +329,11 @@ class LarcCareerHandlerMixin:
                 return decision
             finish_training = self._finish_training_confirm_button(evidence["perception"], img)
             if finish_training is not None:
-                finish_cancel = self._finish_training_cancel_for_unused_points(screen_text, img)
-                if finish_cancel is not None:
-                    return self._tap_decision("cancel_career_end_finish", "safe_advance.career_end_finish_cancel",
-                        finish_cancel, evidence)
-                return self._configured_decision("finish_training_confirm", img, evidence) or self._tap_decision(
-                    "finish_training_confirm", "safe_advance.finish_training", finish_training, evidence)
+                return self._plan_finish_training_confirmation(
+                    finish_training, screen_text, img, evidence,
+                    allow_finish_training_with_unused_skill_points=allow_finish_training_with_unused_skill_points,
+                    visual_fallback=True,
+                )
             if self._looks_like_final_training_rating(screen_text, img, rating_layout_only=True):
                 evidence["terminal_rating"] = {"verified": True, "completion_scope": "training_rating"}
                 return handoff("terminal_rating_verified", route_state="modal", evidence=evidence)
@@ -640,9 +649,26 @@ class LarcCareerHandlerMixin:
         if (event_option_rows_ready(img) if scenario == "larc" else detect_event_option_layout(img)["points"]):
             return handoff("event_choice", evidence=evidence)
         narration_text = str((screen_text or {}).get("normalized_text", ""))
+        narration_compact = "".join(narration_text.split())
+        larc_hud_dialogue = (
+            all(term in narration_compact for term in ("目标", "体力", "缩短版", "记录"))
+            and any(term in narration_compact for term in ("还剩", "比赛日"))
+            and (
+                "跳过" in narration_compact
+                or SpeedTogglePlanner._bottom_skip_level(img) in {"off", "single", "double"}
+            )
+            and not self._looks_like_confirm_modal_panel(img)
+            and not any(
+                excl in narration_compact
+                for excl in ("赛事一览", "赛事详情", "要参加比赛吗", "是否参加比赛", "重新挑战", "取消", "确定", "确认")
+            )
+        )
         if (
             scenario == "larc"
-            and any(title in narration_text for title in ("养成优俊少女事件", "协助卡事件", "剧本事件", "主线事件"))
+            and (
+                any(title in narration_text for title in ("养成优俊少女事件", "协助卡事件", "剧本事件", "主线事件"))
+                or larc_hud_dialogue
+            )
             and (self._looks_like_large_bottom_dialogue(img) or (
                 self._looks_like_blocking_bottom_dialogue(img)
                 and self._looks_like_active_bottom_skip_button(img)

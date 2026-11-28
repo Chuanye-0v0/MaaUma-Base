@@ -62,9 +62,8 @@ class LarcSupportReader:
         scale = width // 720
         canonical = image if scale == 1 else cv2.resize(image, (720, 1280), interpolation=cv2.INTER_AREA)
         hsv = cv2.cvtColor(canonical, cv2.COLOR_BGR2HSV)
-        # Reuse the existing local layout check on the already loaded image.
-        layout_image = image if scale == 2 else cv2.resize(image, (1440, 2560))
-        precheck = self._prechecker._check_larc(layout_image, hsv, expected_tab=None, evidence={})
+        # Run L'Arc layout precheck directly on the canonical 720x1280 frame.
+        precheck = self._prechecker._check_larc(canonical, hsv, expected_tab=None, evidence={})
         if not precheck.accepted or precheck.selected_tab == "ss":
             result["reason"] = "not_a_verified_training_page"
             return result

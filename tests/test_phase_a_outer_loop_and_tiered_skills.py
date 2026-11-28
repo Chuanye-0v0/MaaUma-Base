@@ -936,7 +936,7 @@ class TestPhaseAOuterLoopAndTieredSkills(unittest.TestCase):
                     proof.write_text("{}", encoding="utf-8")
                     turn_id = argv[argv.index("--turn-id") + 1]
                     if len(calls) == 1:
-                        # Leaves 10 Pt: legacy mode would stop on small_remainder, cm_spenddown runs 2nd check
+                        # Leaves 10 Pt (< 50): v0.6.18+ stops immediately with small_remainder_retained
                         wr = {
                             "ok": True, "stage": "complete", "reason": "race_skill_learning_verified",
                             "run_session_id": "run_term", "endpoint": endpoint, "turn_id": turn_id,
@@ -969,8 +969,8 @@ class TestPhaseAOuterLoopAndTieredSkills(unittest.TestCase):
                         adb_port=16448,
                     )
                 self.assertEqual(t_code, 0)
-                self.assertEqual(len(calls), 2)
-                self.assertEqual(t_report["ready_reason"], "no_purchase")
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(t_report["ready_reason"], "small_remainder_retained")
                 self.assertEqual(t_report["skill_pt_ledger"]["terminal"], 100)
                 self.assertEqual(t_report["skill_pt_ledger"]["current_pt"], 10)
             finally:
@@ -1746,6 +1746,7 @@ class TestPhaseAOuterLoopAndTieredSkills(unittest.TestCase):
             norm_catalog_dict = json.loads(catalog_path.read_text(encoding="utf-8-sig"))
             prof, _diag = tsc.compile_tiered_skill_profile(
                 {
+                    **_base_profile(),
                     "race_profile": {"distance_type": "middle", "surface": "dirt", "style": "leader", "distance_m": 2100},
                     "stats": {"speed": 1500, "stamina": 1200, "power": 1200, "guts": 1200, "wisdom": 1200},
                 },

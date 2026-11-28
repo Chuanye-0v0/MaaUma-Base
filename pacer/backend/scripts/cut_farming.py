@@ -393,7 +393,19 @@ class CutFarmingController:
                         if route.get('reason')!='ordinary_abandon_confirmed':
                             self.session.stop('route_failed',reason='final_abandon_unverified',run_id=root.name);break
                         attempt['status']='abandoned'
+                        if not config.retain_screenshots:
+                            try:
+                                from core.auto_trainer.pacer_storage import prune_completed_attempt
+                                prune_completed_attempt(root, outcome='abandoned')
+                            except Exception:
+                                pass
                         self.session.stop('limit_reached',reason='attempt_limit_after_abandon');break
+                    if not config.retain_screenshots:
+                        try:
+                            from core.auto_trainer.pacer_storage import prune_completed_attempt
+                            prune_completed_attempt(root, outcome='abandoned')
+                        except Exception:
+                            pass
                     self.session.data['attempts'][-1]['status']='abandoned_and_restarted'
                     self.session.save()
                     root=make_attempt(self.session,template_root=template_root)

@@ -116,9 +116,18 @@ class RunnerHeartbeatWorker:
         self.port.heartbeat(run_id=self.port.run_id, session_id=self.port.session_id)
 
     def _run(self) -> None:
+        consecutive_os_errors = 0
         try:
             while not self._stop_event.wait(self.interval_seconds):
-                self._send_heartbeat()
+                try:
+                    self._send_heartbeat()
+                    consecutive_os_errors = 0
+                except OSError as exc:
+                    consecutive_os_errors += 1
+                    if consecutive_os_errors >= 3:
+                        raise exc
+                    if self._stop_event.wait(min(1.0, self.interval_seconds)):
+                        break
         except BaseException as exc:
             self._report_failure(exc)
 

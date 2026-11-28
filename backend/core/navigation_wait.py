@@ -23,7 +23,7 @@ def same_controls(before, after, tolerance=4):
             return False
     return True
 
-def wait_transition(capture, stop, before, timeout=20, *, same_page_ready=None):
+def wait_transition(capture, stop, before, timeout=20, *, same_page_ready=None, controls_tolerance=4):
     deadline = time.monotonic() + timeout
     while True:
         if stop.is_set():
@@ -35,7 +35,7 @@ def wait_transition(capture, stop, before, timeout=20, *, same_page_ready=None):
             return after
         if after.get('page') not in {before.get('page'), 'unknown', 'loading'}:
             return after
-        if after.get('page') == before.get('page') and after.get('actions') and (not same_controls(after['actions'], before.get('actions'))):
+        if after.get('page') == before.get('page') and after.get('actions') and (not same_controls(after['actions'], before.get('actions'), tolerance=controls_tolerance)):
             return after
         if after.get('page') == before.get('page') == 'notice' and after.get('actions'):
             labels = lambda frame: [t.get('text') for t in frame.get('ui_labels', [])]

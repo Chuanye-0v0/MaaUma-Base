@@ -46,11 +46,14 @@ public sealed class MaaUmaActivationView : UserControl
     private readonly Button refresh = new() { Name="MaaUmaRefreshLicense", Content="刷新状态" };
     private readonly Button prepare = new() { Name="MaaUmaPrepareUpdate", Content="检查并准备更新" };
     private readonly Button install = new() { Name="MaaUmaInstallUpdate", Content="安装并重开", IsEnabled=false };
+    private readonly Button retryApply = new() { Name="MaaUmaRetryApplyUpdate", Content="重试应用已下载补丁", IsVisible=false, IsEnabled=false };
+    private readonly Button repairRollback = new() { Name="MaaUmaRepairUpdateState", Content="修复更新状态", IsVisible=false, IsEnabled=false };
     private readonly TextBlock trace = new() { Name="MaaUmaTraceId", Text="", IsVisible=false, TextWrapping=TextWrapping.Wrap };
     private readonly TextBlock rights = new() { Name="MaaUmaPermissions", Text="", IsVisible=false, TextWrapping=TextWrapping.Wrap };
     private readonly Expander settings = new() { Name="MaaUmaUpdateSettings", Header="更新设置", IsExpanded=false, HorizontalAlignment=HorizontalAlignment.Stretch };
     private readonly Expander activation = new() { Name="MaaUmaTestActivation", Header="测试版激活", IsExpanded=false, HorizontalAlignment=HorizontalAlignment.Stretch };
     private readonly TextBlock message = new() { Name="MaaUmaActivationStatus", TextWrapping=TextWrapping.Wrap };
+    private readonly TextBlock lastUpdateStatus = new() { Name="MaaUmaLastUpdateStatus", TextWrapping=TextWrapping.Wrap, FontSize=13, IsVisible=false };
     private readonly TextBlock cacheCleanupStatus = new() { Name="MaaUmaCacheCleanupStatus", TextWrapping=TextWrapping.Wrap, FontSize=13, IsVisible=false };
     private readonly TextBlock pacerCleanupStatus = new() { Name="MaaUmaPacerCleanupStatus", TextWrapping=TextWrapping.Wrap, FontSize=13, IsVisible=false };
     private readonly TextBlock startupMaintenanceStatus = new() { Name="MaaUmaStartupMaintenanceStatus", TextWrapping=TextWrapping.Wrap, FontSize=13, IsVisible=false };
@@ -68,6 +71,9 @@ public sealed class MaaUmaActivationView : UserControl
     private readonly DispatcherTimer timer = new() { Interval=TimeSpan.FromSeconds(2) };
     private bool busy, autoPrepared, pacerAuthorized, pacerInstalled, previewAllowed, currentIdle;
     private string? ticket;
+    private string? retryableTicket;
+    private string? pendingRollbackTicket;
+    private string? lastFailureNotifiedKey;
     private string savedChannel="preview",savedAddress=DefaultServiceUrl,savedDownloadSource="auto";
 
     public MaaUmaActivationView() : this(AppContext.BaseDirectory) { }
@@ -77,7 +83,7 @@ public sealed class MaaUmaActivationView : UserControl
     {
         root=Path.GetFullPath(packageRoot);var client=new SuiteClient(root);
         request=service??client.Request;progressRequest=progressService??(service==null?client.RequestWithProgress:null);
-        idle=runtimeIdle ?? RuntimeIdle;
+        idle=runtimeIdle ?? (() => RuntimeIdleForRoot(root));
         openFeedback=feedbackBrowser ?? (info=>{using var browser=Process.Start(info);});
         launch=launchHelper ?? (info=>{using var child=Process.Start(info) ?? throw new IOException("无法启动安装助手。");});
         exit=closeWindow ?? (()=>{if(TopLevel.GetTopLevel(this) is Window window)window.Close();});
@@ -88,8 +94,8 @@ public sealed class MaaUmaActivationView : UserControl
         // MaaUma local update announcement v1
         var announcement = new Button { Name="MaaUmaShowUpdateAnnouncement", Content="更新公告" };
         announcement.Click += (_, _) => MaaUmaUpdateAnnouncement.ShowCurrent(TopLevel.GetTopLevel(this) as Window, root);
-        foreach(var button in new[]{refresh,prepare,install,feedback,announcement,networkCheck}){button.Margin=new Thickness(0,0,12,8);actions.Children.Add(button);}
-        body.Children.Add(actions);body.Children.Add(progress);body.Children.Add(downloadProgress);body.Children.Add(message);body.Children.Add(startupMaintenanceStatus);body.Children.Add(cacheCleanupStatus);body.Children.Add(pacerCleanupStatus);
+        foreach(var button in new[]{refresh,prepare,install,retryApply,repairRollback,feedback,announcement,networkCheck}){button.Margin=new Thickness(0,0,12,8);actions.Children.Add(button);}
+        body.Children.Add(actions);body.Children.Add(progress);body.Children.Add(downloadProgress);body.Children.Add(message);body.Children.Add(lastUpdateStatus);body.Children.Add(startupMaintenanceStatus);body.Children.Add(cacheCleanupStatus);body.Children.Add(pacerCleanupStatus);
         body.Children.Add(new TextBlock {Text="旧育成记录保留",FontWeight=FontWeight.SemiBold});
         body.Children.Add(new WrapPanel {Children={storageRetention,saveStorageRetention}});
         body.Children.Add(storagePolicyStatus);
@@ -109,13 +115,16 @@ public sealed class MaaUmaActivationView : UserControl
         networkCheck.Click+=async(_,_)=>await CheckConnectivity();
         saveStorageRetention.Click+=async(_,_)=>await SaveStoragePolicy();
         storageRetention.SelectionChanged+=(_,_)=>{if(!applyingStoragePolicy)storagePolicyDirty=true;};
-        install.Click+=async(_,_)=>await Install();channel.SelectionChanged+=(_,_)=>Buttons();
+        install.Click+=async(_,_)=>await Install();
+        retryApply.Click+=async(_,_)=>{if(!string.IsNullOrWhiteSpace(retryableTicket))ticket=retryableTicket;await Install();};
+        repairRollback.Click+=async(_,_)=>await RepairRollback();
+        channel.SelectionChanged+=(_,_)=>Buttons();
         downloadSource.SelectionChanged+=(_,_)=>Buttons();
         feedback.Click+=(_,_)=>{
             try {openFeedback(new ProcessStartInfo(FeedbackUrl){UseShellExecute=true});}
             catch {message.Text="无法打开浏览器，请稍后重试。";}
         };
-        address.TextChanged+=(_,_)=>{code.Text="";ticket=null;if(!busy)downloadProgress.Clear();Buttons();};
+        address.TextChanged+=(_,_)=>{code.Text="";ticket=null;retryableTicket=null;pendingRollbackTicket=null;if(!busy)downloadProgress.Clear();Buttons();};
         Loaded+=async(_,_)=>{timer.Start();try{downloadProgress.RefreshClock();}catch{}await RefreshInfo();};Unloaded+=(_,_)=>timer.Stop();
         timer.Tick+=async(_,_)=>{try{DrainPreparationProgress();downloadProgress.RefreshClock();}catch{}if(!busy)await UpdateIdle();};
     }
@@ -131,10 +140,34 @@ public sealed class MaaUmaActivationView : UserControl
         code.IsEnabled=address.IsEnabled=channel.IsEnabled=downloadSource.IsEnabled=!busy;
         saveStorageRetention.IsEnabled=storageRetention.IsEnabled=!busy&&storagePolicyAvailable;
         install.IsEnabled=!busy && ticket!=null && currentIdle && SettingsSaved;
+        retryApply.IsVisible=!string.IsNullOrWhiteSpace(retryableTicket);
+        retryApply.IsEnabled=!busy && !string.IsNullOrWhiteSpace(retryableTicket) && currentIdle && SettingsSaved;
+        repairRollback.IsVisible=!string.IsNullOrWhiteSpace(pendingRollbackTicket);
+        repairRollback.IsEnabled=!busy && !string.IsNullOrWhiteSpace(pendingRollbackTicket) && currentIdle && SettingsSaved;
         progress.IsVisible=busy&&!downloadProgress.IsActive;
         prepare.Content=downloadProgress.HasFailed?"重新尝试下载":"检查并准备更新";
     }
     private void Busy(bool value){busy=value;Buttons();}
+
+    internal static string? FormatLastUpdateFailure(JObject? lastResult)
+    {
+        if(lastResult==null || (bool?)lastResult["ok"]!=false)return null;
+        var code=(string?)lastResult["code"] ?? "update_failed";
+        var status=(string?)lastResult["status"];
+        var failedPath=(string?)lastResult["failed_path"] ?? (string?)lastResult["error"]?["failed_path"];
+        var errType=(string?)lastResult["error"]?["type"];
+        var errMsg=(string?)lastResult["error"]?["message"];
+        var logPath=(string?)lastResult["log_path"];
+        var lead=code=="rollback_required" || status=="rollback_failed"
+            ? $"上次更新未完成，需要修复状态（状态：{code}）"
+            : $"上次更新未能完成并已回滚（状态：{code}）";
+        var parts=new System.Collections.Generic.List<string> { lead };
+        if(!string.IsNullOrWhiteSpace(failedPath))parts.Add($"受阻文件：{failedPath}");
+        if(!string.IsNullOrWhiteSpace(errType) || !string.IsNullOrWhiteSpace(errMsg))
+            parts.Add($"原因：{errType}{(string.IsNullOrWhiteSpace(errType) || string.IsNullOrWhiteSpace(errMsg) ? "" : ": ")}{errMsg}");
+        if(!string.IsNullOrWhiteSpace(logPath))parts.Add($"详情日志：{logPath}");
+        return string.Join("；",parts);
+    }
     private void Apply(JObject result,bool displayMessage=true)
     {
         if(result.Property("trace_id")!=null) {
@@ -167,6 +200,33 @@ public sealed class MaaUmaActivationView : UserControl
         var prepared=result["component"] as JObject;
         if(result.Property("ticket")!=null)ticket=result["ticket"]?.Type==JTokenType.String ? (string?)result["ticket"] : null;
         else if((bool?)prepared?["ok"]==true && prepared?["ticket"]?.Type==JTokenType.String)ticket=(string?)prepared["ticket"];
+        if(result.Property("retryable_ticket")!=null)
+        {
+            retryableTicket=result["retryable_ticket"]?.Type==JTokenType.String ? (string?)result["retryable_ticket"] : null;
+            if(string.IsNullOrWhiteSpace(ticket) && !string.IsNullOrWhiteSpace(retryableTicket))ticket=retryableTicket;
+        }
+        if(result.Property("pending_rollback_ticket")!=null)
+            pendingRollbackTicket=result["pending_rollback_ticket"]?.Type==JTokenType.String ? (string?)result["pending_rollback_ticket"] : null;
+        if(result.Property("last_update_result")!=null)
+        {
+            var lastObj=result["last_update_result"] as JObject;
+            var failureText=FormatLastUpdateFailure(lastObj);
+            if(!string.IsNullOrEmpty(failureText))
+            {
+                lastUpdateStatus.Text=failureText;lastUpdateStatus.IsVisible=true;
+                var notifyKey=$"{(string?)lastObj?["timestamp_utc"]}|{(string?)lastObj?["code"]}|{(string?)lastObj?["failed_path"]}";
+                if(displayMessage && lastFailureNotifiedKey!=notifyKey)
+                {
+                    lastFailureNotifiedKey=notifyKey;
+                    try{ToastHelper.Warn("上次更新失败并已回滚",failureText);}catch{}
+                }
+            }
+            else if(lastObj!=null && (bool?)lastObj["ok"]==true)
+            {
+                lastUpdateStatus.Text="";lastUpdateStatus.IsVisible=false;lastFailureNotifiedKey=null;
+                retryableTicket=null;pendingRollbackTicket=null;
+            }
+        }
         if(displayMessage)message.Text=(bool?)result["ok"]==false
             ? MaaUmaUpdateConnectivity.FailureText(result) is { Length:>0 } failure?failure:"操作未完成，请检查更新设置后重试。当前安装未修改。"
             : (string?)result["status"] switch {
@@ -245,12 +305,12 @@ public sealed class MaaUmaActivationView : UserControl
             null or ""=>"",
             "process_check_unavailable"=>" 更新助手状态暂时无法确认，缓存已保留。",
             "cleanup_unavailable"=>" 本次缓存整理未完成。",
-            "cleanup_busy"=>MaintenanceRetry(result) ? " 另一项缓存整理正在进行，已标记待重试。" : " 另一项缓存整理正在进行，本次尚未完成。",
+            "cleanup_busy"=>MaintenanceRetry(result) ? " 另一项缓存整理正在进行，已标记待重试。" : " 另一项缓存整理正在进行，本次已跳过。",
             "source_tree_not_a_client"=>" 当前是源码工作区，已跳过整理。",
             "linked_application_root" or "linked_update_state"=>" 安装或更新目录包含链接，已跳过整理。",
             _=>" 返回了未识别的整理状态，尚不能确认已完成。"
         };
-        if(status is "cleanup_unavailable" or "cleanup_busy")text+=CleanupDiagnostics(result);
+        if(status=="cleanup_unavailable")text+=CleanupDiagnostics(result);
         if(result["budget_exhausted"]?.Type==JTokenType.Boolean && (bool)result["budget_exhausted"]!)
             text+=" 本次整理已达到时间预算，仍可能有旧缓存待处理。";
         if(result["protected"] is JArray entries && entries.Count>0) {
@@ -425,7 +485,7 @@ public sealed class MaaUmaActivationView : UserControl
     private static bool MaintenanceIssue(JObject result)
     {
         if((bool?)result["ok"]!=true || result["cache_cleanup"] is not JObject cache || result["pacer_cleanup"] is not JObject pacer)return true;
-        if(CleanupCount(cache["removed_stages"])==null || !string.IsNullOrEmpty(CleanupCode(cache["status"])))return true;
+        if(CleanupCount(cache["removed_stages"])==null || CleanupCode(cache["status"]) is not (null or "" or "cleanup_busy"))return true;
         if(cache["protected"] is JArray entries && entries.OfType<JObject>().Any(item=>CleanupCode(item["reason"]) is not ("current_rollback" or "current_or_future_prepared_update")))return true;
         var skipped=CleanupCode(pacer["skipped"]);
         return skipped is not (null or "" or "not_installed" or "recent_sweep") || CleanupCount(pacer["errors"])>0
@@ -508,11 +568,53 @@ public sealed class MaaUmaActivationView : UserControl
         }
     }
     private async Task UpdateIdle(){try{currentIdle=await idle();}catch{currentIdle=false;}Buttons();}
-    private static async Task<bool> RuntimeIdle()
+    internal static bool HasLockedDeviceOccupancyFile(string packageRoot, bool includeGlobalLocks = true)
+    {
+        if(string.IsNullOrWhiteSpace(packageRoot))return false;
+        var folders=new System.Collections.Generic.List<string>
+        {
+            Path.Combine(packageRoot,"backend","runs","device-occupancy"),
+            Path.Combine(packageRoot,"pacer","backend","runs","device-occupancy"),
+            Path.Combine(packageRoot,"temp","UmaSuite","device-locks"),
+        };
+        if(includeGlobalLocks)
+        {
+            var lockBase=Environment.GetEnvironmentVariable("UMA_PUBLIC_LOCK_ROOT");
+            if(string.IsNullOrWhiteSpace(lockBase))
+                lockBase=Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if(!string.IsNullOrWhiteSpace(lockBase))
+                folders.Add(Path.Combine(lockBase,"UmaSuite","device-locks"));
+        }
+        foreach(var folder in folders)
+        {
+            if(!Directory.Exists(folder))continue;
+            string[] locks;
+            try{locks=Directory.GetFiles(folder,"*.lock");}
+            catch{continue;}
+            foreach(var file in locks)
+            {
+                try
+                {
+                    using var fs=new FileStream(file,FileMode.Open,FileAccess.ReadWrite,FileShare.ReadWrite);
+                    if(fs.Length>0){fs.Lock(0,1);fs.Unlock(0,1);}
+                }
+                catch(FileNotFoundException){}
+                catch(DirectoryNotFoundException){}
+                catch(IOException){return true;}
+                catch{return true;}
+            }
+        }
+        return false;
+    }
+
+    private static Task<bool> RuntimeIdle()=>RuntimeIdleForRoot(AppContext.BaseDirectory);
+    private static async Task<bool> RuntimeIdleForRoot(string packageRoot)
     {
         try {
+            if(HasLockedDeviceOccupancyFile(packageRoot))return false;
             if(Instances.InstanceTabBarViewModel.Tabs.Any(x=>x.IsRunning || x.TaskQueueViewModel?.IsRunning==true))return false;
-            return AdditionalIdleCheck==null || await AdditionalIdleCheck();
+            if(AdditionalIdleCheck!=null)return await AdditionalIdleCheck();
+            return await UmaPacerBridge.AreAllActiveIdleAsync();
         }catch{return false;}
     }
     private static readonly SemaphoreSlim NotificationCapabilityFlight=new(1,1);
@@ -628,6 +730,7 @@ public sealed class MaaUmaActivationView : UserControl
             var result=await request(new JObject {["action"]="install",["ticket"]=ticket,["parent_pid"]=Environment.ProcessId});
             if((bool?)result["ok"]!=true){message.Text="安装准备未确认，当前程序仍保留。";return;}
             if(!await idle()){message.Text="任务状态发生变化，尚未启动安装助手；请停止全部任务后重试。";return;}
+            await UmaPacerBridge.StopAllForUpdateAsync(TimeSpan.FromSeconds(10));
             if(result["helper_arguments"] is not JArray arguments || arguments.Any(x=>x.Type!=JTokenType.String))throw new IOException();
             var executable=OwnedPath(result,"helper_executable");
             var script=(string?)result["helper_script"] ?? arguments.Values<string>().FirstOrDefault(x=>x?.EndsWith(".py",StringComparison.OrdinalIgnoreCase)==true);
@@ -643,6 +746,28 @@ public sealed class MaaUmaActivationView : UserControl
             launch(info);if(TopLevel.GetTopLevel(this) is Window window)window.IsEnabled=false;exit();
         }catch{message.Text="独立安装助手尚未确认，当前程序没有退出或替换。";}
         finally{Busy(false);}
+    }
+
+    public async Task RepairRollback()
+    {
+        if(busy || string.IsNullOrWhiteSpace(pendingRollbackTicket) || !SettingsSaved)return;
+        Busy(true);
+        message.Text="正在恢复未完成的更新状态，请稍候…";
+        try {
+            if(!await idle()){message.Text="仍有任务运行或状态未确认，请全部停止后修复。";return;}
+            var result=await request(new JObject {["action"]="rollback",["ticket"]=pendingRollbackTicket});
+            if((bool?)result["ok"]==true) {
+                pendingRollbackTicket=null;
+                message.Text="已恢复更新前的稳定状态，可以重新检查更新。";
+                try {
+                    var info=await request(new JObject {["action"]="info",["maintenance"]=false});
+                    Apply(info, displayMessage:false);
+                } catch { }
+            } else {
+                message.Text=MaaUmaUpdateConnectivity.FailureText(result) is { Length:>0 } failure ? failure : "更新状态恢复未完成，请停止全部任务后重试。";
+            }
+        }catch{message.Text="更新状态恢复失败，请先停止所有任务后重试。";}
+        finally{Busy(false);await UpdateIdle();}
     }
 
     private sealed class SuiteClient(string root)

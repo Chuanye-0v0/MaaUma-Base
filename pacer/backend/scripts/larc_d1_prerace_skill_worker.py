@@ -127,7 +127,12 @@ def _load_d1(root, *, endpoint=None):
         complete_harvest_selection, close_and_return_harvest_selection,
     )
     install_d1_skill_compatibility()
-    from core.skill_batch_purchase import _primary_evidence, validate_skill_batch_plan
+    from core.skill_batch_purchase import (
+        _canonical_plan_sha256,
+        _primary_evidence,
+        build_skill_batch_plan,
+        validate_skill_batch_plan,
+    )
     from core.skill_planner.preferences import load_skill_preference_profile
     from scripts import plan_fresh_skill_acquisition as planner_api
     from core.autonomous_training.skills import publish_skill_plan
@@ -141,7 +146,9 @@ def _load_d1(root, *, endpoint=None):
             prepare_skills, planner_api, device, output, context, **kwargs),
         select=select_and_open_purchase_confirmation, complete=complete_harvest_selection,
         close=close_and_return_harvest_selection,
+        build_plan=build_skill_batch_plan,
         validate=validate_skill_batch_plan, primary_evidence=_primary_evidence,
+        canonical_plan_sha256=_canonical_plan_sha256,
         token=SKILL_BATCH_PURCHASE_SAFETY_TOKEN,
         load_preference=load_skill_preference_profile,
         replan=lambda **kwargs: replan_with_startup_policy(planner_api, **kwargs),
@@ -300,8 +307,15 @@ def apply_race_preference(api, prepared, output, context, preference_path):
     derived = target_enabled and (arc_policy.get("mode") == "tiered_ladder"
                                   or (not arc_policy.get("classic_allowlist") and arc_policy.get("auto_cm", True)))
     legacy_timing = classic and not derived
+    excluded_ids = sorted({str(s) for s in (context.get("excluded_skill_ids") or ()) if isinstance(s, str) and s})
     if target_enabled or legacy_timing:
         inventory = _read(prepared["inventory_path"])
+        if excluded_ids:
+            excluded_set = set(excluded_ids)
+            inventory = {
+                **inventory,
+                "allowed_action_ids": [sid for sid in inventory.get("allowed_action_ids", []) if sid not in excluded_set],
+            }
         catalog = _read(context["planner_catalog"])
         base = _read(preference_path) if preference_path is not None else {
             "schema_version": "uma.skill_preference_profile.v1", "profile_id": "larc-race",
@@ -324,9 +338,35 @@ def apply_race_preference(api, prepared, output, context, preference_path):
             inventory = _selectable_target_inventory(inventory, primary_evidence)
         profile, target_diagnostic = _target_policy().stage_skill_preference(base, inventory, catalog,
             context=context, year=context.get("larc_year", 3))
+        if excluded_ids and isinstance(target_diagnostic, dict):
+            excluded_set = set(excluded_ids)
+            for key in ("required_skill_ids", "selected_target_ids"):
+                if isinstance(target_diagnostic.get(key), list):
+                    target_diagnostic[key] = [sid for sid in target_diagnostic[key] if sid not in excluded_set]
         preference_path = output / "target_preference.json"
         preference_path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
         (output / "target_policy.json").write_text(json.dumps(target_diagnostic, ensure_ascii=False, indent=2), encoding="utf-8")
+    if excluded_ids:
+        excluded_set = set(excluded_ids)
+        pref_data = _read(preference_path) if preference_path is not None else {
+            "schema_version": "uma.skill_preference_profile.v1",
+            "profile_id": "larc-excluded-race",
+            "base_profile": "race",
+            "reserve_skill_pt": 0,
+            "filler_policy": "safe_useful_only",
+            "max_batch_size": min(48, context["policy"]["max_purchase_count"]),
+            "rules": [],
+        }
+        kept_rules = [
+            rule for rule in (pref_data.get("rules") or [])
+            if not (isinstance(rule, dict) and (rule.get("selector") or {}).get("kind") == "skill_id"
+                    and (rule.get("selector") or {}).get("value") in excluded_set)
+        ]
+        for sid in excluded_ids:
+            kept_rules.append({"selector": {"kind": "skill_id", "value": sid}, "mode": "avoid", "priority": 100})
+        pref_data = {**pref_data, "rules": kept_rules}
+        preference_path = output / "excluded_preference.json"
+        preference_path.write_text(json.dumps(pref_data, ensure_ascii=False, indent=2), encoding="utf-8")
     report = api.replan(source_report_path=Path(prepared["planner_report_path"]),
         planner_catalog=Path(context["planner_catalog"]), output_dir=output,
         build_context=context, preference_profile=api.load_preference(preference_path))
@@ -342,8 +382,13 @@ def _confirmed_purchase(source, root, progress, context):
     source = Path(source).resolve()
     if source == root or not source.is_relative_to(root):
         raise ValueError("prerace_resume_outside_run")
-    original = _read(source / "worker_report.json")
+    report_file = source / "worker_report.json"
+    if not report_file.is_file():
+        raise ValueError("prerace_worker_report_missing")
+    original = _read(report_file)
     final_path = source / "confirmation/final_confirmation_report.json"
+    if not final_path.is_file():
+        raise ValueError("prerace_confirmation_missing")
     final = _read(final_path)
     child_path = Path(final.get("promotion_plan_path", "")).resolve()
     if not child_path.is_relative_to(source / "selection") or not child_path.is_file():
@@ -419,6 +464,155 @@ def apply_startup_preference(api,prepared,output,context,*,required,extra_owned=
     result=api.publish(output,report,manifest)
     result["startup_diagnostic"]=diagnostic
     return result
+
+
+def _is_zero_input_selection_rejection(selection):
+    if not isinstance(selection, dict):
+        return False
+    if selection.get("schema_version") != "uma.autonomous_skill_purchase_preflight.v1":
+        return False
+    if (selection.get("confirmation_opened") is not False
+            or selection.get("pre_tap_receipts_path") is not None
+            or selection.get("execution") is not None
+            or selection.get("input_may_have_occurred")
+            or selection.get("purchase_may_have_occurred")):
+        return False
+    if selection.get("device_action_count") == 0:
+        return True
+    return (selection.get("tap_count") == 0
+            and selection.get("stop_reason") in {"page_swipe_failed", "bottom_page_unverified"})
+
+
+def _write_forward_fallback_artifacts(inventory, plan, planner_report_path, fallback_dir, *,
+                                      canonical_plan_sha256, validate):
+    fallback_dir.mkdir(parents=True, exist_ok=True)
+    forward_plan = {k: v for k, v in plan.items() if k not in {"reverse_scroll_shifts", "plan_sha256"}}
+    forward_plan["plan_sha256"] = canonical_plan_sha256(forward_plan)
+    valid, reason = validate(forward_plan, inventory)
+    if not valid:
+        raise ValueError("forward_fallback_plan_invalid:" + str(reason))
+    source_report = _read(planner_report_path)
+    source_report["batch_plan"] = forward_plan
+    forward_plan_path = fallback_dir / "skill_batch.forward.plan.json"
+    forward_report_path = fallback_dir / "fresh_skill_dry_run.forward.report.json"
+    forward_plan_path.write_text(
+        json.dumps(forward_plan, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    forward_report_path.write_text(
+        json.dumps(source_report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    return forward_plan_path, forward_report_path, forward_plan
+
+
+def _is_unconfirmed_row_identity_mismatch(selection):
+    if not isinstance(selection, dict):
+        return False
+    if selection.get("schema_version") != "uma.autonomous_skill_purchase_preflight.v1":
+        return False
+    if (selection.get("confirmation_opened") is not False
+            or selection.get("selection_ledger_path") is not None
+            or selection.get("purchase_may_have_occurred") is True):
+        return False
+    stop_reason = selection.get("stop_reason")
+    return isinstance(stop_reason, str) and stop_reason.startswith("planned_row_identity_mismatch:")
+
+
+def _mismatched_action_id(selection):
+    if not isinstance(selection, dict):
+        return None
+    stop_reason = selection.get("stop_reason")
+    if not isinstance(stop_reason, str) or not stop_reason.startswith("planned_row_identity_mismatch:"):
+        return None
+    suffix = stop_reason.split("planned_row_identity_mismatch:", 1)[1].strip()
+    return suffix or None
+
+
+def _cart_is_empty(obs, endpoint, initial_points):
+    if not isinstance(obs, dict):
+        return False
+    actions = obs.get("actions")
+    return (
+        obs.get("endpoint") == endpoint
+        and obs.get("page") == "skills"
+        and obs.get("current_skill_points") == initial_points
+        and (not isinstance(actions, dict) or "open_skill_confirmation" not in actions)
+        and obs.get("skill_cart_disabled") is not False
+    )
+
+
+def _valid_native_point(point):
+    return (
+        isinstance(point, (list, tuple))
+        and len(point) == 2
+        and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in point)
+        and 0 <= int(point[0]) < 720
+        and 0 <= int(point[1]) < 1280
+    )
+
+
+def _reset_unconfirmed_skill_cart(device, endpoint, initial_points):
+    obs = device.capture()
+    if _cart_is_empty(obs, endpoint, initial_points):
+        return True, "already_empty", obs
+    for attempt in range(2):
+        actions = obs.get("actions") if isinstance(obs, dict) else None
+        reset_action = actions.get("reset_skill_selection") if isinstance(actions, dict) else None
+        point = reset_action.get("point") if isinstance(reset_action, dict) else None
+        if _valid_native_point(point):
+            break
+        if not isinstance(obs, dict) or obs.get("endpoint") != endpoint or obs.get("page") != "skills":
+            return False, "reset_control_missing", obs
+        time.sleep(0.35)
+        obs = device.capture()
+        if _cart_is_empty(obs, endpoint, initial_points):
+            return True, "already_empty", obs
+    actions = obs.get("actions") if isinstance(obs, dict) else None
+    reset_action = actions.get("reset_skill_selection") if isinstance(actions, dict) else None
+    point = reset_action.get("point") if isinstance(reset_action, dict) else None
+    if not _valid_native_point(point) or not callable(getattr(device, "command", None)):
+        return False, "reset_control_missing", obs
+    device.command("-s", endpoint, "shell", "input", "tap", str(int(point[0])), str(int(point[1])))
+    after = None
+    for attempt in range(4):
+        time.sleep(0.45 if attempt == 0 else 0.4)
+        after = device.capture()
+        if _cart_is_empty(after, endpoint, initial_points):
+            return True, "reset_verified", after
+    return False, "reset_unverified", after
+
+
+def _write_subset_plan_artifacts(inventory, plan, planner_report_path, subset_dir, *,
+                                 exclude_action_ids, build_plan, validate):
+    excluded = set(exclude_action_ids)
+    remaining_ids = [aid for aid in plan.get("selected_action_ids", []) if aid not in excluded]
+    if not remaining_ids:
+        return None
+    subset_dir.mkdir(parents=True, exist_ok=True)
+    subset_plan = build_plan(
+        inventory=inventory,
+        selected_action_ids=remaining_ids,
+        decision_source=plan.get("decision_source", "local_auto"),
+        reverse_scroll_shifts=None,
+    )
+    valid, reason = validate(subset_plan, inventory)
+    if not valid:
+        raise ValueError("subset_fallback_plan_invalid:" + str(reason))
+    source_report = _read(planner_report_path)
+    source_report["batch_plan"] = subset_plan
+    dry_run = source_report.get("planner_dry_run")
+    if isinstance(dry_run, dict) and isinstance(dry_run.get("purchases"), list):
+        kept_ids = set(subset_plan["selected_action_ids"])
+        dry_run["purchases"] = [
+            item for item in dry_run["purchases"]
+            if isinstance(item, dict) and item.get("skill_id") in kept_ids
+        ]
+        dry_run["spent_skill_pt"] = subset_plan["spent_skill_points"]
+        dry_run["remaining_skill_pt"] = subset_plan["expected_remaining_skill_points"]
+    subset_plan_path = subset_dir / "skill_batch.subset.plan.json"
+    subset_report_path = subset_dir / "fresh_skill_dry_run.subset.report.json"
+    subset_plan_path.write_text(
+        json.dumps(subset_plan, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    subset_report_path.write_text(
+        json.dumps(source_report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    return subset_plan_path, subset_report_path, subset_plan
 
 
 def run_skill_batch(*, d1_root, run_root, output_dir, run_style, year,
@@ -527,7 +721,7 @@ def run_skill_batch(*, d1_root, run_root, output_dir, run_style, year,
                 context.get("current_stats"), {"speed": current_speed, "stamina": current_stamina})
         report.update(run_session_id=root.name, turn_index=progress["next_turn"], year=year, purpose=purpose,
                       context=context, context_source="caller_current_run_race_plan",
-                      stage="loading", reason="in_progress")
+                      stage="loading", reason="in_progress", purchase_may_have_occurred=False)
         save()
         confirmed = (_confirmed_purchase(resume_confirmed_from, root, progress,
                      {"race_profile": context["race_profile"], "year": year})
@@ -568,11 +762,32 @@ def run_skill_batch(*, d1_root, run_root, output_dir, run_style, year,
                           returned=True, return_report_path=str(proof), requires_menu_observation=True)
             save()
             return report
-        before = device.capture()
-        if (before.get("endpoint") != endpoint or before.get("page") != "skills"
-                or type(before.get("current_skill_points")) is not int
-                or before["current_skill_points"] < 0
-                or before.get("skill_cart_disabled") is not True):
+        before = None
+        for attempt in range(5):
+            before = device.capture()
+            if (before.get("endpoint") == endpoint and before.get("page") == "skills"
+                    and type(before.get("current_skill_points")) is int
+                    and before["current_skill_points"] >= 0
+                    and before.get("skill_cart_disabled") is True):
+                break
+            if (before.get("page") != "skills"
+                    and getattr(device, "last_capture_transport", None) == "mumu_ipc"
+                    and callable(getattr(device, "disable_native_capture", None))):
+                device.disable_native_capture("prerace_non_skills_page")
+            if attempt < 4:
+                time.sleep(0.35)
+        else:
+            report["before_capture_failed"] = {
+                "attempts": 5,
+                "endpoint": before.get("endpoint") if isinstance(before, dict) else None,
+                "page": before.get("page") if isinstance(before, dict) else None,
+                "current_skill_points": before.get("current_skill_points") if isinstance(before, dict) else None,
+                "skill_cart_disabled": before.get("skill_cart_disabled") if isinstance(before, dict) else None,
+                "screenshot_path": before.get("screenshot_path") if isinstance(before, dict) else None,
+                "capture_transport": getattr(device, "last_capture_transport", None),
+                "capture_dimensions": getattr(device, "last_capture_dimensions", None),
+            }
+            save()
             raise ValueError("fresh_empty_skill_page_required")
         report.update(before={k: before.get(k) for k in (
             "page", "current_skill_points", "screenshot_path", "frame_sha256")}, stage="preparing")
@@ -617,6 +832,10 @@ def run_skill_batch(*, d1_root, run_root, output_dir, run_style, year,
             save()
             return report
         selection_root = output / "selection"
+        active_plan = plan
+        active_report_path = prepared["planner_report_path"]
+        cart_verified_empty = False
+        cart_resets = []
         report.update(stage="selection_pending", purchase_may_have_occurred=True)
         save()
         nonce = f"{turn_id}-{time.time_ns()}"
@@ -629,12 +848,142 @@ def run_skill_batch(*, d1_root, run_root, output_dir, run_style, year,
             session_id=f"prerace-session-{nonce}", capture_batch_id=f"prerace-capture-{nonce}",
             safety_token=api.token, expected_endpoint=endpoint)
         report["selection"] = selection
+        if ((selection.get("stop_reason") != "confirmation_opened" or selection.get("confirmation_opened") is not True)
+                and "reverse_scroll_shifts" in plan and _is_zero_input_selection_rejection(selection)):
+            fwd_plan_path, fwd_report_path, fwd_plan = _write_forward_fallback_artifacts(
+                inventory, plan, prepared["planner_report_path"], output / "selection_forward_fallback",
+                canonical_plan_sha256=api.canonical_plan_sha256, validate=api.validate)
+            fwd_selection_root = output / "selection_forward"
+            fwd_nonce = f"{turn_id}-{time.time_ns()}"
+            fwd_selection = api.select(device=device, inventory_path=prepared["inventory_path"],
+                plan_path=fwd_plan_path, review_path=None, output_dir=fwd_selection_root,
+                mode="live", execute=True, expected_inventory_sha256=inventory["packet_sha256"],
+                expected_plan_sha256=fwd_plan["plan_sha256"], planner_report_path=fwd_report_path,
+                capture_manifest_path=prepared["capture_manifest_path"],
+                external_skill_db_path=catalogs["external_skill_db_path"],
+                session_id=f"prerace-session-{fwd_nonce}", capture_batch_id=f"prerace-capture-{fwd_nonce}",
+                safety_token=api.token, expected_endpoint=endpoint)
+            report["selection_reverse_failed"] = selection
+            report["selection_fallback_mode"] = "forward_scroll"
+            selection = fwd_selection
+            active_plan = fwd_plan
+            active_report_path = fwd_report_path
+            report["selection"] = selection
+            if selection.get("stop_reason") == "confirmation_opened" and selection.get("confirmation_opened") is True:
+                selection_root = fwd_selection_root
+        if ((selection.get("stop_reason") != "confirmation_opened" or selection.get("confirmation_opened") is not True)
+                and _is_unconfirmed_row_identity_mismatch(selection)):
+            reset_ok, reset_reason, _reset_obs = _reset_unconfirmed_skill_cart(device, endpoint, initial)
+            cart_resets.append({"reason": reset_reason, "ok": reset_ok, "stop_reason": selection.get("stop_reason")})
+            report["selection_cart_resets"] = cart_resets
+            if not reset_ok:
+                report["selection_cart_reset_error"] = reset_reason
+            else:
+                cart_verified_empty = True
+                if "reverse_scroll_shifts" in active_plan:
+                    fwd_plan_path, fwd_report_path, fwd_plan = _write_forward_fallback_artifacts(
+                        inventory, active_plan, active_report_path, output / "selection_forward_after_reset",
+                        canonical_plan_sha256=api.canonical_plan_sha256, validate=api.validate)
+                    fwd_run_root = output / "selection_forward_after_reset_run"
+                    fwd_nonce = f"{turn_id}-{time.time_ns()}"
+                    fwd_selection = api.select(device=device, inventory_path=prepared["inventory_path"],
+                        plan_path=fwd_plan_path, review_path=None, output_dir=fwd_run_root,
+                        mode="live", execute=True, expected_inventory_sha256=inventory["packet_sha256"],
+                        expected_plan_sha256=fwd_plan["plan_sha256"], planner_report_path=fwd_report_path,
+                        capture_manifest_path=prepared["capture_manifest_path"],
+                        external_skill_db_path=catalogs["external_skill_db_path"],
+                        session_id=f"prerace-session-{fwd_nonce}", capture_batch_id=f"prerace-capture-{fwd_nonce}",
+                        safety_token=api.token, expected_endpoint=endpoint)
+                    report["selection_reverse_failed"] = selection
+                    report["selection_fallback_mode"] = "cart_reset_forward_scroll"
+                    selection = fwd_selection
+                    active_plan = fwd_plan
+                    active_report_path = fwd_report_path
+                    report["selection"] = selection
+                    if selection.get("stop_reason") == "confirmation_opened" and selection.get("confirmation_opened") is True:
+                        selection_root = fwd_run_root
+                        cart_verified_empty = False
+                    elif _is_zero_input_selection_rejection(selection):
+                        cart_verified_empty = True
+                    elif _is_unconfirmed_row_identity_mismatch(selection):
+                        reset2_ok, reset2_reason, _reset2_obs = _reset_unconfirmed_skill_cart(device, endpoint, initial)
+                        cart_resets.append({"reason": reset2_reason, "ok": reset2_ok, "stop_reason": selection.get("stop_reason")})
+                        if not reset2_ok:
+                            report["selection_cart_reset_error"] = reset2_reason
+                        cart_verified_empty = reset2_ok
+                    else:
+                        cart_verified_empty = False
+                if (purpose == "prerace" and cart_verified_empty
+                        and _is_unconfirmed_row_identity_mismatch(selection)
+                        and callable(getattr(api, "build_plan", None))):
+                    failed_id = _mismatched_action_id(selection)
+                    if failed_id in active_plan.get("selected_action_ids", []) and len(active_plan.get("selected_action_ids", [])) > 1:
+                        subset_artifacts = _write_subset_plan_artifacts(
+                            inventory, active_plan, active_report_path, output / "selection_subset_fallback",
+                            exclude_action_ids=(failed_id,), build_plan=api.build_plan, validate=api.validate)
+                        if subset_artifacts is not None:
+                            sub_plan_path, sub_report_path, sub_plan = subset_artifacts
+                            sub_selection_root = output / "selection_subset"
+                            sub_nonce = f"{turn_id}-{time.time_ns()}"
+                            sub_selection = api.select(device=device, inventory_path=prepared["inventory_path"],
+                                plan_path=sub_plan_path, review_path=None, output_dir=sub_selection_root,
+                                mode="live", execute=True, expected_inventory_sha256=inventory["packet_sha256"],
+                                expected_plan_sha256=sub_plan["plan_sha256"], planner_report_path=sub_report_path,
+                                capture_manifest_path=prepared["capture_manifest_path"],
+                                external_skill_db_path=catalogs["external_skill_db_path"],
+                                session_id=f"prerace-session-{sub_nonce}", capture_batch_id=f"prerace-capture-{sub_nonce}",
+                                safety_token=api.token, expected_endpoint=endpoint)
+                            report["selection_mismatch_failed"] = selection
+                            report["degraded_excluded_action_ids"] = [failed_id]
+                            report["selection_fallback_mode"] = "cart_reset_subset_forward"
+                            selection = sub_selection
+                            report["selection"] = selection
+                            if selection.get("stop_reason") == "confirmation_opened" and selection.get("confirmation_opened") is True:
+                                plan = sub_plan
+                                actions = list(sub_plan["selected_action_ids"])
+                                remaining = sub_plan["expected_remaining_skill_points"]
+                                selection_root = sub_selection_root
+                                cart_verified_empty = False
+                                report.update(selected_action_ids=actions, selected_skills=sub_plan.get("items", []),
+                                              remaining_skill_points=remaining)
+                            elif _is_zero_input_selection_rejection(selection):
+                                cart_verified_empty = True
+                            elif _is_unconfirmed_row_identity_mismatch(selection):
+                                reset3_ok, reset3_reason, _reset3_obs = _reset_unconfirmed_skill_cart(device, endpoint, initial)
+                                cart_resets.append({"reason": reset3_reason, "ok": reset3_ok, "stop_reason": selection.get("stop_reason")})
+                                if not reset3_ok:
+                                    report["selection_cart_reset_error"] = reset3_reason
+                                cart_verified_empty = reset3_ok
+                            else:
+                                cart_verified_empty = False
         if selection.get("stop_reason") != "confirmation_opened" or selection.get("confirmation_opened") is not True:
-            if (selection.get("schema_version")=="uma.autonomous_skill_purchase_preflight.v1"
-                    and type(selection.get("device_action_count")) is int and selection["device_action_count"]==0
-                    and selection.get("confirmation_opened") is False and selection.get("execution") is None
-                    and not selection.get("input_may_have_occurred") and not selection.get("purchase_may_have_occurred")):
-                report.update(stage="selection_rejected",purchase_may_have_occurred=False,remaining_skill_points=initial)
+            if _is_zero_input_selection_rejection(selection):
+                report.update(stage="selection_rejected", purchase_may_have_occurred=False,
+                              remaining_skill_points=initial)
+                if purpose == "prerace":
+                    fresh = device.capture()
+                    if (fresh.get("endpoint") == endpoint and fresh.get("page") == "skills"
+                            and fresh.get("current_skill_points") == initial
+                            and "open_skill_confirmation" not in fresh.get("actions", {})):
+                        report.update(ok=True, stage="complete",
+                                      reason="prerace_selection_skipped_zero_input",
+                                      remaining_skill_points=initial,
+                                      requires_menu_return=True)
+                        save()
+                        return report
+            elif purpose == "prerace" and cart_verified_empty:
+                fresh = device.capture()
+                if _cart_is_empty(fresh, endpoint, initial):
+                    report.update(ok=True, stage="complete",
+                                  reason="prerace_selection_skipped_after_cart_reset",
+                                  purchase_may_have_occurred=False,
+                                  skipped_planned_action_ids=list(actions),
+                                  selected_action_ids=[],
+                                  selected_skills=[],
+                                  remaining_skill_points=initial,
+                                  requires_menu_return=True)
+                    save()
+                    return report
             raise ValueError("prerace_selection_not_confirmed")
         report["stage"] = "confirmation_pending"
         save()

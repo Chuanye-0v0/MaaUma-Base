@@ -53,6 +53,8 @@ _RACE_PARTICIPANT_COMPOUND_EXCLUSIONS = (
     "参赛要求",
     "参赛马娘",
     "参赛选手",
+    "参赛获胜",
+    "参赛并",
 )
 
 _SCREEN_PATTERNS: tuple[dict[str, Any], ...] = (

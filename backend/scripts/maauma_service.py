@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 ROOT=Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:sys.path.insert(0,str(ROOT))
@@ -45,17 +46,30 @@ def main(argv=None,*,relaunch=None):
     with progress_context as progress,bind_reporter(progress):
         try:
             response=dispatch(args.root,value,progress=progress) if progress is not None else dispatch(args.root,value)
-            if response.get('ok') and value.get('action')=='apply' and value.get('restart') is True:
+        except (ServiceError,UpdateError) as error:
+            response={'ok':False,'code':str(error),**failure_details(error)}
+            if isinstance(getattr(error,'identity_diagnostic',None),dict) and error.identity_diagnostic:
+                response['identity_diagnostic']=error.identity_diagnostic
+            if getattr(error,'error_info',None) is not None:response['error']=error.error_info
+            for key in ('failed_path','ticket','log_path'):
+                extra=getattr(error,key,None)
+                if extra is not None:response[key]=extra
+        except (OSError,ValueError,TypeError,KeyError):response={'ok':False,'code':'suite_operation_failed'}
+        if isinstance(value,dict) and value.get('action')=='apply':
+            try:
+                from desktop.maauma_components import record_apply_result
+                record_apply_result(args.root,value,response)
+            except Exception:
+                pass
+            if value.get('restart') is True and response.get('code')!='application_running':
                 try:
+                    time.sleep(0.3)
                     process=(relaunch or _relaunch)(args.root)
                     response['restarted']=True
                     if getattr(process,'pid',None):response['restart_pid']=process.pid
                 except OSError:
-                    # The transaction already succeeded. A GUI startup failure is
-                    # reported separately and never described as an install failure.
+                    # A GUI startup failure is reported separately and never masked.
                     response.update(restarted=False,restart_code='gui_restart_failed')
-        except (ServiceError,UpdateError) as error:response={'ok':False,'code':str(error),**failure_details(error)}
-        except (OSError,ValueError,TypeError,KeyError):response={'ok':False,'code':'suite_operation_failed'}
         if progress is not None:progress.finish(response)
     print(json.dumps(response,ensure_ascii=False));return 0 if response.get('ok') else 1
 

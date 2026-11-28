@@ -21,7 +21,7 @@ from core.skill_batch_purchase_executor import SKILL_BATCH_PURCHASE_SAFETY_TOKEN
 from core.skill_purchase_live_adapter import SkillPurchaseLiveCaptureSession
 from core.skill_ocr_performance import harvest_skill_ocr
 from core.skill_purchase_plan_promotion import promote_planner_final_skill_plan
-from core.skill_scroll import SKILL_OVERLAP_SWIPE, skill_overlap_shell
+from core.skill_scroll import SKILL_OVERLAP_SWIPE, skill_nudge_shell, skill_overlap_shell
 _ALLOWED_DEVICE_ENDPOINT = _public_endpoint()
 _RESOURCE_CHECKS = {'uses_skill_points_only': True, 'uses_carrots': False, 'uses_clocks': False, 'uses_paid_currency': False}
 
@@ -275,6 +275,10 @@ class ExplicitDeviceTransportFacade:
         self._device.command('-s', self._endpoint, 'shell', skill_overlap_shell(reverse=reverse, travel_px=travel_px))
         return True
 
+    def swipe_skill_nudge(self, *, reverse: bool = False, travel_px: int = 140) -> bool:
+        self._device.command('-s', self._endpoint, 'shell', skill_nudge_shell(reverse=reverse, travel_px=travel_px))
+        return True
+
 def _native_point(x: Any, y: Any) -> bool:
     return type(x) is int and type(y) is int and (0 <= x < 720) and (0 <= y < 1280)
 
@@ -412,7 +416,8 @@ def select_and_open_purchase_confirmation(*, device: Any, inventory_path: str | 
         return _write_result(output_dir, _result('live_adapter_binding_invalid', mode=mode, execute=execute, inventory_sha256=inventory['packet_sha256'], plan_sha256=plan['plan_sha256']))
     ledger_paths = adapter.selection_ledger_paths
     receipt_path = adapter._ledger_recorder.receipt_path
-    return _write_result(output_dir, {**_result(execution.stop_reason, mode=mode, execute=execute, inventory_sha256=inventory['packet_sha256'], plan_sha256=plan['plan_sha256']), 'confirmation_opened': execution.confirmation_opened, 'device_action_count': execution.tap_count + execution.swipe_count, 'selection_ledger_path': None if ledger_paths is None else ledger_paths['ledger_path'], 'selection_ledger_state_path': None if ledger_paths is None else ledger_paths['state_path'], 'selection_ledger_frame_path': None if ledger_paths is None else ledger_paths['frame_path'], 'pre_tap_receipts_path': str(receipt_path) if receipt_path.is_file() else None})
+    extra_error = {'error_type': execution.error_type, 'error_detail': execution.error_detail} if execution.error_type is not None else {}
+    return _write_result(output_dir, {**_result(execution.stop_reason, mode=mode, execute=execute, inventory_sha256=inventory['packet_sha256'], plan_sha256=plan['plan_sha256']), 'confirmation_opened': execution.confirmation_opened, 'device_action_count': execution.tap_count + execution.swipe_count, 'tap_count': execution.tap_count, 'swipe_count': execution.swipe_count, **extra_error, 'selection_ledger_path': None if ledger_paths is None else ledger_paths['ledger_path'], 'selection_ledger_state_path': None if ledger_paths is None else ledger_paths['state_path'], 'selection_ledger_frame_path': None if ledger_paths is None else ledger_paths['frame_path'], 'pre_tap_receipts_path': str(receipt_path) if receipt_path.is_file() else None})
 
 def _read_json_mapping(path: str | Path, label: str) -> tuple[dict[str, Any] | None, str | None]:
     try:

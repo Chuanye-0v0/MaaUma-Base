@@ -1007,9 +1007,11 @@ public sealed class UmaWorkflowLibraryView : StackPanel
             var settings=new UmaWorkflowRunConfigurationEditor(initial,value=> {
                 if(capturedIsV2&&capturedBuildId!=null&&capturedModeId!=null) {
                     var draftBuild=EnsureBuildDraft(capturedBuildId);
-                    UmaWorkflowLibraryModel.CaptureV2(draftBuild,capturedModeId,value,singleEditedKind);
+                    var latestV2=UmaWorkflowLibraryModel.CompileV2(draftBuild,capturedModeId,builtinTemplates);
+                    PatchOrdinaryOptions(latestV2,previous,value);
+                    previous=(JObject)value.DeepClone();
+                    UmaWorkflowLibraryModel.CaptureV2(draftBuild,capturedModeId,latestV2,singleEditedKind);
                     var recompiled=UmaWorkflowLibraryModel.CompileV2(draftBuild,capturedModeId,builtinTemplates);
-                    previous=(JObject)recompiled.DeepClone();
                     if(capturedBuildId==buildId&&capturedModeId==modeId){editor.LoadDocument(recompiled);MarkDirty();}
                     return;
                 }
@@ -1052,18 +1054,16 @@ public sealed class UmaWorkflowLibraryView : StackPanel
                     .FirstOrDefault(n=>(string?)n["id"]==choice.Id);
                 var previousSieve=FindStep(snapshot)?["ss_sieve"]?.DeepClone() as JObject;
                 var previousAce=FindStep(snapshot)?["ace_cycle"]?.DeepClone() as JObject;
+                var previousScreening=FindStep(snapshot)?["screening"]?.DeepClone() as JObject;
+                var hasPreviousCheckAt=FindStep(snapshot)?.Property("check_at")!=null;
+                var previousCheckAt=FindStep(snapshot)?["check_at"]?.DeepClone();
                 var previousCycleBudget=snapshot["policies"]?[policyId]?["cut_options"]?["cut"]?.DeepClone() as JObject??new JObject();
                 var downstreamCareer=kind=="cut"?(snapshot["run_graph"]?["nodes"] as JArray)?.OfType<JObject>().FirstOrDefault(n=>(string?)n["kind"]=="career"):null;
                 var careerPid=(string?)downstreamCareer?["policy"]??"default";
                 var previousHandoff=downstreamCareer!=null?(snapshot["policies"]?[careerPid]?["career_options"]?["manual_handoff"] as JObject)?.DeepClone() as JObject:null;
+                var hasPreviousPauseDates=downstreamCareer!=null&&(snapshot["policies"]?[careerPid]?["career_options"] as JObject)?.Property("manual_pause_dates")!=null;
+                var previousPauseDates=downstreamCareer!=null?snapshot["policies"]?[careerPid]?["career_options"]?["manual_pause_dates"]?.DeepClone():null;
                 settings=new UmaWorkflowRunConfigurationEditor(snapshot,value=> {
-                    if(unifySteps&&capturedBuildId!=null&&capturedModeId!=null) {
-                        var draftBuild=EnsureBuildDraft(capturedBuildId);
-                        UmaWorkflowLibraryModel.CaptureV2(draftBuild,capturedModeId,value,kind);
-                        var recompiled=UmaWorkflowLibraryModel.CompileV2(draftBuild,capturedModeId,builtinTemplates);
-                        if(capturedBuildId==buildId&&capturedModeId==modeId){editor.LoadDocument(recompiled);MarkDirty();}
-                        return;
-                    }
                     var nextToken=value["policies"]?[policyId]?[optionKey];var next=nextToken as JObject??new JObject();
                     var latest=capturedIsV2&&capturedBuildId!=null&&capturedModeId!=null
                         ?UmaWorkflowLibraryModel.CompileV2(EnsureBuildDraft(capturedBuildId),capturedModeId,builtinTemplates)
@@ -1081,6 +1081,30 @@ public sealed class UmaWorkflowLibraryView : StackPanel
                             else targetCareerOpts["manual_handoff"]=nextHandoff.DeepClone();
                             previousHandoff=nextHandoff?.DeepClone() as JObject;
                         }
+                        var nextPauseProp=(value["policies"]?[careerPid]?["career_options"] as JObject)?.Property("manual_pause_dates");
+                        if(hasPreviousPauseDates!=(nextPauseProp!=null)||!JToken.DeepEquals(previousPauseDates,nextPauseProp?.Value)) {
+                            var targetCareerOpts=OrdinaryObject(OrdinaryObject(policies,careerPid),"career_options");
+                            if(nextPauseProp==null)targetCareerOpts.Remove("manual_pause_dates");
+                            else targetCareerOpts["manual_pause_dates"]=nextPauseProp.Value.DeepClone();
+                            hasPreviousPauseDates=nextPauseProp!=null;
+                            previousPauseDates=nextPauseProp?.Value.DeepClone();
+                        }
+                    }
+                    var nextStepNode=FindStep(value);
+                    var nextScreening=nextStepNode?["screening"] as JObject;
+                    if((previousScreening!=null||nextScreening!=null)&&!JToken.DeepEquals(previousScreening,nextScreening)&&FindStep(latest) is JObject targetScreenNode) {
+                        if(nextScreening==null)targetScreenNode.Remove("screening");
+                        else if(previousScreening!=null&&targetScreenNode["screening"] is JObject targetScreening)
+                            PatchOrdinaryOptions(targetScreening,previousScreening,nextScreening);
+                        else targetScreenNode["screening"]=nextScreening.DeepClone();
+                        previousScreening=nextScreening?.DeepClone() as JObject;
+                    }
+                    var nextCheckProp=nextStepNode?.Property("check_at");
+                    if((hasPreviousCheckAt!=(nextCheckProp!=null)||!JToken.DeepEquals(previousCheckAt,nextCheckProp?.Value))&&FindStep(latest) is JObject targetCheckNode) {
+                        if(nextCheckProp==null)targetCheckNode.Remove("check_at");
+                        else targetCheckNode["check_at"]=nextCheckProp.Value.DeepClone();
+                        hasPreviousCheckAt=nextCheckProp!=null;
+                        previousCheckAt=nextCheckProp?.Value.DeepClone();
                     }
                     var hasCycleBudget=false;
                     if(previousSieve!=null&&FindStep(value)?["ss_sieve"] is JObject nextSieve
@@ -1377,7 +1401,18 @@ public sealed class UmaWorkflowLibraryView : StackPanel
                 savedLibrary=(JObject)saved.DeepClone();
                 library=(JObject)saved.DeepClone();
                 buildDrafts.Remove(bid);dirtyBuilds.Remove(bid);buildNames.Remove(bid);purityUndoBuilds.Remove(bid);
-                RefreshPickers();
+                var prevSuppress=suppressDirty;suppressDirty=true;
+                var prevLoading=loading;loading=true;
+                try {
+                    RefreshPickers();
+                    editor.LoadDocument(ResolveCurrentDocument());
+                    commitOrdinary=null;
+                    activeSectionCommits.Clear();
+                    RefreshConfigurationEditor();
+                    foreach(var item in settingsPages)RefreshSettingsPage(item.Host,item.Section);
+                    UpdateSummary();
+                }
+                finally{loading=prevLoading;suppressDirty=prevSuppress;}
                 SavedEventPreferences?.Invoke(ReadPrimaryEventPreferences());
                 status.Text="当前培养方案已保存（五种模式共用主体配置，各模式要求按方案记忆）；其他方案的未保存修改保留在草稿中。";
                 ToastRequested?.Invoke($"已保存培养方案「{targetBuild["name"] ?? SelectedConfigurationLabel}」（{SelectedModeLabel}）。",false,"ok");

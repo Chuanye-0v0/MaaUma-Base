@@ -164,6 +164,19 @@ class RaceRoutePlanner(
         self.last_decision = annotate_larc_race_page(decision) if policy.scenario == 'larc' else decision
         return self.last_decision
 
+    @staticmethod
+    def _is_career_dialogue_result_bar_text(compact_text: str) -> bool:
+        """Return True for career post-race reward dialogue bars without race controls."""
+        return (
+            "缩短版" in compact_text
+            and "记录" in compact_text
+            and any(cue in compact_text for cue in ("提升了", "启发等级", "获得了", "体力"))
+            and not any(
+                excl in compact_text
+                for excl in ("赛事一览", "赛事详情", "参赛", "前往赛事", "查看结果", "拍摄", "下一步", "下一页", "关闭")
+            )
+        )
+
     def _plan(
         self,
         image_path: str | Path,
@@ -196,7 +209,9 @@ class RaceRoutePlanner(
             can_handoff_dialogue = (
                 (SpeedTogglePlanner._bottom_skip_level(img) in {"off", "single", "double"}
                     and any(term in text for term in ('跳过','记录','主线事件','养成优俊少女事件','协助卡事件')))
-                or all(term in text for term in ("还剩", "目标", "体力")))
+                or all(term in text for term in ("还剩", "目标", "体力"))
+                or self._is_career_dialogue_result_bar_text("".join(text.split()))
+            )
         evidence: dict[str, Any] = {"image": str(path), "perception": perception}
         current_text = "".join(str((screen_text or {}).get("normalized_text", "")).split())
         observed_free_control = (policy.ordinary_observed_control_scope()
@@ -394,6 +409,21 @@ class RaceRoutePlanner(
                     return self._tap("close_trophy_reward", "race_result", "safe_advance.trophy_reward_close", close, evidence)
             if screen_text.get("dangerous"):
                 return self._stop("resource_prompt", evidence=evidence)
+            reward_lines = {line.strip() for line in reward_text.splitlines() if line.strip()}
+            if (
+                policy.scenario == "larc"
+                and (policy.allow_result_continue or policy.allow_skip_race_scene or observed_free_control)
+                and not policy.count_reserved_only
+                and not policy.inspection_only
+                and "记录" in reward_lines
+                and "关闭" in reward_lines
+                and not any(term in reward_text for term in ("赛事一览", "赛事详情", "参赛确认", "是否参加", "取消", "重新挑战"))
+            ):
+                close = SafeAdvancePlanner._announcement_close_button(img)
+                if close is not None:
+                    if not (policy.allow_result_continue or policy.allow_skip_race_scene):
+                        self._bind_observed_free_control(evidence, "safe_advance.announcement_close")
+                    return self._tap("close_story_record_modal", "modal", "safe_advance.announcement_close", close, evidence)
 
             if (policy.scenario == "larc"
                     and "".join(reward_text.split()) == "日期变化日期发生了变化确定"):
@@ -410,6 +440,8 @@ class RaceRoutePlanner(
                 line.strip()
                 for line in str(screen_text.get("normalized_text", "")).splitlines()
             }:
+                if SafeAdvancePlanner._is_account_login_conflict_text(reward_text):
+                    return self._stop("account_login_conflict", evidence=evidence)
                 if SafeAdvancePlanner._connection_conflict_return_title_button(img) is not None:
                     return self._stop("connection_conflict", evidence=evidence)
                 # A loading foreground may retain stale race-list labels/badges.
@@ -420,6 +452,8 @@ class RaceRoutePlanner(
                     "route_state": "loading",
                     "evidence": evidence,
                 }
+            if SafeAdvancePlanner._is_account_login_conflict_text(reward_text):
+                return self._stop("account_login_conflict", evidence=evidence)
 
         if policy.scenario == "larc":
             reward_footer = self._larc_reward_footer(img, policy.visible_text)
@@ -592,8 +626,15 @@ class RaceRoutePlanner(
 
         if policy.scenario == "larc":
             post_race_text = str((screen_text or {}).get("normalized_text", ""))
-            if (can_handoff_dialogue and "主线事件" in post_race_text and "赛后" in post_race_text
-                    and SafeAdvancePlanner._looks_like_training_result_dialogue(img)):
+            career_dialogue_result_bar = (
+                self._is_career_dialogue_result_bar_text("".join(post_race_text.split()))
+                and self._bottom_center_green_button(perception, img, min_y_ratio=0.72) is None
+            )
+            if (
+                can_handoff_dialogue
+                and SafeAdvancePlanner._looks_like_training_result_dialogue(img)
+                and (("主线事件" in post_race_text and "赛后" in post_race_text) or career_dialogue_result_bar)
+            ):
                 return handoff("post_race_dialogue", evidence=evidence)
             if policy.allow_skip_race_scene and not policy.count_reserved_only:
                 transition = larc_race_transition_kind(img, evidence)
@@ -676,6 +717,10 @@ class RaceRoutePlanner(
             )
             or ("养成" in preview_text and "回合" in preview_text and "体力" in preview_text)
         )
+        preview_fade_in_cues = (
+            any(cue in preview_text for cue in ("加载中", "小姐的建议"))
+            or ("实况" in preview_text and "人气第" in preview_text)
+        )
         preview_fade_in = (
             not main_menu_marker
             and "赛事一览" not in preview_text
@@ -684,9 +729,12 @@ class RaceRoutePlanner(
             and (
                 preview_stat_hits >= 4
                 or (preview_stat_hits >= 2 and any(cue in preview_text for cue in ("人气第", "实况", "参赛优俊少女")))
+                or preview_fade_in_cues
             )
         )
-        if policy.scenario == "larc" and policy.post_entry_only and early_preview_actions is None and preview_fade_in:
+        if policy.scenario == "larc" and early_preview_actions is None and preview_fade_in and (
+            policy.post_entry_only or preview_fade_in_cues
+        ):
             # After the confirmed entry, stat panels fade in before the two
             # preview controls (partial OCR may miss translucent stat labels).
             return {"action": "wait", "reason": "loading", "route_state": "loading", "evidence": evidence}
@@ -2187,7 +2235,12 @@ class RaceRoutePlanner(
                     route_state="race_list",
                     evidence=evidence,
                 )
-        if positive_non_goal_race and scenario_final_capability is None:
+        if (
+            positive_non_goal_race
+            and looks_like_race_list
+            and scenario_final_capability is None
+            and not any(cue in current_text for cue in ("加载中", "小姐的建议", "实况"))
+        ):
             return self._stop("race_list:no_goal_race_candidate", route_state="race_list", evidence=evidence)
         if (
             screen == "race_participant_list"
@@ -2216,7 +2269,12 @@ class RaceRoutePlanner(
                 button,
                 evidence,
             )
-        if self._looks_like_portrait_race_title(perception, img):
+        dialogue_record_footer = (
+            any(term in current_text for term in ("缩短版", "跳过"))
+            and "记录" in current_text
+            and not any(term in current_text for term in ("拍摄", "前往赛事", "查看结果", "赛事一览", "赛事详情"))
+        )
+        if not dialogue_record_footer and self._looks_like_portrait_race_title(perception, img):
             return self._portrait_scene_skip(policy, observed_free_control and result_owner,
                 img, self._portrait_race_title_skip_button(img), evidence)
 
@@ -2232,15 +2290,15 @@ class RaceRoutePlanner(
             observed_overlay = observed_free_control and result_owner and "点击" in current_text
             return self._continue_observed_result(policy, observed_overlay, self._screen_continue_point(img), evidence)
 
-        if self._looks_like_gold_race_transition_controls(perception, img):
+        if not dialogue_record_footer and self._looks_like_gold_race_transition_controls(perception, img):
             return self._portrait_scene_skip(policy, observed_free_control and result_owner,
                 img, self._portrait_race_intro_skip_button(img), evidence)
 
-        if self._looks_like_portrait_race_scene_bottom_controls(perception, img):
+        if not dialogue_record_footer and self._looks_like_portrait_race_scene_bottom_controls(perception, img):
             return self._portrait_scene_skip(policy, observed_free_control and result_owner,
                 img, self._portrait_race_intro_skip_button(img), evidence)
 
-        if self._looks_like_post_race_victory_controls(perception, img):
+        if not dialogue_record_footer and self._looks_like_post_race_victory_controls(perception, img):
             return self._portrait_scene_skip(policy, observed_free_control and result_owner,
                 img, self._portrait_race_intro_skip_button(img), evidence)
 
@@ -2810,7 +2868,12 @@ class RaceRoutePlanner(
                 evidence,
             )
 
-        if self._looks_like_loading(img):
+        loading_lines = {
+            line.strip()
+            for line in str((evidence.get("screen_text") or {}).get("normalized_text", "")).splitlines()
+            if line.strip()
+        }
+        if not ("记录" in loading_lines and "关闭" in loading_lines) and self._looks_like_loading(img):
             return {
                 "action": "wait",
                 "reason": "loading",

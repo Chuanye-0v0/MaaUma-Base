@@ -101,6 +101,11 @@ def daily_observation(raw, image, tokens, number, event=None, listing=None):
                     a, b = (first[0]['bbox'], second[0]['bbox'])
                     if -10 <= b[0] - a[2] <= 20 and abs(a[1] + a[3] - (b[1] + b[3])) <= 12 and (a[0] < b[0]):
                         result['actions']['return_home'] = dict(point=[(a[0] + b[2]) // 2, (min(a[1], b[1]) + max(a[3], b[3])) // 2])
+                if 'return_home' not in result['actions']:
+                    nav_hits = sum((1 for label, box in neighbors if len([t for t in region(*box) if t['text'] == label]) == 1))
+                    if nav_hits >= 2:
+                        # OCR often drops '主页' rendered over the house icon; bottom nav center sits at [360, 1236].
+                        result['actions']['return_home'] = dict(point=[360, 1236])
     if result['page'] == 'legend':
         listing = locate(image, number) if listing is None else listing
         if listing:

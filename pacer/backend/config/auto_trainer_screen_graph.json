@@ -1,0 +1,2687 @@
+{
+  "reference_size": {
+    "width": 720,
+    "height": 1280
+  },
+  "nodes": [
+    {
+      "id": "resource_prompt",
+      "priority": 1000,
+      "when": {
+        "text_terms": [
+          "TP",
+          "RP",
+          "萝卜",
+          "胡萝卜",
+          "闹钟",
+          "时钟",
+          "ジュエル",
+          "ショップ",
+          "商店",
+          "购买",
+          "購入",
+          "恢复体力",
+          "回復",
+          "活动加速",
+          "にんじん"
+        ]
+      },
+      "action": {
+        "type": "stop",
+        "reason": "resource_prompt",
+        "route_state": "resource_prompt"
+      }
+    },
+    {
+      "id": "grand_masters_crystal_reward",
+      "priority": 990,
+      "when": {
+        "text_terms": [
+          "\u83b7\u5f97\u77e5\u8bc6\u7684\u7ed3\u6676",
+          "\u83b7\u5f97\u4e86\u529b\u91cf\u7684\u7ed3\u6676",
+          "\u77e5\u8bc6\u7684\u7ed3\u6676",
+          "\u529b\u91cf\u7684\u7ed3\u6676"
+        ]
+      },
+      "action": {
+        "type": "tap",
+        "reason": "grand_masters_crystal_reward",
+        "route_state": "scenario_reward_continue",
+        "coordinate_name": "safe_advance.dialogue_box",
+        "point": {
+          "x": 626,
+          "y": 1075
+        }
+      }
+    },
+    {
+      "id": "swbc_special_entry_detail",
+      "priority": 980,
+      "when": {
+        "all": [
+          {
+            "screen": "portrait_ui"
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.04,
+                  0.16
+                ],
+                "y": [
+                  0.02,
+                  0.08
+                ]
+              },
+              "mask": {
+                "h_min": 15,
+                "h_max": 40,
+                "s_min": 70,
+                "v_min": 120
+              },
+              "gt": 0.10
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.20,
+                  0.82
+                ],
+                "y": [
+                  0.02,
+                  0.08
+                ]
+              },
+              "mask": {
+                "s_max": 70,
+                "v_min": 170
+              },
+              "gt": 0.35
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.45,
+                  0.84
+                ],
+                "y": [
+                  0.86,
+                  0.96
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "gt": 0.70
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.16,
+                  0.50
+                ],
+                "y": [
+                  0.86,
+                  0.96
+                ]
+              },
+              "mask": {
+                "h_min": 5,
+                "h_max": 30,
+                "s_min": 50,
+                "v_min": 70
+              },
+              "gt": 0.05
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "stop",
+        "reason": "race_detail",
+        "route_state": "race_detail"
+      }
+    },
+    {
+      "id": "grand_masters_help_dialog",
+      "priority": 970,
+      "when": {
+        "all": [
+          {
+            "screen": "unknown"
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.45
+                ],
+                "y": [
+                  0.08,
+                  0.35
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "gt": 0.25
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.75
+                ],
+                "y": [
+                  0.25,
+                  0.42
+                ]
+              },
+              "mask": {
+                "h_min": 15,
+                "h_max": 45,
+                "s_min": 70,
+                "v_min": 120
+              },
+              "gt": 0.25
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.76,
+                  0.89
+                ]
+              },
+              "mask": {
+                "s_max": 70,
+                "v_min": 170
+              },
+              "gt": 0.80
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.30,
+                  0.70
+                ],
+                "y": [
+                  0.91,
+                  0.98
+                ]
+              },
+              "mask": {
+                "s_max": 70,
+                "v_min": 170
+              },
+              "gt": 0.70
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.74,
+                  0.98
+                ],
+                "y": [
+                  0.91,
+                  0.98
+                ]
+              },
+              "mask": {
+                "s_max": 70,
+                "v_min": 170
+              },
+              "gt": 0.70
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "tap",
+        "reason": "close_grand_masters_help",
+        "route_state": "grand_masters_help",
+        "coordinate_name": "safe_advance.grand_masters_help_close",
+        "roi_center": {
+          "x": [
+            0.30,
+            0.70
+          ],
+          "y": [
+            0.91,
+            0.98
+          ]
+        }
+      }
+    },
+    {
+      "id": "connection_overlay_wait",
+      "priority": 950,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "portrait_ui",
+              "game_home",
+              "unknown"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  0.30
+                ],
+                "y": [
+                  0.0,
+                  0.20
+                ]
+              },
+              "mask": {
+                "h_max": 12,
+                "s_min": 70,
+                "v_min": 100
+              },
+              "gt": 0.15
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.05,
+                  0.95
+                ],
+                "y": [
+                  0.18,
+                  0.78
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.40
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.74,
+                  0.90
+                ],
+                "y": [
+                  0.06,
+                  0.105
+                ]
+              },
+              "mask": {
+                "s_max": 35,
+                "v_min": 100,
+                "v_max": 230
+              },
+              "gt": 0.09
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.74,
+                  0.90
+                ],
+                "y": [
+                  0.06,
+                  0.105
+                ]
+              },
+              "mask": {
+                "s_max": 25,
+                "v_min": 230
+              },
+              "lt": 0.62
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "wait",
+        "reason": "loading",
+        "route_state": "connection_overlay"
+      }
+    },
+    {
+      "id": "date_change_confirm",
+      "priority": 945,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "game_home",
+              "portrait_ui",
+              "bottom_action",
+              "unknown"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.15,
+                  0.85
+                ],
+                "y": [
+                  0.25,
+                  0.36
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "gt": 0.35
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.12,
+                  0.88
+                ],
+                "y": [
+                  0.32,
+                  0.62
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.85
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.25,
+                  0.75
+                ],
+                "y": [
+                  0.60,
+                  0.72
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "gt": 0.30
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "tap",
+        "reason": "confirm_safe_modal",
+        "coordinate_name": "safe_advance.safe_confirm",
+        "point": {
+          "x": 360,
+          "y": 834
+        }
+      }
+    },
+    {
+      "id": "transition_wipe",
+      "priority": 940,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "portrait_ui",
+              "game_home",
+              "unknown"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  0.30
+                ],
+                "y": [
+                  0.0,
+                  0.20
+                ]
+              },
+              "mask": {
+                "h_max": 12,
+                "s_min": 70,
+                "v_min": 100
+              },
+              "gt": 0.12
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  1.0
+                ],
+                "y": [
+                  0.12,
+                  0.75
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.65
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  1.0
+                ],
+                "y": [
+                  0.12,
+                  0.75
+                ]
+              },
+              "mask": {
+                "h_min": 85,
+                "h_max": 125,
+                "s_min": 45,
+                "v_min": 80
+              },
+              "gt": 0.20
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  1.0
+                ],
+                "y": [
+                  0.12,
+                  0.75
+                ]
+              },
+              "mask": {
+                "s_min": 80,
+                "v_min": 100
+              },
+              "lt": 0.22
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "wait",
+        "reason": "loading",
+        "route_state": "transition_wipe"
+      }
+    },
+    {
+      "id": "training_menu_ready",
+      "priority": 900,
+      "when": {
+        "field": "training_menu_precheck.accepted",
+        "equals": true
+      },
+      "action": {
+        "type": "stop",
+        "reason": "ready_training_menu",
+        "route_state": "training_menu"
+      }
+    },
+    {
+      "id": "skill_acquisition_structured",
+      "priority": 935,
+      "when": {
+        "field": "screen.kind",
+        "equals": "skill_acquisition"
+      },
+      "action": {
+        "type": "delegate",
+        "reason": "skill_acquisition_handoff",
+        "route_state": "skill_handoff"
+      }
+    },
+    {
+      "id": "factor_selection_structured",
+      "priority": 934,
+      "when": {
+        "field": "screen.kind",
+        "equals": "factor_selection"
+      },
+      "action": {
+        "type": "delegate",
+        "reason": "manual_factor_selection",
+        "route_state": "factor_selection"
+      }
+    },
+    {
+      "id": "factor_result_structured",
+      "priority": 933,
+      "when": {
+        "field": "screen.kind",
+        "equals": "factor_result"
+      },
+      "action": {
+        "type": "delegate",
+        "reason": "factor_result",
+        "route_state": "factor_result"
+      }
+    },
+    {
+      "id": "career_complete_confirm_structured",
+      "priority": 932,
+      "when": {
+        "field": "screen.kind",
+        "equals": "career_complete_confirm"
+      },
+      "action": {
+        "type": "delegate",
+        "reason": "career_complete_confirm",
+        "route_state": "career_complete_confirm"
+      }
+    },
+    {
+      "id": "global_main_menu_structured",
+      "priority": 931,
+      "when": {
+        "all": [
+          {
+            "field": "screen.kind",
+            "equals": "global_main_menu"
+          },
+          {
+            "field": "career.status",
+            "equals": "ended"
+          }
+        ]
+      },
+      "action": {
+        "type": "stop",
+        "reason": "career_complete",
+        "route_state": "career_complete_main"
+      }
+    },
+    {
+      "id": "goal_achievement_result",
+      "priority": 890,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "portrait_ui",
+              "bottom_action",
+              "unknown",
+              "game_home"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  0.30
+                ],
+                "y": [
+                  0.0,
+                  0.20
+                ]
+              },
+              "mask": {
+                "h_max": 12,
+                "s_min": 70,
+                "v_min": 100
+              },
+              "lt": 0.10
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.05,
+                  0.95
+                ],
+                "y": [
+                  0.18,
+                  0.78
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.60
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.30,
+                  0.70
+                ],
+                "y": [
+                  0.82,
+                  0.91
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "gt": 0.55
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "tap",
+        "reason": "continue_fullscreen_result",
+        "coordinate_name": "safe_advance.fullscreen_continue",
+        "point": {
+          "x": 360,
+          "y": 1110
+        }
+      }
+    },
+    {
+      "id": "story_dialogue",
+      "priority": 800,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "bottom_action",
+              "portrait_ui",
+              "training_menu",
+              "unknown"
+            ]
+          },
+          {
+            "bottom_skip_state": "off"
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.68,
+                  0.93
+                ]
+              },
+              "mask": {
+                "s_max": 60,
+                "v_min": 175
+              },
+              "gt": 0.16
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  1.0
+                ],
+                "y": [
+                  0.0,
+                  0.14
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "gt": 0.20
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "tap",
+        "reason": "advance_dialogue",
+        "coordinate_name": "safe_advance.dialogue_box",
+        "point": {
+          "x": 626,
+        "y": 1075
+      }
+    }
+    },
+    {
+      "id": "story_dialogue_training_hud",
+      "priority": 850,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "unknown",
+              "game_home"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  0.30
+                ],
+                "y": [
+                  0.0,
+                  0.20
+                ]
+              },
+              "mask": {
+                "h_max": 12,
+                "s_min": 70,
+                "v_min": 100
+              },
+              "gt": 0.15
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  1.0
+                ],
+                "y": [
+                  0.02,
+                  0.18
+                ]
+              },
+              "mask": {
+                "h_min": 85,
+                "h_max": 125,
+                "s_min": 45,
+                "v_min": 100
+              },
+              "gt": 0.30
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.68,
+                  0.93
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.48
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.68,
+                  0.93
+                ]
+              },
+              "mask": {
+                "h_min": 85,
+                "h_max": 125,
+                "s_min": 45,
+                "v_min": 100
+              },
+              "gt": 0.20
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.20,
+                  0.48
+                ],
+                "y": [
+                  0.925,
+                  0.985
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "gt": 0.20
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "tap",
+        "reason": "skip_bottom_dialogue",
+        "coordinate_name": "safe_advance.bottom_skip",
+        "point": {
+          "x": 257,
+        "y": 1248
+      }
+      }
+    },
+    {
+      "id": "inheritance_factor_result",
+      "priority": 860,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "unknown",
+              "portrait_ui",
+              "bottom_action"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.25,
+                  0.75
+                ],
+                "y": [
+                  0.60,
+                  0.86
+                ]
+              },
+              "mask": {
+                "h_min": 8,
+                "h_max": 35,
+                "s_min": 100,
+                "v_min": 140
+              },
+              "gt": 0.22
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.68,
+                  0.91
+                ]
+              },
+              "mask": {
+                "h_min": 18,
+                "h_max": 32,
+                "s_min": 110,
+                "v_min": 140
+              },
+              "gt": 0.12
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.68,
+                  0.91
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.45
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.25,
+                  0.75
+                ],
+                "y": [
+                  0.60,
+                  0.86
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "lt": 0.08
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "tap",
+        "reason": "inheritance_factor_confirm",
+        "coordinate_name": "safe_advance.inheritance_factor_confirm",
+        "point": {
+          "x": 360,
+          "y": 1015
+        }
+      }
+    },
+    {
+      "id": "goddess_wisdom_result_dialogue",
+      "priority": 858,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "portrait_ui",
+              "unknown"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.20,
+                  0.32
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.62
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.20,
+                  0.32
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "gt": 0.20
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.05,
+                  0.95
+                ],
+                "y": [
+                  0.32,
+                  0.70
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.70
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.05,
+                  0.95
+                ],
+                "y": [
+                  0.32,
+                  0.70
+                ]
+              },
+              "mask": {
+                "h_min": 85,
+                "h_max": 125,
+                "s_min": 45,
+                "v_min": 100
+              },
+              "gt": 0.30
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.72,
+                  0.94
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.88
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.18,
+                  0.52
+                ],
+                "y": [
+                  0.93,
+                  0.995
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.80
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "tap",
+        "reason": "advance_dialogue",
+        "coordinate_name": "safe_advance.dialogue_box",
+        "point": {
+          "x": 626,
+          "y": 1075
+        }
+      }
+    },
+    {
+      "id": "bottom_dialogue_main_menu",
+      "priority": 860,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "event_choice",
+              "game_home",
+              "unknown"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  0.30
+                ],
+                "y": [
+                  0.0,
+                  0.20
+                ]
+              },
+              "mask": {
+                "h_max": 12,
+                "s_min": 70,
+                "v_min": 100
+              },
+              "gt": 0.15
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.30,
+                  0.83
+                ],
+                "y": [
+                  0.54,
+                  0.64
+                ]
+              },
+              "mask": {
+                "s_max": 60,
+                "v_min": 175
+              },
+              "gt": 0.80
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.20,
+                  0.48
+                ],
+                "y": [
+                  0.925,
+                  0.985
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "gt": 0.20
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "tap",
+        "reason": "skip_bottom_dialogue",
+        "coordinate_name": "safe_advance.bottom_skip",
+        "point": {
+          "x": 257,
+          "y": 1248
+        }
+      }
+    },
+    {
+      "id": "team_formation",
+      "priority": 885,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "portrait_ui",
+              "bottom_action",
+              "modal_confirm",
+              "unknown"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  0.42
+                ],
+                "y": [
+                  0.0,
+                  0.13
+                ]
+              },
+              "mask": {
+                "h_min": 125,
+                "h_max": 165,
+                "s_min": 45,
+                "v_min": 80
+              },
+              "gt": 0.08
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  0.42
+                ],
+                "y": [
+                  0.0,
+                  0.13
+                ]
+              },
+              "mask": {
+                "h_min": 5,
+                "h_max": 30,
+                "s_min": 70,
+                "v_min": 100
+              },
+              "gt": 0.15
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.04,
+                  0.96
+                ],
+                "y": [
+                  0.18,
+                  0.70
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.60
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.20,
+                  0.80
+                ],
+                "y": [
+                  0.82,
+                  0.92
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "gt": 0.25
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "stop",
+        "reason": "team_formation:confirm_not_allowed",
+        "route_state": "team_formation"
+      }
+    },
+    {
+      "id": "black_story_dialogue",
+      "priority": 880,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "unknown",
+              "portrait_ui",
+              "bottom_action"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  0.30
+                ],
+                "y": [
+                  0.0,
+                  0.20
+                ]
+              },
+              "mask": {
+                "h_max": 12,
+                "s_min": 70,
+                "v_min": 100
+              },
+              "gt": 0.15
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.05,
+                  0.95
+                ],
+                "y": [
+                  0.18,
+                  0.66
+                ]
+              },
+              "mask": {
+                "v_max": 70
+              },
+              "gt": 0.85
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.72,
+                  0.90
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.65
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "tap",
+        "reason": "advance_dialogue",
+        "coordinate_name": "safe_advance.dialogue_box",
+        "point": {
+          "x": 626,
+          "y": 1075
+        }
+      }
+    },
+    {
+      "id": "main_menu_short_dialogue",
+      "priority": 878,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "training_menu",
+              "portrait_ui",
+              "bottom_action",
+              "game_home",
+              "unknown"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  0.30
+                ],
+                "y": [
+                  0.0,
+                  0.20
+                ]
+              },
+              "mask": {
+                "h_max": 12,
+                "s_min": 70,
+                "v_min": 100
+              },
+              "gt": 0.12
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.30,
+                  0.83
+                ],
+                "y": [
+                  0.54,
+                  0.64
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.40
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.68,
+                  0.93
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.40
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.20,
+                  0.48
+                ],
+                "y": [
+                  0.925,
+                  0.985
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "lt": 0.35
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  1.0
+                ],
+                "y": [
+                  0.0,
+                  0.14
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "lt": 0.08
+            }
+          },
+          {
+            "any": [
+              {
+                "all": [
+                  {
+                    "hsv_ratio": {
+                      "roi": {
+                        "x": [
+                          0.0,
+                          0.22
+                        ],
+                        "y": [
+                          0.48,
+                          0.56
+                        ]
+                      },
+                      "mask": {
+                        "h_min": 5,
+                        "h_max": 35,
+                        "s_min": 70,
+                        "v_min": 100
+                      },
+                      "gt": 0.243,
+                      "lt": 0.28
+                    }
+                  },
+                  {
+                    "hsv_ratio": {
+                      "roi": {
+                        "x": [
+                          0.0,
+                          0.22
+                        ],
+                        "y": [
+                          0.48,
+                          0.56
+                        ]
+                      },
+                      "mask": {
+                        "s_max": 65,
+                        "v_min": 170
+                      },
+                      "gt": 0.45
+                    }
+                  },
+                  {
+                    "hsv_ratio": {
+                      "roi": {
+                        "x": [
+                          0.0,
+                          0.22
+                        ],
+                        "y": [
+                          0.48,
+                          0.56
+                        ]
+                      },
+                      "mask": {
+                        "h_min": 38,
+                        "h_max": 92,
+                        "s_min": 70,
+                        "v_min": 80
+                      },
+                      "lt": 0.02
+                    }
+                  }
+                ]
+              },
+              {
+                "all": [
+                  {
+                    "hsv_ratio": {
+                      "roi": {
+                        "x": [
+                          0.70,
+                          0.99
+                        ],
+                        "y": [
+                          0.04,
+                          0.13
+                        ]
+                      },
+                      "mask": {
+                        "h_min": 5,
+                        "h_max": 35,
+                        "s_min": 70,
+                        "v_min": 100
+                      },
+                      "gt": 0.15
+                    }
+                  },
+                  {
+                    "hsv_ratio": {
+                      "roi": {
+                        "x": [
+                          0.70,
+                          0.99
+                        ],
+                        "y": [
+                          0.04,
+                          0.13
+                        ]
+                      },
+                      "mask": {
+                        "s_max": 70,
+                        "v_min": 80,
+                        "v_max": 190
+                      },
+                      "gt": 0.25
+                    }
+                  },
+                  {
+                    "hsv_ratio": {
+                      "roi": {
+                        "x": [
+                          0.70,
+                          0.99
+                        ],
+                        "y": [
+                          0.04,
+                          0.13
+                        ]
+                      },
+                      "mask": {
+                        "s_max": 65,
+                        "v_min": 170
+                      },
+                      "lt": 0.45
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "action": {
+        "type": "stop",
+        "reason": "ready_main_menu",
+        "route_state": "ready_main_menu"
+      }
+    },
+    {
+      "id": "bottom_dialogue_main_menu_skip_off",
+      "priority": 877,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "portrait_ui",
+              "bottom_action",
+              "game_home",
+              "unknown"
+            ]
+          },
+          {
+            "bottom_skip_state": "off"
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  0.30
+                ],
+                "y": [
+                  0.0,
+                  0.20
+                ]
+              },
+              "mask": {
+                "h_max": 12,
+                "s_min": 70,
+                "v_min": 100
+              },
+              "gt": 0.15
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.68,
+                  0.93
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.48
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.30,
+                  0.83
+                ],
+                "y": [
+                  0.54,
+                  0.64
+                ]
+              },
+              "mask": {
+                "s_max": 60,
+                "v_min": 175
+              },
+              "gt": 0.80
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  1.0
+                ],
+                "y": [
+                  0.86,
+                  0.98
+                ]
+              },
+              "mask": {
+                "s_max": 90,
+                "v_min": 120
+              },
+              "gt": 0.55
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  1.0
+                ],
+                "y": [
+                  0.86,
+                  0.98
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "lt": 0.05
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "tap",
+        "reason": "enable_bottom_skip_toggle",
+        "coordinate_name": "safe_advance.bottom_skip_toggle",
+        "point": {
+          "x": 257,
+          "y": 1248
+        }
+      }
+    },
+    {
+      "id": "training_success_result_dialogue",
+      "priority": 876,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "training_menu",
+              "portrait_ui",
+              "bottom_action"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  0.30
+                ],
+                "y": [
+                  0.0,
+                  0.20
+                ]
+              },
+              "mask": {
+                "h_max": 12,
+                "s_min": 70,
+                "v_min": 100
+              },
+              "gt": 0.15
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.70,
+                  0.92
+                ]
+              },
+              "mask": {
+                "s_max": 90,
+                "v_min": 120
+              },
+              "gt": 0.40
+            }
+          },
+          {
+            "not": {
+              "hsv_ratio": {
+                "roi": {
+                  "x": [
+                    0.17,
+                    0.42
+                  ],
+                  "y": [
+                    0.925,
+                    0.985
+                  ]
+                },
+                "mask": {
+                  "h_min": 38,
+                  "h_max": 92,
+                  "s_min": 70,
+                  "v_min": 80
+                },
+                "gt": 0.10
+              }
+            }
+          },
+          {
+            "not": {
+              "hsv_ratio": {
+                "roi": {
+                  "x": [
+                    0.15,
+                    0.85
+                  ],
+                  "y": [
+                    0.18,
+                    0.70
+                  ]
+                },
+                "mask": {
+                  "h_min": 35,
+                  "h_max": 95,
+                  "s_min": 60,
+                  "v_min": 80
+                },
+                "gt": 0.10
+              }
+            }
+          },
+          {
+            "not": {
+              "hsv_ratio": {
+                "roi": {
+                  "x": [
+                    0.18,
+                    0.82
+                  ],
+                  "y": [
+                    0.58,
+                    0.72
+                  ]
+                },
+                "mask": {
+                  "h_min": 35,
+                  "h_max": 95,
+                  "s_min": 60,
+                  "v_min": 80
+                },
+                "gt": 0.05
+              }
+            }
+          },
+          {
+            "not": {
+              "hsv_ratio": {
+                "roi": {
+                  "x": [
+                    0.25,
+                    0.75
+                  ],
+                  "y": [
+                    0.80,
+                    0.90
+                  ]
+                },
+                "mask": {
+                  "h_min": 35,
+                  "h_max": 95,
+                  "s_min": 60,
+                  "v_min": 80
+                },
+                "gt": 0.20
+              }
+            }
+          },
+          {
+            "not": {
+              "all": [
+                {
+                  "bottom_skip_state": "off"
+                },
+                {
+                  "hsv_ratio": {
+                    "roi": {
+                      "x": [
+                        0.0,
+                        1.0
+                      ],
+                      "y": [
+                        0.86,
+                        0.98
+                      ]
+                    },
+                    "mask": {
+                      "s_max": 90,
+                      "v_min": 120
+                    },
+                    "gt": 0.55
+                  }
+                },
+                {
+                  "hsv_ratio": {
+                    "roi": {
+                      "x": [
+                        0.0,
+                        1.0
+                      ],
+                      "y": [
+                        0.86,
+                        0.98
+                      ]
+                    },
+                    "mask": {
+                      "h_min": 38,
+                      "h_max": 92,
+                      "s_min": 70,
+                      "v_min": 80
+                    },
+                    "lt": 0.05
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "any": [
+              {
+                "hsv_ratio": {
+                  "roi": {
+                    "x": [
+                      0.18,
+                      0.82
+                    ],
+                    "y": [
+                      0.18,
+                      0.36
+                    ]
+                  },
+                  "mask": {
+                    "h_min": 85,
+                    "h_max": 125,
+                    "s_min": 45,
+                    "v_min": 100
+                  },
+                  "gt": 0.10
+                }
+              },
+              {
+                "hsv_ratio": {
+                  "roi": {
+                    "x": [
+                      0.10,
+                      0.90
+                    ],
+                    "y": [
+                      0.28,
+                      0.62
+                    ]
+                  },
+                  "mask": {
+                    "h_min": 85,
+                    "h_max": 125,
+                    "s_min": 45,
+                    "v_min": 100
+                  },
+                  "gt": 0.60
+                }
+              },
+              {
+                "hsv_ratio": {
+                  "roi": {
+                    "x": [
+                      0.30,
+                      0.83
+                    ],
+                    "y": [
+                      0.54,
+                      0.64
+                    ]
+                  },
+                  "mask": {
+                    "s_max": 90,
+                    "v_min": 120
+                  },
+                  "gt": 0.45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "action": {
+        "type": "tap",
+        "reason": "advance_dialogue",
+        "coordinate_name": "safe_advance.dialogue_box",
+        "point": {
+          "x": 626,
+          "y": 1075
+        }
+      }
+    },
+    {
+      "id": "training_result_dialogue",
+      "priority": 875,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "unknown",
+              "portrait_ui",
+              "bottom_action"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  0.30
+                ],
+                "y": [
+                  0.0,
+                  0.20
+                ]
+              },
+              "mask": {
+                "h_max": 12,
+                "s_min": 70,
+                "v_min": 100
+              },
+              "gt": 0.15
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.20,
+                  0.80
+                ],
+                "y": [
+                  0.20,
+                  0.36
+                ]
+              },
+              "mask": {
+                "h_min": 125,
+                "h_max": 165,
+                "s_min": 45,
+                "v_min": 90
+              },
+              "gt": 0.06
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.68,
+                  0.93
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.60
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.68,
+                  0.93
+                ]
+              },
+              "mask": {
+                "h_min": 125,
+                "h_max": 165,
+                "s_min": 45,
+                "v_min": 90
+              },
+              "gt": 0.10
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.78,
+                  0.95
+                ],
+                "y": [
+                  0.82,
+                  0.90
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.75
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "tap",
+        "reason": "advance_dialogue",
+        "coordinate_name": "safe_advance.dialogue_box",
+        "point": {
+          "x": 626,
+        "y": 1075
+      }
+    }
+    },
+    {
+      "id": "summer_camp_end_dialogue",
+      "priority": 870,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "unknown",
+              "portrait_ui",
+              "bottom_action"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.0,
+                  0.30
+                ],
+                "y": [
+                  0.0,
+                  0.20
+                ]
+              },
+              "mask": {
+                "h_max": 12,
+                "s_min": 70,
+                "v_min": 100
+              },
+              "gt": 0.15
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.20,
+                  0.80
+                ],
+                "y": [
+                  0.20,
+                  0.36
+                ]
+              },
+              "mask": {
+                "h_min": 140,
+                "h_max": 175,
+                "s_min": 60,
+                "v_min": 90
+              },
+              "gt": 0.08
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.20,
+                  0.80
+                ],
+                "y": [
+                  0.20,
+                  0.36
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.35
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.02,
+                  0.98
+                ],
+                "y": [
+                  0.68,
+                  0.93
+                ]
+              },
+              "mask": {
+                "s_max": 65,
+                "v_min": 170
+              },
+              "gt": 0.65
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.20,
+                  0.48
+                ],
+                "y": [
+                  0.925,
+                  0.985
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "gt": 0.20
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "tap",
+        "reason": "skip_bottom_dialogue",
+        "coordinate_name": "safe_advance.bottom_skip",
+        "point": {
+          "x": 257,
+          "y": 1248
+        }
+      }
+    },
+    {
+      "id": "event_choice",
+      "priority": 700,
+      "when": {
+        "screen": "event_choice"
+      },
+      "action": {
+        "type": "delegate",
+        "reason": "event_choice"
+      }
+    },
+    {
+      "id": "goal_result",
+      "priority": 650,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "portrait_ui",
+              "bottom_action"
+            ]
+          },
+          {
+            "not": {
+              "screen": "event_choice"
+            }
+          },
+          {
+            "not": {
+              "all": [
+                {
+                  "bottom_skip_state": "off"
+                },
+                {
+                  "hsv_ratio": {
+                    "roi": {
+                      "x": [
+                        0.02,
+                        0.98
+                      ],
+                      "y": [
+                        0.68,
+                        0.93
+                      ]
+                    },
+                    "mask": {
+                      "s_max": 60,
+                      "v_min": 175
+                    },
+                    "gt": 0.16
+                  }
+                },
+                {
+                  "hsv_ratio": {
+                    "roi": {
+                      "x": [
+                        0.0,
+                        1.0
+                      ],
+                      "y": [
+                        0.0,
+                        0.14
+                      ]
+                    },
+                    "mask": {
+                      "h_min": 38,
+                      "h_max": 92,
+                      "s_min": 70,
+                      "v_min": 80
+                    },
+                    "gt": 0.20
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.05,
+                  0.95
+                ],
+                "y": [
+                  0.35,
+                  0.62
+                ]
+              },
+              "mask": {
+                "h_min": 85,
+                "h_max": 125,
+                "s_min": 45,
+                "v_min": 100
+              },
+              "gt": 0.30
+            }
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.20,
+                  0.48
+                ],
+                "y": [
+                  0.92,
+                  0.99
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "gt": 0.30
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "delegate",
+        "reason": "continue_fullscreen_result",
+        "route_state": "goal_result"
+      }
+    },
+    {
+      "id": "fullscreen_result",
+      "priority": 550,
+      "when": {
+        "all": [
+          {
+            "screen": [
+              "portrait_ui",
+              "bottom_action",
+              "modal_confirm"
+            ]
+          },
+          {
+            "hsv_ratio": {
+              "roi": {
+                "x": [
+                  0.15,
+                  0.85
+                ],
+                "y": [
+                  0.84,
+                  0.98
+                ]
+              },
+              "mask": {
+                "h_min": 38,
+                "h_max": 92,
+                "s_min": 70,
+                "v_min": 80
+              },
+              "gt": 0.12
+            }
+          },
+          {
+            "not": {
+              "screen": "event_choice"
+            }
+          },
+          {
+            "not": {
+              "all": [
+                {
+                  "bottom_skip_state": "off"
+                },
+                {
+                  "hsv_ratio": {
+                    "roi": {
+                      "x": [
+                        0.02,
+                        0.98
+                      ],
+                      "y": [
+                        0.68,
+                        0.93
+                      ]
+                    },
+                    "mask": {
+                      "s_max": 60,
+                      "v_min": 175
+                    },
+                    "gt": 0.16
+                  }
+                },
+                {
+                  "hsv_ratio": {
+                    "roi": {
+                      "x": [
+                        0.0,
+                        1.0
+                      ],
+                      "y": [
+                        0.0,
+                        0.14
+                      ]
+                    },
+                    "mask": {
+                      "h_min": 38,
+                      "h_max": 92,
+                      "s_min": 70,
+                      "v_min": 80
+                    },
+                    "gt": 0.20
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "not": {
+              "hsv_ratio": {
+                "roi": {
+                  "x": [
+                    0.0,
+                    1.0
+                  ],
+                  "y": [
+                    0.0,
+                    0.14
+                  ]
+                },
+                "mask": {
+                  "h_min": 38,
+                  "h_max": 92,
+                  "s_min": 70,
+                  "v_min": 80
+                },
+                "gt": 0.20
+              }
+            }
+          }
+        ]
+      },
+      "action": {
+        "type": "delegate",
+        "reason": "continue_fullscreen_result"
+      }
+    },
+    {
+      "id": "landscape_loading",
+      "priority": 760,
+      "when": {
+        "field": "landscape_race_kind",
+        "equals": "landscape_loading"
+      },
+      "action": {
+        "type": "wait",
+        "reason": "loading",
+        "route_state": "loading"
+      }
+    },
+    {
+      "id": "landscape_race_list",
+      "priority": 750,
+      "when": {
+        "field": "landscape_race_kind",
+        "equals": "landscape_race_list"
+      },
+      "action": {
+        "type": "stop",
+        "reason": "race_list",
+        "route_state": "race_list"
+      }
+    },
+    {
+      "id": "landscape_race_title",
+      "priority": 740,
+      "when": {
+        "field": "landscape_race_kind",
+        "equals": "landscape_race_title"
+      },
+      "action": {
+        "type": "stop",
+        "reason": "race_scene",
+        "route_state": "race_scene"
+      }
+    },
+    {
+      "id": "landscape_race_running",
+      "priority": 730,
+      "when": {
+        "field": "landscape_race_kind",
+        "equals": "landscape_race_running"
+      },
+      "action": {
+        "type": "stop",
+        "reason": "race_scene",
+        "route_state": "race_scene"
+      }
+    },
+    {
+      "id": "landscape_race_menu",
+      "priority": 720,
+      "when": {
+        "field": "landscape_race_kind",
+        "equals": "landscape_race_menu"
+      },
+      "action": {
+        "type": "stop",
+        "reason": "race_menu",
+        "route_state": "race_menu"
+      }
+    },
+    {
+      "id": "race_scene",
+      "priority": 500,
+      "when": {
+        "screen": "landscape_action"
+      },
+      "action": {
+        "type": "delegate",
+        "reason": "race_scene",
+        "route_state": "race_scene"
+      }
+    },
+    {
+      "id": "loading",
+      "priority": 400,
+      "when": {
+        "screen": "loading"
+      },
+      "action": {
+        "type": "wait",
+        "reason": "loading",
+        "route_state": "loading"
+      }
+    },
+    {
+      "id": "unknown_stop",
+      "priority": -100,
+      "when": {
+        "screen": "unknown"
+      },
+      "action": {
+        "type": "stop",
+        "reason": "unknown_stop",
+        "route_state": "unknown"
+      }
+    }
+  ]
+}

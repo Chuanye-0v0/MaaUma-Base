@@ -21,7 +21,7 @@ from core.skill_batch_purchase import build_skill_batch_plan, select_local_skill
 from core.skill_batch_purchase_executor import MAX_TOP_REWIND_SWIPES, SKILL_BATCH_PURCHASE_SAFETY_TOKEN, SkillBatchPurchaseExecutor
 from core.skill_planner.preferences import load_skill_preference_profile
 from core.skill_purchase_live_adapter import SkillPurchaseLiveCaptureSession
-from core.skill_scroll import SKILL_OVERLAP_SWIPE
+from core.skill_scroll import MAX_SKILL_OVERLAP_SHIFT, SKILL_OVERLAP_SWIPE
 from scripts.plan_fresh_skill_acquisition import _read_context, run_fresh_dry_run
 _ALLOWED_ADB_ENDPOINT = ADB_ENDPOINT
 
@@ -186,7 +186,7 @@ def _run_select(args: argparse.Namespace, base: dict[str, Any], *, adapter_facto
         close = getattr(adapter, 'close', None)
         if callable(close):
             close()
-    report = {**base, 'is_valid': result.stop_reason == 'confirmation_opened', 'performed': result.tap_count > 0 or result.swipe_count > 0, 'stop_reason': result.stop_reason, 'selected_action_ids': list(result.selected_action_ids), 'remaining_action_ids': list(result.remaining_action_ids), 'confirmation_opened': result.confirmation_opened, 'tap_count': result.tap_count, 'swipe_count': result.swipe_count, 'alignment_swipe_count': int(getattr(adapter, 'alignment_swipe_count', 0)), 'inventory_sha256': inventory['packet_sha256'], 'plan_sha256': batch_plan['plan_sha256']}
+    report = {**base, 'is_valid': result.stop_reason == 'confirmation_opened', 'performed': result.tap_count > 0 or result.swipe_count > 0, 'stop_reason': result.stop_reason, 'selected_action_ids': list(result.selected_action_ids), 'remaining_action_ids': list(result.remaining_action_ids), 'confirmation_opened': result.confirmation_opened, 'tap_count': result.tap_count, 'swipe_count': result.swipe_count, 'alignment_swipe_count': int(getattr(adapter, 'alignment_swipe_count', 0)), 'inventory_sha256': inventory['packet_sha256'], 'plan_sha256': batch_plan['plan_sha256'], **({'error_type': result.error_type, 'error_detail': result.error_detail} if result.error_type is not None else {})}
     if args.checkpoint is not None:
         _write_json(args.checkpoint.with_suffix('.result.json'), report)
     return (report, 0 if report['is_valid'] else 2)
@@ -351,14 +351,14 @@ class _LiveBatchAdapter:
         if self.swipe_profile == SKILL_OVERLAP_SWIPE['name']:
             if self.adb.swipe_skill_overlap() is not True:
                 raise RuntimeError('adb_skill_overlap_swipe_failed')
-            time.sleep(0.15)
+            time.sleep(0.08)
             return
         swipe_end_y, duration_ms = (760, 350) if self.swipe_profile == 'reveal-bottom' else (610, 450)
         self.adb.swipe(360, 900, 360, swipe_end_y, duration_ms=duration_ms, scaled=False)
         time.sleep(1.8)
 
     def begin_reverse_selection(self, shifts: list[float], max_swipes: int) -> bool:
-        if self.swipe_profile != SKILL_OVERLAP_SWIPE['name'] or type(max_swipes) is not int or (not 1 <= max_swipes <= MAX_TOP_REWIND_SWIPES) or (not isinstance(shifts, list)) or any((type(shift) not in (int, float) or not 1 <= shift <= 386 for shift in shifts)):
+        if self.swipe_profile != SKILL_OVERLAP_SWIPE['name'] or type(max_swipes) is not int or (not 1 <= max_swipes <= MAX_TOP_REWIND_SWIPES) or (not isinstance(shifts, list)) or any((type(shift) not in (int, float) or not 1 <= shift <= MAX_SKILL_OVERLAP_SHIFT for shift in shifts)):
             return False
         self._reverse_shifts = list(shifts)
         self._reverse_page_index = len(shifts)
@@ -372,12 +372,12 @@ class _LiveBatchAdapter:
                 return True
             if attempt == max_swipes or self.adb.swipe_skill_overlap() is not True:
                 return False
-            time.sleep(0.15)
+            time.sleep(0.08)
             state = self.capture_page(())
         return False
 
     def swipe_backward(self) -> None:
-        if self._reverse_shifts is None or self._reverse_page_index <= 0:
+        if self._reverse_shifts is None or not (1 <= self._reverse_page_index <= len(self._reverse_shifts)):
             raise ValueError('reverse_route_not_bound')
         expected_shift = self._reverse_shifts[self._reverse_page_index - 1]
         travel = 490
@@ -388,31 +388,56 @@ class _LiveBatchAdapter:
         before_points = self._last_skill_points
         if self.adb.swipe_skill_overlap(reverse=True, travel_px=travel) is not True:
             raise RuntimeError('adb_skill_reverse_swipe_failed')
-        time.sleep(0.15)
+        time.sleep(0.08)
         if self._reverse_first_step:
-            import cv2
             from core.skill_scroll import measure_skill_overlap
             before = read_image(str(before_path))
             state = self.capture_page(())
             after = read_image(str(self.screenshot_dir / f'batch_{self.capture_index:03d}.png'))
             overlap = measure_skill_overlap(after, before)
+            if overlap.get('verified') is not True:
+                time.sleep(0.20)
+                state = self.capture_page(())
+                after = read_image(str(self.screenshot_dir / f'batch_{self.capture_index:03d}.png'))
+                overlap = measure_skill_overlap(after, before)
             for _ in range(2):
                 if self._top_probe_sha(state) is None or state.get('current_skill_points') != before_points or overlap.get('verified') is not True:
                     break
                 delta = overlap['shift'] - expected_shift
-                if not 2 < abs(round(overlap['shift']) - round(expected_shift)) <= 25:
+                err = abs(round(overlap['shift']) - round(expected_shift))
+                if not 6 < err <= 35:
                     break
-                correction = min(40, max(18, round(abs(delta)) + 16))
+                correction = min(45, max(18, round(abs(delta) * 0.75) + 12))
                 if self.adb.swipe_skill_overlap(reverse=delta < 0, travel_px=correction) is not True:
                     break
-                time.sleep(0.15)
+                time.sleep(0.08)
                 state = self.capture_page(())
                 after = read_image(str(self.screenshot_dir / f'batch_{self.capture_index:03d}.png'))
-                overlap = measure_skill_overlap(after, before)
-            if self._top_probe_sha(state) is None or type(before_points) is not int or state.get('current_skill_points') != before_points or (overlap.get('verified') is not True) or (abs(round(overlap['shift']) - round(expected_shift)) > 2):
-                raise ValueError('reverse_bottom_step_unverified')
+                new_overlap = measure_skill_overlap(after, before)
+                if new_overlap.get('verified') is True:
+                    overlap = new_overlap
+                new_err = abs(round(overlap['shift']) - round(expected_shift))
+                if new_err <= 16 or new_err >= err:
+                    break
+            if self._top_probe_sha(state) is None or type(before_points) is not int or state.get('current_skill_points') != before_points or (overlap.get('verified') is not True) or (abs(round(overlap['shift']) - round(expected_shift)) > 16):
+                raise ValueError(f"reverse_bottom_step_unverified:expected={round(expected_shift)},actual={overlap.get('shift')},verified={overlap.get('verified')}")
             self._reverse_first_step = False
         self._reverse_page_index -= 1
+
+    def nudge_scroll(self, *, reverse: bool, travel_px: int = 140) -> bool:
+        """Micro-nudge the list smoothly without changing logical page index."""
+        if type(reverse) is not bool or type(travel_px) is not int or not 12 <= travel_px <= 220:
+            raise ValueError('skill_nudge_gesture_invalid')
+        if callable(getattr(self.adb, 'swipe_skill_nudge', None)):
+            ok = self.adb.swipe_skill_nudge(reverse=reverse, travel_px=travel_px)
+        elif reverse:
+            ok = self.adb.swipe(360, 520, 360, 520 + travel_px, duration_ms=220, scaled=False)
+        else:
+            ok = self.adb.swipe(360, 940, 360, 940 - travel_px, duration_ms=220, scaled=False)
+        if not ok:
+            raise ValueError('skill_nudge_swipe_failed')
+        time.sleep(0.28)
+        return True
 
     def reveal_bottom_after_rewind(self) -> bool:
         if self.swipe_profile != 'full-page' or not self._rewound_to_top or self.alignment_swipe_count != 0:

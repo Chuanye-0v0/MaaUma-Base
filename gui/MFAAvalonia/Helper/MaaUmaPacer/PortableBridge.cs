@@ -41,6 +41,13 @@ public sealed class UmaPacerBridge : IUmaPacerBridge
     private bool detachedForExit;
     private readonly object protocolSync = new();
     private Task<string?>? pendingReply;
+    private Task<string?>? staleSnapshotRead;
+    private string? staleSnapshotRequestId;
+    internal TimeSpan SnapshotTimeout { get; set; } = TimeSpan.FromSeconds(45);
+    internal int MaxConsecutiveSnapshotTimeouts { get; set; } = 3;
+    internal TimeSpan BrokenProcessGracePeriod { get; set; } = TimeSpan.FromSeconds(10);
+    private int consecutiveSnapshotTimeouts;
+    private DateTime brokenAtUtc;
     private Task? closeTask;
     private Task? stdoutDrain;
     private string? protocolFailure;
@@ -73,15 +80,59 @@ public sealed class UmaPacerBridge : IUmaPacerBridge
         finally { gate.Release(); }
     }
 
+    private static void KillProcessTreeSafe(Process? proc)
+    {
+        if (proc == null) return;
+        try
+        {
+            if (!proc.HasExited)
+                proc.Kill(entireProcessTree: true);
+        }
+        catch { }
+        try { proc.WaitForExit(3000); } catch { }
+    }
+
     private void EnsureProcess()
     {
         if (process is { HasExited: false })
         {
-            if (broken) throw new InvalidOperationException("控制通信中断，原后台正在安全停止；不会自动重放指令。 " + protocolFailure);
-            return;
+            bool shouldKillBroken;
+            DateTime brokenSince;
+            lock (protocolSync)
+            {
+                if (!broken) return;
+                brokenSince = brokenAtUtc;
+                shouldKillBroken = DateTime.UtcNow - brokenSince >= BrokenProcessGracePeriod;
+            }
+            if (!shouldKillBroken)
+                throw new InvalidOperationException("控制通信中断，原后台正在安全停止；不会自动重放指令。 " + protocolFailure);
+            try { LoggerHelper.Warning($"[PacerBridge] 原后台超过停机宽限期，清理并重建进程（pid={process.Id}）。"); } catch { }
+            KillProcessTreeSafe(process);
+            process = null;
+            lock (protocolSync)
+            {
+                broken = false;
+                staleSnapshotRead = null;
+                staleSnapshotRequestId = null;
+                consecutiveSnapshotTimeouts = 0;
+                protocolFailure = null;
+                stdoutDrain = null;
+            }
         }
-        process?.Dispose();
-        process = null;
+        else
+        {
+            process?.Dispose();
+            process = null;
+            lock (protocolSync)
+            {
+                broken = false;
+                staleSnapshotRead = null;
+                staleSnapshotRequestId = null;
+                consecutiveSnapshotTimeouts = 0;
+                protocolFailure = null;
+                stdoutDrain = null;
+            }
+        }
         if (closing || closed) throw new InvalidOperationException("面板正在关闭。");
         var root = rootDirectory;
         var python = Path.Combine(root,"runtime","python.exe");
@@ -132,6 +183,8 @@ public sealed class UmaPacerBridge : IUmaPacerBridge
         broken = false;
         stdoutDrain = null;
         protocolFailure = null;
+        staleSnapshotRead = null;
+        staleSnapshotRequestId = null;
     }
 
     private static bool IsDirectoryWritable(string? path)
@@ -157,11 +210,14 @@ public sealed class UmaPacerBridge : IUmaPacerBridge
         lock(protocolSync)
         {
             broken = true;
+            brokenAtUtc = DateTime.UtcNow;
             var failed = process;
+            var read = pendingRead ?? staleSnapshotRead ?? pendingReply;
+            staleSnapshotRead = null;
+            staleSnapshotRequestId = null;
             if(failed == null)return;
             // Closing a pipe may itself wait on a blocked writer. Keep it off
             // the UI thread and preserve the one outstanding stdout reader.
-            var read = pendingRead ?? pendingReply;
             var pid=failed.Id;
             protocolFailure=$"[{kind}; pid={pid}]";
             _ = Task.Run(() => {
@@ -181,6 +237,7 @@ public sealed class UmaPacerBridge : IUmaPacerBridge
     private void RecordProtocolFailure(int pid,string kind,bool stdinClosed)
     {
         protocolFailure=$"[{kind}; pid={pid}]";
+        try { LoggerHelper.Warning($"[PacerBridge] 协议中断：kind={kind}, child_pid={pid}, stdin_closed={stdinClosed}"); } catch { }
         // Record categories only: never a raw response, command or credential.
         if(diagnosticRoot == null)return;
         try
@@ -209,6 +266,60 @@ public sealed class UmaPacerBridge : IUmaPacerBridge
         catch(ObjectDisposedException) { }
     }
 
+    private void ValidateSynchronizedReply(string? line, string expectedRequestId, string? actionName, out JObject response)
+    {
+        if (line == null)
+        {
+            if (actionName != "export_stop_diagnostics") BreakProtocol(kind: "eof");
+            throw new InvalidOperationException("育成后台已退出，请先查看原记录中的停点。 " + protocolFailure);
+        }
+        try { response = JObject.Parse(line); }
+        catch (JsonReaderException)
+        {
+            if (actionName != "export_stop_diagnostics") BreakProtocol(kind: "non_json");
+            throw new InvalidOperationException("后台输出不是控制回执，已请求安全停止；不会重放指令。 " + protocolFailure);
+        }
+        if ((string?)response["request_id"] != expectedRequestId)
+        {
+            if (actionName != "export_stop_diagnostics") BreakProtocol(kind: "id_mismatch");
+            throw new InvalidOperationException("控制回执不匹配，已请求安全停止。 " + protocolFailure);
+        }
+        lock (protocolSync) consecutiveSnapshotTimeouts = 0;
+    }
+
+    private void ResetStalledHost(Task<string?> failedRead)
+    {
+        BreakProtocol(failedRead, "snapshot_stalled_limit");
+        var stalled = process;
+        try { LoggerHelper.Error($"[PacerBridge] 连续只读 snapshot 超时已达上限，重置卡死后台（pid={stalled?.Id}）。"); } catch { }
+        lock (protocolSync)
+        {
+            process = null;
+            broken = false;
+            staleSnapshotRead = null;
+            staleSnapshotRequestId = null;
+            consecutiveSnapshotTimeouts = 0;
+            protocolFailure = null;
+            stdoutDrain = null;
+        }
+        KillProcessTreeSafe(stalled);
+    }
+
+    private JObject ParseAndValidateReply(string? line, string expectedRequestId, string? actionName, string? requestMode)
+    {
+        ValidateSynchronizedReply(line, expectedRequestId, actionName, out var response);
+        if ((bool?)response["ok"] != true)
+            throw new InvalidOperationException((string?)response["error"] ?? "控制请求被拒绝。");
+        var result = (JObject)response["result"]!;
+        if (allowCareer && actionName != "export_stop_diagnostics")
+        {
+            var actual = (string?)result["mode"] ?? (string?)result["snapshot"]?["mode"];
+            DefaultMode = actual is "cut" or "career" ? actual : requestMode ?? DefaultMode;
+        }
+        if (!detachedForExit && actionName != "export_stop_diagnostics") SnapshotReceived?.Invoke(result);
+        return result;
+    }
+
     public async Task<JObject> Request(JObject request)
     {
         await gate.WaitAsync();
@@ -216,56 +327,101 @@ public sealed class UmaPacerBridge : IUmaPacerBridge
         {
             EnsureProcess();
             request = (JObject)request.DeepClone();
-            request["mode"]=allowCareer ? request["mode"]??DefaultMode : "cut";
-            if((string?)request["mode"] is not ("cut" or "career"))throw new InvalidOperationException("未知育成模式，未发送请求。");
+            request["mode"] = allowCareer ? request["mode"] ?? DefaultMode : "cut";
+            if ((string?)request["mode"] is not ("cut" or "career")) throw new InvalidOperationException("未知育成模式，未发送请求。");
             request["request_id"] ??= Guid.NewGuid().ToString("N");
+            var actionName = (string?)request["action"];
+            var requestMode = (string?)request["mode"];
+            Task<string?>? inFlight;
+            string? inFlightId;
+            lock (protocolSync)
+            {
+                if (broken) throw new InvalidOperationException("原后台正在停止，未发送新的控制请求。");
+                inFlight = staleSnapshotRead;
+                inFlightId = staleSnapshotRequestId;
+            }
+            if (inFlight != null)
+            {
+                if (actionName == "snapshot")
+                {
+                    string? staleLine;
+                    try { staleLine = await inFlight.WaitAsync(SnapshotTimeout); }
+                    catch (TimeoutException)
+                    {
+                        int count;
+                        lock (protocolSync) count = ++consecutiveSnapshotTimeouts;
+                        if (count >= MaxConsecutiveSnapshotTimeouts)
+                        {
+                            ResetStalledHost(inFlight);
+                            throw new InvalidOperationException("后台持续无响应，已自动重启控制通道；请稍候刷新状态。");
+                        }
+                        try { LoggerHelper.Warning($"[PacerBridge] 只读 snapshot 仍在等待原回执返回（pid={process?.Id}，连续超时={count}/{MaxConsecutiveSnapshotTimeouts}），继续保活不中断后台。"); } catch { }
+                        throw new InvalidOperationException("后台高负载响应较慢，等待当前快照返回（不会中断运行中的育成）。");
+                    }
+                    lock (protocolSync)
+                    {
+                        staleSnapshotRead = null;
+                        staleSnapshotRequestId = null;
+                    }
+                    return ParseAndValidateReply(staleLine, inFlightId!, actionName, requestMode);
+                }
+                string? drainedLine;
+                try { drainedLine = await inFlight.WaitAsync(TimeSpan.FromSeconds(30)); }
+                catch (TimeoutException)
+                {
+                    if (actionName != "export_stop_diagnostics") BreakProtocol(inFlight, "timeout");
+                    throw new InvalidOperationException("后台响应超时，已请求安全停止；不会重复开始或购买。 " + protocolFailure);
+                }
+                lock (protocolSync)
+                {
+                    staleSnapshotRead = null;
+                    staleSnapshotRequestId = null;
+                }
+                ValidateSynchronizedReply(drainedLine, inFlightId!, actionName, out _);
+            }
             await process!.StandardInput.WriteLineAsync(request.ToString(Formatting.None));
             await process.StandardInput.FlushAsync();
             string? line;
             Task<string?> pendingRead;
-            lock(protocolSync)
+            lock (protocolSync)
             {
-                if(broken)throw new InvalidOperationException("原后台正在停止，未发送新的控制请求。");
+                if (broken) throw new InvalidOperationException("原后台正在停止，未发送新的控制请求。");
                 pendingRead = pendingReply = process.StandardOutput.ReadLineAsync();
             }
-            // A read-only ZIP export must not trigger a control timeout stop; read-only snapshot polls tolerate heavy OCR/CPU load.
-            var actionName = (string?)request["action"];
-            try { line = actionName == "export_stop_diagnostics"
-                ? await pendingRead
-                : await pendingRead.WaitAsync(TimeSpan.FromSeconds(actionName == "snapshot" ? 120 : 30)); }
+            // A read-only ZIP export must not trigger a control timeout stop; read-only snapshot polls wait without breaking the backend.
+            try
+            {
+                line = actionName == "export_stop_diagnostics"
+                    ? await pendingRead
+                    : actionName == "snapshot"
+                        ? await pendingRead.WaitAsync(SnapshotTimeout)
+                        : await pendingRead.WaitAsync(TimeSpan.FromSeconds(30));
+            }
             catch (TimeoutException)
             {
-                if(actionName!="export_stop_diagnostics")BreakProtocol(pendingRead,"timeout");
+                if (actionName == "snapshot")
+                {
+                    int count;
+                    lock (protocolSync)
+                    {
+                        staleSnapshotRead = pendingRead;
+                        staleSnapshotRequestId = (string)request["request_id"]!;
+                        count = ++consecutiveSnapshotTimeouts;
+                    }
+                    if (count >= MaxConsecutiveSnapshotTimeouts)
+                    {
+                        ResetStalledHost(pendingRead);
+                        throw new InvalidOperationException("后台持续无响应，已自动重启控制通道；请稍候刷新状态。");
+                    }
+                    try { LoggerHelper.Warning($"[PacerBridge] 只读 snapshot 超过 {SnapshotTimeout.TotalSeconds:0.#}s 未返回（pid={process?.Id}，连续超时={count}/{MaxConsecutiveSnapshotTimeouts}），保留后台连接等待回执，不中断任务。"); } catch { }
+                    throw new InvalidOperationException("后台高负载响应较慢，等待当前快照返回（不会中断运行中的育成）。");
+                }
+                if (actionName != "export_stop_diagnostics") BreakProtocol(pendingRead, "timeout");
                 throw new InvalidOperationException("后台响应超时，已请求安全停止；不会重复开始或购买。 " + protocolFailure);
             }
-            if (line == null)
-            {
-                if(actionName!="export_stop_diagnostics")BreakProtocol(kind:"eof");
-                throw new InvalidOperationException("育成后台已退出，请先查看原记录中的停点。 " + protocolFailure);
-            }
-            JObject response;
-            try { response = JObject.Parse(line); }
-            catch(JsonReaderException)
-            {
-                if(actionName!="export_stop_diagnostics")BreakProtocol(kind:"non_json");
-                throw new InvalidOperationException("后台输出不是控制回执，已请求安全停止；不会重放指令。 " + protocolFailure);
-            }
-            if ((string?)response["request_id"] != (string?)request["request_id"])
-            {
-                if(actionName!="export_stop_diagnostics")BreakProtocol(kind:"id_mismatch");
-                throw new InvalidOperationException("控制回执不匹配，已请求安全停止。 " + protocolFailure);
-            }
-            if ((bool?)response["ok"] != true)
-                throw new InvalidOperationException((string?)response["error"] ?? "控制请求被拒绝。");
-            var result=(JObject)response["result"]!;
-            if(allowCareer && actionName!="export_stop_diagnostics") {
-                var actual=(string?)result["mode"]??(string?)result["snapshot"]?["mode"];
-                DefaultMode=actual is "cut" or "career" ? actual : (string?)request["mode"]??DefaultMode;
-            }
-            if(!detachedForExit && actionName!="export_stop_diagnostics")SnapshotReceived?.Invoke(result);
-            return result;
+            return ParseAndValidateReply(line, (string)request["request_id"]!, actionName, requestMode);
         }
-        finally { lock(protocolSync)pendingReply=null; gate.Release(); }
+        finally { lock (protocolSync) pendingReply = null; gate.Release(); }
     }
 
     public static bool DelayClose(Action retryClose, Func<string,Task<bool>>? confirmFrontendExit=null)
@@ -275,6 +431,60 @@ public sealed class UmaPacerBridge : IUmaPacerBridge
         if (active.Length == 0) return false;
         if (!closingAll) _ = CloseAllThenRetry(active, retryClose,confirmFrontendExit);
         return true;
+    }
+
+    public static async Task<bool> AreAllActiveIdleAsync()
+    {
+        UmaPacerBridge[] active;
+        lock (Bridges) active = Bridges.Where(bridge => !bridge.closed && !bridge.detachedForExit && bridge.process is { HasExited: false }).ToArray();
+        if (active.Length == 0) return true;
+        foreach (var bridge in active)
+        {
+            bool isBroken;
+            lock (bridge.protocolSync) isBroken = bridge.broken;
+            if (isBroken) return false;
+            try
+            {
+                var snap = await bridge.Request(new JObject { ["action"] = "snapshot" }).WaitAsync(TimeSpan.FromSeconds(3));
+                if ((string?)snap["control"]?["state"] is not ("idle" or "stopped"))
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static async Task<bool> StopAllForUpdateAsync(TimeSpan timeout)
+    {
+        UmaPacerBridge[] active;
+        lock (Bridges) active = Bridges.Where(bridge => !bridge.closed && !bridge.detachedForExit && bridge.process is { HasExited: false }).ToArray();
+        if (active.Length == 0) return true;
+        var closeAllTask = Task.WhenAll(active.Select(async bridge =>
+        {
+            try { await bridge.CloseAsync(); } catch { }
+        }));
+        try { await closeAllTask.WaitAsync(timeout); } catch { }
+        var allStopped = true;
+        foreach (var bridge in active)
+        {
+            var proc = bridge.process;
+            if (proc is { HasExited: false })
+            {
+                try { proc.StandardInput.BaseStream.Close(); } catch { }
+                KillProcessTreeSafe(proc);
+            }
+            if (proc is { HasExited: false })
+                allStopped = false;
+            else
+            {
+                bridge.process = null;
+                bridge.closed = true;
+            }
+        }
+        return allStopped;
     }
 
     private static async Task CloseAllThenRetry(UmaPacerBridge[] active, Action retryClose,Func<string,Task<bool>>? confirmFrontendExit)

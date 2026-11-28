@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import json
 import os
 import secrets
+import sys
 import threading
 import time
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Protocol
@@ -130,6 +133,37 @@ def _canonical(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def _pid_alive(pid: Any) -> bool:
+    if type(pid) is not int or pid <= 0:
+        return False
+    if os.name == "nt":
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        handle = kernel32.OpenProcess(0x1000 | 0x00100000, False, pid)
+        if not handle:
+            return ctypes.get_last_error() == 5
+        try:
+            return kernel32.WaitForSingleObject(handle, 0) == 0x00000102
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
 class DashboardControlService:
     def __init__(
         self,
@@ -198,6 +232,48 @@ class DashboardControlService:
             requests = {"schema_version": "ug_parent_dashboard.v2.control_requests", "requests": {}}
             self._write_json(requests_path, requests)
         self._requests = requests
+        self._recover_stale_lock_if_dead()
+
+    def _recover_stale_lock_if_dead(self) -> None:
+        lock_path = self.state_dir / "runner.lock"
+        if not lock_path.exists():
+            return
+        lock = self._read_json(lock_path)
+        if not isinstance(lock, dict):
+            return
+        pid = lock.get("pid")
+        dead_pid = type(pid) is int and pid > 0 and not _pid_alive(pid)
+        legacy_unresponsive = (
+            pid is None
+            and self._runtime is None
+            and self._state.get("state") == "unresponsive"
+            and lock.get("run_id") is not None
+            and lock.get("run_id") == self._state.get("run_id")
+            and lock.get("session_id") == self._state.get("session_id")
+        )
+        if not (dead_pid or legacy_unresponsive):
+            return
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
+        before = self._state["state_version"]
+        self._state.update({
+            "state": "stopped",
+            "state_version": before + 1,
+            "tap_in_flight": False,
+            "active_boundary": None,
+            "heartbeat_at": None,
+            "last_error": None,
+            "last_result": {"outcome": "stopped", "reason": "stale_lock_auto_recovered"},
+        })
+        self._persist_state()
+        self._record_audit("stale_lock_auto_recovered", {
+            "before_state_version": before,
+            "after_state_version": before + 1,
+            "run_id": self._state.get("run_id"),
+            "stale_pid": pid,
+        })
 
     @property
     def token(self) -> str:
@@ -446,7 +522,8 @@ class DashboardControlService:
                         self._record_audit("paused_heartbeat_recovered", {
                             "before_state_version": before, "after_state_version": before + 1,
                             "result": "paused", "automatic_resume": False})
-                self._persist_state()
+                if before_state != self._state["state"]:
+                    self._persist_state()
                 self._record_audit("runner_heartbeat", {
                     "before_state_version": before,
                     "after_state_version": self._state["state_version"],
@@ -586,8 +663,15 @@ class DashboardControlService:
                 )
             ):
                 raise ControlStateError("runner_finish_invalid")
-            settling_unresponsive = (self._state["state"] == "unresponsive" and outcome == "stopped"
-                and self._runtime is not None and self._runtime.stopping)
+            settling_unresponsive = (
+                self._state["state"] == "unresponsive"
+                and outcome == "stopped"
+                and (
+                    self._runtime is None
+                    or self._runtime.stopping
+                    or self._state.get("last_error") in {"heartbeat_expired", "runner_heartbeat_failed"}
+                )
+            )
             if not settling_unresponsive and self._state["state"] not in {
                 "starting",
                 "running",
@@ -658,7 +742,28 @@ class DashboardControlService:
             before = self._state["state_version"]
             self._state.update({"state": "unresponsive", "state_version": before + 1, "last_error": "heartbeat_expired"})
             self._persist_state()
-            self._record_audit("heartbeat_expired", {"before_state_version": before, "after_state_version": before + 1, "result": "unresponsive"})
+            stop_requested = False
+            if self._runtime is not None:
+                try:
+                    self._runtime.request("stop")
+                    stop_requested = True
+                except Exception:
+                    pass
+            try:
+                frames = sys._current_frames()
+                lines = [f"=== heartbeat_expired run_id={self._state.get('run_id')} ==="]
+                for tid, frame in frames.items():
+                    lines.append(f"\n--- Thread {tid} ---")
+                    lines.extend(traceback.format_stack(frame))
+                (self.state_dir / "heartbeat_expired_stacks.txt").write_text("".join(lines), encoding="utf-8")
+            except Exception:
+                pass
+            self._record_audit("heartbeat_expired", {
+                "before_state_version": before,
+                "after_state_version": before + 1,
+                "result": "unresponsive",
+                "stop_requested": stop_requested,
+            })
 
     def _acquire_runner_lock(self, run_id: str, session_id: str, profile_id: str) -> None:
         path = self.state_dir / "runner.lock"
@@ -667,7 +772,7 @@ class DashboardControlService:
         except FileExistsError as exc:
             raise ControlStateError("runner_already_active") from exc
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            stream.write(_canonical({"run_id": run_id, "session_id": session_id, "profile_id": profile_id}))
+            stream.write(_canonical({"run_id": run_id, "session_id": session_id, "profile_id": profile_id, "pid": os.getpid()}))
             stream.flush()
             os.fsync(stream.fileno())
 

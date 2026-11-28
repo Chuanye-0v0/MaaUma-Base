@@ -284,7 +284,7 @@ def late_surplus_options(utility, period, goal):
     if unified_larc_enabled(goal) and value.get("attribute_weights") is not None:
         ext = active_provider().late_surplus_options(params, value, ord_now)
         if ext is not None:
-            return ext
+            return {**value, **ext}
         if value.get("after_target_credit") == params.default_after_target_credit:
             if ord_now in params.late_far_surplus_ordinals:
                 value.update(

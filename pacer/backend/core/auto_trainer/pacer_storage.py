@@ -805,7 +805,7 @@ def _maintain_json(workspace,*,shared_backend,now=None,dry_run=False,max_seconds
 
 
 @contextmanager
-def read_access_for_run(run_root,*,max_wait_seconds=3.0):
+def read_access_for_run(run_root,*,max_wait_seconds=10.0):
     """Serialize installed-run export reads with a retention slice.
 
     Source trees do not enable installed housekeeping and need no read mutex.
@@ -842,6 +842,162 @@ def read_access_for_run(run_root,*,max_wait_seconds=3.0):
     finally:
         _RUN_READ_ACCESS.reset(token)
         stream.close()
+
+
+_PRUNE_NORMAL_OUTCOMES = frozenset({
+    'completed',
+    'graduated',
+    'unqualified',
+    'screened_out',
+    'abandoned',
+    'mei_unlock_failed',
+    'training_failed',
+})
+_PRUNE_JSON_RE = re.compile(r'^(?:frame|ocr)_.*\.json$')
+
+
+def prune_completed_attempt(attempt_root, *, outcome='completed', dry_run=False):
+    """Prune intermediate turn PNGs and large JSONs after a normal/screened attempt ends.
+
+    Abnormal stops/failures are intentionally preserved for post-mortem triage.
+    """
+    report = {
+        'schema_version': 'pacer.attempt_prune.v1',
+        'status': 'skipped',
+        'outcome': str(outcome or ''),
+        'removed_files': 0,
+        'removed_bytes': 0,
+        'kept_protected_images': 0,
+        'errors': 0,
+    }
+    if outcome not in _PRUNE_NORMAL_OUTCOMES:
+        report['status'] = 'skipped_abnormal_outcome'
+        return report
+    try:
+        root = Path(attempt_root).absolute()
+        if not _io(root).is_dir() or _linked(root):
+            report['status'] = 'unavailable'
+            return report
+        # Ownership check: attempt_root must live under a runs directory with no reparse links.
+        runs_ancestor = next((p for p in root.parents if p.name == 'runs'), None)
+        if runs_ancestor is None or not _owned_path(root, runs_ancestor, runs_ancestor):
+            report['status'] = 'outside_runs'
+            return report
+        has_marker = (
+            _io(root / 'progress.json').is_file()
+            or _io(root / 'session/pacer_center_run.json').is_file()
+            or any(_io(p).is_dir() for p in _glob(root, 'autonomous_*'))
+        )
+        if not has_marker:
+            report['status'] = 'not_attempt_root'
+            return report
+
+        protected_images = set()
+        terminal_state = _read(root / 'session/larc_terminal_settlement.json')
+        if isinstance(terminal_state, dict):
+            rp = terminal_state.get('report_path')
+            if isinstance(rp, str) and rp:
+                rpath = Path(rp).absolute()
+                if rpath.is_relative_to(root) and _io(rpath).is_file():
+                    trep = _read(rpath)
+                    if isinstance(trep, dict):
+                        protected_images.update(_refs(trep, rpath.parent, root))
+
+        prune_roots = []
+        for entry in _glob(root, '*'):
+            nm = entry.name
+            if not _io(entry).is_dir() or _linked(entry):
+                continue
+            if nm in {'exports', 'review_exports', 'session', 'skill_policy'}:
+                continue
+            if nm.startswith('autonomous_'):
+                for sub in _glob(entry, '*'):
+                    if not _io(sub).is_dir() or _linked(sub):
+                        continue
+                    if sub.name.startswith(('turn_', 'capture', 'training_review')):
+                        prune_roots.append(sub)
+            elif nm == 's':
+                for batch in _glob(entry, 'batch_*'):
+                    if not _io(batch).is_dir() or _linked(batch):
+                        continue
+                    for subname in ('capture', 'transaction'):
+                        sub = batch / subname
+                        if _io(sub).is_dir() and not _linked(sub):
+                            prune_roots.append(sub)
+            elif nm == 'z':
+                for sub in _glob(entry, 'capture*'):
+                    if _io(sub).is_dir() and not _linked(sub):
+                        prune_roots.append(sub)
+            elif nm.startswith(('cut_restart', 'ss_sieve_abandon')):
+                prune_roots.append(entry)
+
+        pruned_dirs = []
+        for p_root in prune_roots:
+            for item in _rglob(p_root, '*'):
+                if not _io(item).is_file():
+                    continue
+                try:
+                    if not _owned_path(item, root, p_root):
+                        continue
+                    rel = item.relative_to(root)
+                    if any(part in _EXCLUDED or part == 'session' for part in rel.parts):
+                        continue
+                    resolved = item.resolve()
+                    if resolved in protected_images:
+                        report['kept_protected_images'] += 1
+                        continue
+                    suf = item.suffix.lower()
+                    nm = item.name
+                    is_target = (
+                        suf in _IMAGE
+                        or nm in _LARGE_JSON
+                        or nm == 'capture_manifest.json'
+                        or bool(_PRUNE_JSON_RE.match(nm))
+                    )
+                    if not is_target:
+                        continue
+                    sz = _io(item).stat().st_size
+                    if not dry_run:
+                        _io(item).unlink()
+                    report['removed_files'] += 1
+                    report['removed_bytes'] += sz
+                except OSError:
+                    report['errors'] += 1
+            pruned_dirs.append(p_root)
+
+        if not dry_run:
+            for p_root in pruned_dirs:
+                for sub in sorted(_rglob(p_root, '*'), key=lambda p: len(p.parts), reverse=True):
+                    if _io(sub).is_dir() and not _linked(sub):
+                        try:
+                            if not any(_io(sub).iterdir()):
+                                _io(sub).rmdir()
+                        except OSError:
+                            pass
+                if _io(p_root).is_dir() and not _linked(p_root):
+                    try:
+                        if not any(_io(p_root).iterdir()):
+                            _io(p_root).rmdir()
+                    except OSError:
+                        pass
+            session_dir = root / 'session'
+            if _io(session_dir).is_dir() and not _linked(session_dir):
+                receipt_path = session_dir / 'attempt_prune_receipt.json'
+                try:
+                    tmp = receipt_path.with_name(f'.attempt_prune.{uuid.uuid4().hex[:8]}.tmp')
+                    _io(tmp).write_text(
+                        json.dumps({**report, 'status': 'pruned', 'recorded_at': int(time.time())},
+                                   ensure_ascii=False, separators=(',', ':')),
+                        encoding='utf-8',
+                    )
+                    os.replace(_io(tmp), _io(receipt_path))
+                except OSError:
+                    pass
+        report['status'] = 'dry_run' if dry_run else 'pruned'
+    except Exception:
+        report['errors'] += 1
+        report['status'] = 'error'
+    return report
 
 
 def maintain(workspace,*,now=None,dry_run=False,max_seconds=2.0,max_files=20000,min_interval=3600,
